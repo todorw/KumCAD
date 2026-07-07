@@ -2,6 +2,7 @@
 #include "core/document/Document.h"
 #include "core/geometry/Line.h"
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 TEST_CASE("AddEntityCommand undo/redo round-trips", "[commands]") {
@@ -49,4 +50,39 @@ TEST_CASE("CommandStack clears redo history on new execute", "[commands]") {
 
     REQUIRE_FALSE(doc.commandStack().canRedo());
     REQUIRE(doc.entities().size() == 1);
+}
+
+TEST_CASE("TranslateEntitiesCommand undo/redo round-trips", "[commands]") {
+    lcad::Document doc;
+    const lcad::EntityId id = doc.reserveEntityId();
+    doc.addEntity(std::make_unique<lcad::LineEntity>(id, doc.currentLayer(), lcad::Point2D(0, 0), lcad::Point2D(1, 1)));
+
+    doc.commandStack().execute(
+        std::make_unique<lcad::TranslateEntitiesCommand>(doc, std::vector<lcad::EntityId>{id}, lcad::Point2D(5, 5)));
+    auto* line = static_cast<lcad::LineEntity*>(doc.findEntity(id));
+    REQUIRE(line->start().x == Catch::Approx(5.0));
+
+    doc.commandStack().undo();
+    REQUIRE(line->start().x == Catch::Approx(0.0));
+
+    doc.commandStack().redo();
+    REQUIRE(line->start().x == Catch::Approx(5.0));
+}
+
+TEST_CASE("MoveGripCommand undo/redo round-trips", "[commands]") {
+    lcad::Document doc;
+    const lcad::EntityId id = doc.reserveEntityId();
+    doc.addEntity(std::make_unique<lcad::LineEntity>(id, doc.currentLayer(), lcad::Point2D(0, 0), lcad::Point2D(10, 0)));
+    auto* line = static_cast<lcad::LineEntity*>(doc.findEntity(id));
+
+    doc.commandStack().execute(
+        std::make_unique<lcad::MoveGripCommand>(doc, id, 1, line->end(), lcad::Point2D(20, 20)));
+    REQUIRE(line->end().x == Catch::Approx(20.0));
+
+    doc.commandStack().undo();
+    REQUIRE(line->end().x == Catch::Approx(10.0));
+    REQUIRE(line->end().y == Catch::Approx(0.0));
+
+    doc.commandStack().redo();
+    REQUIRE(line->end().x == Catch::Approx(20.0));
 }

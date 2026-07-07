@@ -8,6 +8,7 @@
 class DrawingView;
 class CommandLine;
 class CommandDispatcher;
+class LayerPanel;
 class QLabel;
 
 class MainWindow : public QMainWindow {
@@ -24,5 +25,6 @@ private:
     DrawingView* m_view = nullptr;
     CommandLine* m_commandLine = nullptr;
     CommandDispatcher* m_dispatcher = nullptr;
+    LayerPanel* m_layerPanel = nullptr;
     QLabel* m_coordLabel = nullptr;
 };

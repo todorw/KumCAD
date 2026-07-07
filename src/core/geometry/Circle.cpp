@@ -15,6 +15,22 @@ double CircleEntity::distanceTo(const Point2D& pt) const {
     return std::abs(pt.distanceTo(m_center) - m_radius);
 }
 
+void CircleEntity::translate(const Point2D& delta) {
+    m_center = m_center + delta;
+}
+
+std::vector<Point2D> CircleEntity::gripPoints() const {
+    return {m_center, Point2D(m_center.x + m_radius, m_center.y)};
+}
+
+void CircleEntity::moveGripPoint(std::size_t index, const Point2D& newPos) {
+    if (index == 0) {
+        m_center = newPos;
+    } else if (index == 1) {
+        m_radius = m_center.distanceTo(newPos);
+    }
+}
+
 std::unique_ptr<Entity> CircleEntity::clone() const {
     return std::make_unique<CircleEntity>(*this);
 }

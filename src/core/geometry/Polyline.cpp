@@ -35,6 +35,18 @@ double PolylineEntity::distanceTo(const Point2D& pt) const {
     return best;
 }
 
+void PolylineEntity::translate(const Point2D& delta) {
+    for (auto& v : m_vertices) v = v + delta;
+}
+
+std::vector<Point2D> PolylineEntity::gripPoints() const {
+    return m_vertices;
+}
+
+void PolylineEntity::moveGripPoint(std::size_t index, const Point2D& newPos) {
+    if (index < m_vertices.size()) m_vertices[index] = newPos;
+}
+
 std::unique_ptr<Entity> PolylineEntity::clone() const {
     return std::make_unique<PolylineEntity>(*this);
 }

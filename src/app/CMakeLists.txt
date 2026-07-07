@@ -4,7 +4,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
-add_executable(linuxcad
+add_executable(kumcad
     main.cpp
     MainWindow.h
     MainWindow.cpp
@@ -14,6 +14,10 @@ add_executable(linuxcad
     CommandLine.cpp
     CommandDispatcher.h
     CommandDispatcher.cpp
+    IconFactory.h
+    IconFactory.cpp
+    LayerPanel.h
+    LayerPanel.cpp
     commands/DrawCommand.h
     commands/LineCommand.h
     commands/LineCommand.cpp
@@ -25,5 +29,5 @@ add_executable(linuxcad
     commands/PolylineCommand.cpp
 )
 
-target_include_directories(linuxcad PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(linuxcad PRIVATE lcad_core Qt6::Widgets Qt6::OpenGLWidgets)
+target_include_directories(kumcad PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(kumcad PRIVATE lcad_core Qt6::Widgets Qt6::OpenGLWidgets)

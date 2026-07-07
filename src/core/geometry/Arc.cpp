@@ -53,6 +53,24 @@ double ArcEntity::distanceTo(const Point2D& pt) const {
     return std::min(pt.distanceTo(startPoint()), pt.distanceTo(endPoint()));
 }
 
+void ArcEntity::translate(const Point2D& delta) {
+    m_center = m_center + delta;
+}
+
+std::vector<Point2D> ArcEntity::gripPoints() const {
+    return {startPoint(), endPoint(), m_center};
+}
+
+void ArcEntity::moveGripPoint(std::size_t index, const Point2D& newPos) {
+    if (index == 0) {
+        m_startAngle = std::atan2(newPos.y - m_center.y, newPos.x - m_center.x);
+    } else if (index == 1) {
+        m_endAngle = std::atan2(newPos.y - m_center.y, newPos.x - m_center.x);
+    } else if (index == 2) {
+        translate(newPos - m_center);
+    }
+}
+
 std::unique_ptr<Entity> ArcEntity::clone() const {
     return std::make_unique<ArcEntity>(*this);
 }

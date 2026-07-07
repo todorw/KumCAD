@@ -17,6 +17,9 @@ public:
     EntityType type() const override { return EntityType::Polyline; }
     BoundingBox boundingBox() const override;
     double distanceTo(const Point2D& pt) const override;
+    void translate(const Point2D& delta) override;
+    std::vector<Point2D> gripPoints() const override;
+    void moveGripPoint(std::size_t index, const Point2D& newPos) override;
     std::unique_ptr<Entity> clone() const override;
 
 private:

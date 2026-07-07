@@ -3,6 +3,8 @@
 #include "CommandDispatcher.h"
 #include "CommandLine.h"
 #include "DrawingView.h"
+#include "IconFactory.h"
+#include "LayerPanel.h"
 
 #include <QAction>
 #include <QDockWidget>
@@ -15,7 +17,7 @@
 #include <QToolBar>
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
-    setWindowTitle(QStringLiteral("LinuxCAD"));
+    setWindowTitle(QStringLiteral("KumCAD"));
     resize(1280, 800);
 
     m_view = new DrawingView(m_document, this);
@@ -36,17 +38,25 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     statusBar()->addPermanentWidget(m_coordLabel);
     statusBar()->showMessage(QStringLiteral("Ready"));
 
-    m_commandLine->appendLine(QStringLiteral("LinuxCAD — type a command (LINE, CIRCLE, ARC, PLINE, UNDO, REDO) and press Enter."));
+    m_commandLine->appendLine(QStringLiteral("KumCAD — type a command (LINE, CIRCLE, ARC, PLINE, UNDO, REDO) and press Enter."));
     m_commandLine->appendLine(QStringLiteral("Command:"));
     m_commandLine->input()->setFocus();
 }
 
 void MainWindow::setupDocks() {
-    auto* dock = new QDockWidget(QStringLiteral("Command Line"), this);
-    dock->setObjectName(QStringLiteral("CommandLineDock"));
-    dock->setWidget(m_commandLine);
-    dock->setFeatures(QDockWidget::NoDockWidgetFeatures);
-    addDockWidget(Qt::BottomDockWidgetArea, dock);
+    auto* commandDock = new QDockWidget(QStringLiteral("Command Line"), this);
+    commandDock->setObjectName(QStringLiteral("CommandLineDock"));
+    commandDock->setWidget(m_commandLine);
+    commandDock->setFeatures(QDockWidget::NoDockWidgetFeatures);
+    addDockWidget(Qt::BottomDockWidgetArea, commandDock);
+
+    m_layerPanel = new LayerPanel(m_document, this);
+    connect(m_layerPanel, &LayerPanel::layersChanged, m_view, QOverload<>::of(&QWidget::update));
+
+    auto* layerDock = new QDockWidget(QStringLiteral("Layers"), this);
+    layerDock->setObjectName(QStringLiteral("LayerDock"));
+    layerDock->setWidget(m_layerPanel);
+    addDockWidget(Qt::RightDockWidgetArea, layerDock);
 }
 
 void MainWindow::setupMenusAndToolbar() {
@@ -56,18 +66,34 @@ void MainWindow::setupMenusAndToolbar() {
     QMenu* editMenu = menuBar()->addMenu(QStringLiteral("&Edit"));
     editMenu->addAction(QStringLiteral("&Undo"), QKeySequence::Undo, m_dispatcher, &CommandDispatcher::undo);
     editMenu->addAction(QStringLiteral("&Redo"), QKeySequence::Redo, m_dispatcher, &CommandDispatcher::redo);
+    editMenu->addSeparator();
+    editMenu->addAction(QStringLiteral("&Erase Selected"), QKeySequence::Delete, m_view, &DrawingView::eraseSelection);
 
     QMenu* viewMenu = menuBar()->addMenu(QStringLiteral("&View"));
     viewMenu->addAction(QStringLiteral("Zoom &Extents"), this, [this]() { m_view->zoomExtents(); });
 
-    QToolBar* drawToolbar = addToolBar(QStringLiteral("Draw"));
-    auto addCommandAction = [this, drawToolbar](const QString& label, const QString& command) {
-        drawToolbar->addAction(label, this, [this, command]() { m_dispatcher->handleCommandText(command); });
+    QToolBar* toolbar = addToolBar(QStringLiteral("Draw"));
+    toolbar->setIconSize(QSize(22, 22));
+
+    auto* selectAction = toolbar->addAction(IconFactory::selectIcon(), QStringLiteral("Select"));
+    selectAction->setToolTip(QStringLiteral("Select (Esc) — click or drag entities; drag a grip to reshape"));
+    connect(selectAction, &QAction::triggered, m_dispatcher, &CommandDispatcher::handleEscape);
+
+    toolbar->addSeparator();
+
+    auto addCommandAction = [this, toolbar](const QIcon& icon, const QString& label, const QString& command) {
+        QAction* action = toolbar->addAction(icon, label);
+        connect(action, &QAction::triggered, this, [this, command]() { m_dispatcher->handleCommandText(command); });
     };
-    addCommandAction(QStringLiteral("Line"), QStringLiteral("LINE"));
-    addCommandAction(QStringLiteral("Circle"), QStringLiteral("CIRCLE"));
-    addCommandAction(QStringLiteral("Arc"), QStringLiteral("ARC"));
-    addCommandAction(QStringLiteral("Polyline"), QStringLiteral("PLINE"));
+    addCommandAction(IconFactory::lineIcon(), QStringLiteral("Line"), QStringLiteral("LINE"));
+    addCommandAction(IconFactory::circleIcon(), QStringLiteral("Circle"), QStringLiteral("CIRCLE"));
+    addCommandAction(IconFactory::arcIcon(), QStringLiteral("Arc"), QStringLiteral("ARC"));
+    addCommandAction(IconFactory::polylineIcon(), QStringLiteral("Polyline"), QStringLiteral("PLINE"));
+
+    toolbar->addSeparator();
+    auto* eraseAction = toolbar->addAction(IconFactory::eraseIcon(), QStringLiteral("Erase"));
+    eraseAction->setToolTip(QStringLiteral("Erase selected entities (Delete)"));
+    connect(eraseAction, &QAction::triggered, m_view, &DrawingView::eraseSelection);
 }
 
 void MainWindow::updateCoordLabel(const lcad::Point2D& pt) {

@@ -4,7 +4,9 @@
 #include "core/geometry/BoundingBox.h"
 #include "core/geometry/Point2D.h"
 
+#include <cstddef>
 #include <memory>
+#include <vector>
 
 namespace lcad {
 
@@ -29,6 +31,15 @@ public:
 
     // Shortest distance from pt to this entity, used for click picking.
     virtual double distanceTo(const Point2D& pt) const = 0;
+
+    // Rigid move by delta, used for click-drag repositioning.
+    virtual void translate(const Point2D& delta) = 0;
+
+    // Key points shown as draggable grip handles when the entity is selected.
+    virtual std::vector<Point2D> gripPoints() const = 0;
+
+    // Reshape the entity by moving a single grip (index into gripPoints()) to newPos.
+    virtual void moveGripPoint(std::size_t index, const Point2D& newPos) = 0;
 
     virtual std::unique_ptr<Entity> clone() const = 0;
 

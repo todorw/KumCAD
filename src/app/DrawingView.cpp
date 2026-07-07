@@ -15,6 +15,13 @@
 #include <algorithm>
 #include <cmath>
 
+namespace {
+const QColor kSelectedColor(255, 170, 0);
+const QColor kHoverColor(120, 200, 255);
+const QColor kDragPreviewColor(0, 220, 180);
+const QColor kGripColor(0, 180, 255);
+} // namespace
+
 DrawingView::DrawingView(lcad::Document& document, QWidget* parent) : QOpenGLWidget(parent), m_document(document) {
     setFocusPolicy(Qt::StrongFocus);
     setMouseTracking(true);
@@ -47,6 +54,38 @@ void DrawingView::zoomExtents() {
     update();
 }
 
+lcad::Entity* DrawingView::hitTestEntity(const lcad::Point2D& worldPt) const {
+    const double tol = pickToleranceWorld();
+    lcad::Entity* best = nullptr;
+    double bestDist = tol;
+    for (lcad::Entity* e : m_document.entities()) {
+        const lcad::Layer* layer = m_document.findLayer(e->layer());
+        if (layer && (!layer->visible || layer->locked)) continue;
+        const double d = e->distanceTo(worldPt);
+        if (d <= bestDist) {
+            bestDist = d;
+            best = e;
+        }
+    }
+    return best;
+}
+
+std::optional<std::pair<lcad::EntityId, std::size_t>> DrawingView::hitTestGrip(const QPointF& screenPt) const {
+    constexpr double kGripPickPx = 8.0;
+    for (lcad::EntityId id : m_selection) {
+        lcad::Entity* e = m_document.findEntity(id);
+        if (!e) continue;
+        const auto grips = e->gripPoints();
+        for (std::size_t i = 0; i < grips.size(); ++i) {
+            const QPointF gs = worldToScreen(grips[i]);
+            const double dx = gs.x() - screenPt.x();
+            const double dy = gs.y() - screenPt.y();
+            if (std::sqrt(dx * dx + dy * dy) <= kGripPickPx) return std::make_pair(id, i);
+        }
+    }
+    return std::nullopt;
+}
+
 void DrawingView::paintEvent(QPaintEvent*) {
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
@@ -55,9 +94,31 @@ void DrawingView::paintEvent(QPaintEvent*) {
     drawGrid(painter);
 
     for (lcad::Entity* e : m_document.entities()) {
-        drawEntity(painter, *e, m_selection.count(e->id()) > 0);
+        const lcad::Layer* layer = m_document.findLayer(e->layer());
+        if (layer && !layer->visible) continue;
+
+        const bool selected = m_selection.count(e->id()) > 0;
+        const bool isDragGhostSource = (m_dragMode == DragMode::MoveSelection && selected) ||
+                                        (m_dragMode == DragMode::Grip && e->id() == m_gripEntityId);
+        if (isDragGhostSource) continue; // drawn instead by drawDragPreview()
+
+        const bool hovered = m_hoverEntityId && *m_hoverEntityId == e->id();
+        QColor color;
+        double width = 1.0;
+        if (selected) {
+            color = kSelectedColor;
+            width = 2.0;
+        } else if (hovered) {
+            color = kHoverColor;
+            width = 2.0;
+        } else {
+            color = layer ? QColor(layer->color.r, layer->color.g, layer->color.b) : QColor(255, 255, 255);
+        }
+        drawEntity(painter, *e, color, width);
     }
 
+    drawDragPreview(painter);
+    drawGrips(painter);
     drawPreview(painter);
     drawSelectionBox(painter);
 
@@ -99,12 +160,8 @@ void DrawingView::drawGrid(QPainter& painter) {
     painter.drawLine(worldToScreen(lcad::Point2D(0, minY)), worldToScreen(lcad::Point2D(0, maxY)));
 }
 
-void DrawingView::drawEntity(QPainter& painter, const lcad::Entity& entity, bool selected) {
-    const lcad::Layer* layer = m_document.findLayer(entity.layer());
-    const QColor color = selected ? QColor(255, 200, 0)
-                                   : (layer ? QColor(layer->color.r, layer->color.g, layer->color.b)
-                                            : QColor(255, 255, 255));
-    painter.setPen(QPen(color, selected ? 2 : 1));
+void DrawingView::drawEntity(QPainter& painter, const lcad::Entity& entity, const QColor& color, double penWidth) {
+    painter.setPen(QPen(color, penWidth));
 
     switch (entity.type()) {
     case lcad::EntityType::Line: {
@@ -156,6 +213,41 @@ void DrawingView::drawEntity(QPainter& painter, const lcad::Entity& entity, bool
     }
 }
 
+void DrawingView::drawGrips(QPainter& painter) {
+    constexpr double kHalf = 4.0;
+    painter.setPen(QPen(QColor(0, 0, 0, 150), 1));
+    painter.setBrush(kGripColor);
+    for (lcad::EntityId id : m_selection) {
+        if (m_dragMode == DragMode::Grip && id == m_gripEntityId) continue; // shown via drag preview instead
+        lcad::Entity* e = m_document.findEntity(id);
+        if (!e) continue;
+        for (const lcad::Point2D& gp : e->gripPoints()) {
+            const QPointF s = worldToScreen(gp);
+            painter.drawRect(QRectF(s.x() - kHalf, s.y() - kHalf, kHalf * 2, kHalf * 2));
+        }
+    }
+    painter.setBrush(Qt::NoBrush);
+}
+
+void DrawingView::drawDragPreview(QPainter& painter) {
+    if (m_dragMode == DragMode::MoveSelection) {
+        const lcad::Point2D delta = m_dragCurrentWorld - m_dragStartWorld;
+        for (lcad::EntityId id : m_selection) {
+            lcad::Entity* e = m_document.findEntity(id);
+            if (!e) continue;
+            std::unique_ptr<lcad::Entity> clone = e->clone();
+            clone->translate(delta);
+            drawEntity(painter, *clone, kDragPreviewColor, 2.0);
+        }
+    } else if (m_dragMode == DragMode::Grip) {
+        if (lcad::Entity* e = m_document.findEntity(m_gripEntityId)) {
+            std::unique_ptr<lcad::Entity> clone = e->clone();
+            clone->moveGripPoint(m_gripIndex, m_dragCurrentWorld);
+            drawEntity(painter, *clone, kDragPreviewColor, 2.0);
+        }
+    }
+}
+
 void DrawingView::drawPreview(QPainter& painter) {
     if (!m_dispatcher) return;
     DrawCommand* cmd = m_dispatcher->activeDrawCommand();
@@ -167,11 +259,11 @@ void DrawingView::drawPreview(QPainter& painter) {
 }
 
 void DrawingView::drawSelectionBox(QPainter& painter) {
-    if (!m_boxSelecting) return;
-    const bool crossing = m_boxCurrentScreen.x() < m_boxStartScreen.x();
+    if (m_dragMode != DragMode::BoxSelect) return;
+    const bool crossing = m_dragCurrentScreen.x() < m_dragStartScreen.x();
     painter.setPen(QPen(crossing ? QColor(0, 200, 0) : QColor(0, 120, 255), 1, Qt::DashLine));
     painter.setBrush(crossing ? QColor(0, 200, 0, 30) : QColor(0, 120, 255, 30));
-    painter.drawRect(QRectF(m_boxStartScreen, m_boxCurrentScreen).normalized());
+    painter.drawRect(QRectF(m_dragStartScreen, m_dragCurrentScreen).normalized());
 }
 
 void DrawingView::updateSelectionFromBox(const QRectF& screenBox, bool crossing) {
@@ -179,13 +271,15 @@ void DrawingView::updateSelectionFromBox(const QRectF& screenBox, bool crossing)
     worldBox.expand(screenToWorld(screenBox.topLeft()));
     worldBox.expand(screenToWorld(screenBox.bottomRight()));
     for (lcad::Entity* e : m_document.entities()) {
+        const lcad::Layer* layer = m_document.findLayer(e->layer());
+        if (layer && !layer->visible) continue;
         const lcad::BoundingBox eb = e->boundingBox();
         const bool hit = crossing ? worldBox.intersects(eb) : worldBox.containsBox(eb);
         if (hit) m_selection.insert(e->id());
     }
 }
 
-void DrawingView::deleteSelected() {
+void DrawingView::eraseSelection() {
     for (lcad::EntityId id : m_selection) {
         m_document.commandStack().execute(std::make_unique<lcad::DeleteEntityCommand>(m_document, id));
     }
@@ -200,17 +294,57 @@ void DrawingView::mousePressEvent(QMouseEvent* event) {
         m_lastPanPos = event->position();
         return;
     }
+
     if (event->button() == Qt::LeftButton) {
         if (m_dispatcher && m_dispatcher->hasActiveCommand()) {
             m_dispatcher->handlePointPicked(worldPt);
             update();
             return;
         }
-        m_boxSelecting = true;
-        m_boxStartScreen = event->position();
-        m_boxCurrentScreen = event->position();
+
+        if (auto grip = hitTestGrip(event->position())) {
+            m_dragMode = DragMode::Grip;
+            m_gripEntityId = grip->first;
+            m_gripIndex = grip->second;
+            if (lcad::Entity* e = m_document.findEntity(m_gripEntityId)) {
+                const auto grips = e->gripPoints();
+                if (m_gripIndex < grips.size()) m_gripOldPos = grips[m_gripIndex];
+            }
+            m_dragStartScreen = event->position();
+            m_dragCurrentScreen = event->position();
+            m_dragStartWorld = worldPt;
+            m_dragCurrentWorld = worldPt;
+            return;
+        }
+
+        lcad::Entity* hit = hitTestEntity(worldPt);
+        const bool shift = event->modifiers() & Qt::ShiftModifier;
+        if (hit) {
+            const bool alreadySelected = m_selection.count(hit->id()) > 0;
+            if (shift && alreadySelected) {
+                m_selection.erase(hit->id());
+                update();
+                return;
+            }
+            if (!alreadySelected) {
+                if (!shift) m_selection.clear();
+                m_selection.insert(hit->id());
+            }
+            m_dragMode = DragMode::MoveSelection;
+            m_dragStartScreen = event->position();
+            m_dragCurrentScreen = event->position();
+            m_dragStartWorld = worldPt;
+            m_dragCurrentWorld = worldPt;
+            update();
+            return;
+        }
+
+        m_dragMode = DragMode::BoxSelect;
+        m_dragStartScreen = event->position();
+        m_dragCurrentScreen = event->position();
         return;
     }
+
     if (event->button() == Qt::RightButton) {
         if (m_dispatcher && m_dispatcher->hasActiveCommand()) {
             m_dispatcher->handleFinishRequested();
@@ -233,14 +367,27 @@ void DrawingView::mouseMoveEvent(QMouseEvent* event) {
         update();
         return;
     }
-    if (m_boxSelecting) {
-        m_boxCurrentScreen = event->position();
+
+    if (m_dragMode == DragMode::BoxSelect) {
+        m_dragCurrentScreen = event->position();
         update();
         return;
     }
+    if (m_dragMode == DragMode::MoveSelection || m_dragMode == DragMode::Grip) {
+        m_dragCurrentScreen = event->position();
+        m_dragCurrentWorld = worldPt;
+        update();
+        return;
+    }
+
     if (m_dispatcher && m_dispatcher->hasActiveCommand()) {
         m_dispatcher->handleMouseMoved(worldPt);
+        update();
+        return;
     }
+
+    lcad::Entity* hit = hitTestEntity(worldPt);
+    m_hoverEntityId = hit ? std::optional<lcad::EntityId>(hit->id()) : std::nullopt;
     update();
 }
 
@@ -249,34 +396,42 @@ void DrawingView::mouseReleaseEvent(QMouseEvent* event) {
         m_panning = false;
         return;
     }
-    if (event->button() == Qt::LeftButton && m_boxSelecting) {
-        m_boxSelecting = false;
-        const QPointF delta = m_boxCurrentScreen - m_boxStartScreen;
+    if (event->button() != Qt::LeftButton) return;
+
+    if (m_dragMode == DragMode::BoxSelect) {
+        m_dragMode = DragMode::None;
+        const QPointF delta = m_dragCurrentScreen - m_dragStartScreen;
         const bool addToSelection = event->modifiers() & Qt::ShiftModifier;
 
         if (std::abs(delta.x()) < 3 && std::abs(delta.y()) < 3) {
-            const lcad::Point2D worldPt = screenToWorld(m_boxStartScreen);
-            const double tolerance = 6.0 / m_scale;
-            lcad::Entity* best = nullptr;
-            double bestDist = tolerance;
-            for (lcad::Entity* e : m_document.entities()) {
-                const double d = e->distanceTo(worldPt);
-                if (d <= bestDist) {
-                    bestDist = d;
-                    best = e;
-                }
-            }
             if (!addToSelection) m_selection.clear();
-            if (best) {
-                auto it = m_selection.find(best->id());
-                if (it != m_selection.end()) m_selection.erase(it);
-                else m_selection.insert(best->id());
-            }
         } else {
-            const bool crossing = m_boxCurrentScreen.x() < m_boxStartScreen.x();
+            const bool crossing = m_dragCurrentScreen.x() < m_dragStartScreen.x();
             if (!addToSelection) m_selection.clear();
-            updateSelectionFromBox(QRectF(m_boxStartScreen, m_boxCurrentScreen).normalized(), crossing);
+            updateSelectionFromBox(QRectF(m_dragStartScreen, m_dragCurrentScreen).normalized(), crossing);
         }
+        update();
+        return;
+    }
+
+    if (m_dragMode == DragMode::MoveSelection) {
+        m_dragMode = DragMode::None;
+        const QPointF screenDelta = m_dragCurrentScreen - m_dragStartScreen;
+        const double screenDist = std::sqrt(screenDelta.x() * screenDelta.x() + screenDelta.y() * screenDelta.y());
+        if (screenDist >= 3.0) {
+            const lcad::Point2D delta = m_dragCurrentWorld - m_dragStartWorld;
+            std::vector<lcad::EntityId> ids(m_selection.begin(), m_selection.end());
+            m_document.commandStack().execute(
+                std::make_unique<lcad::TranslateEntitiesCommand>(m_document, std::move(ids), delta));
+        }
+        update();
+        return;
+    }
+
+    if (m_dragMode == DragMode::Grip) {
+        m_dragMode = DragMode::None;
+        m_document.commandStack().execute(std::make_unique<lcad::MoveGripCommand>(
+            m_document, m_gripEntityId, m_gripIndex, m_gripOldPos, m_dragCurrentWorld));
         update();
         return;
     }
@@ -294,11 +449,12 @@ void DrawingView::wheelEvent(QWheelEvent* event) {
 
 void DrawingView::keyPressEvent(QKeyEvent* event) {
     if (event->key() == Qt::Key_Delete) {
-        deleteSelected();
+        eraseSelection();
         update();
         return;
     }
     if (event->key() == Qt::Key_Escape) {
+        m_dragMode = DragMode::None; // cancel any in-progress drag without committing
         if (m_dispatcher) m_dispatcher->handleEscape();
         m_selection.clear();
         update();

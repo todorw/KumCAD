@@ -21,6 +21,26 @@ double LineEntity::distanceTo(const Point2D& pt) const {
     return pt.distanceTo(m_start + seg * t);
 }
 
+void LineEntity::translate(const Point2D& delta) {
+    m_start = m_start + delta;
+    m_end = m_end + delta;
+}
+
+std::vector<Point2D> LineEntity::gripPoints() const {
+    return {m_start, m_end, m_start + (m_end - m_start) * 0.5};
+}
+
+void LineEntity::moveGripPoint(std::size_t index, const Point2D& newPos) {
+    if (index == 0) {
+        m_start = newPos;
+    } else if (index == 1) {
+        m_end = newPos;
+    } else if (index == 2) {
+        const Point2D mid = m_start + (m_end - m_start) * 0.5;
+        translate(newPos - mid);
+    }
+}
+
 std::unique_ptr<Entity> LineEntity::clone() const {
     return std::make_unique<LineEntity>(*this);
 }

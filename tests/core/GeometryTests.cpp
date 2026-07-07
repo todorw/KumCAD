@@ -57,3 +57,45 @@ TEST_CASE("PolylineEntity distance across segments", "[geometry]") {
     REQUIRE(pl.distanceTo(lcad::Point2D(11, 5)) == Approx(1.0));
     REQUIRE(pl.distanceTo(lcad::Point2D(0, 10)) > 5.0); // not near the open end
 }
+
+TEST_CASE("LineEntity translate and grip editing", "[geometry]") {
+    lcad::LineEntity line(1, 0, lcad::Point2D(0, 0), lcad::Point2D(10, 0));
+
+    line.translate(lcad::Point2D(1, 2));
+    REQUIRE(line.start().x == Approx(1.0));
+    REQUIRE(line.end().x == Approx(11.0));
+    REQUIRE(line.start().y == Approx(2.0));
+
+    const auto grips = line.gripPoints();
+    REQUIRE(grips.size() == 3); // start, end, midpoint
+
+    line.moveGripPoint(1, lcad::Point2D(20, 20)); // drag the end grip
+    REQUIRE(line.end().x == Approx(20.0));
+    REQUIRE(line.end().y == Approx(20.0));
+    REQUIRE(line.start().x == Approx(1.0)); // start untouched
+}
+
+TEST_CASE("CircleEntity translate and grip editing", "[geometry]") {
+    lcad::CircleEntity circle(1, 0, lcad::Point2D(0, 0), 5.0);
+
+    circle.translate(lcad::Point2D(3, 4));
+    REQUIRE(circle.center().x == Approx(3.0));
+    REQUIRE(circle.center().y == Approx(4.0));
+
+    circle.moveGripPoint(1, lcad::Point2D(3, 14)); // drag the radius grip
+    REQUIRE(circle.radius() == Approx(10.0));
+    REQUIRE(circle.center().x == Approx(3.0)); // center untouched by resize
+}
+
+TEST_CASE("PolylineEntity translate and grip editing", "[geometry]") {
+    std::vector<lcad::Point2D> verts{{0, 0}, {10, 0}};
+    lcad::PolylineEntity pl(1, 0, verts, false);
+
+    pl.translate(lcad::Point2D(5, 5));
+    REQUIRE(pl.vertices()[0].x == Approx(5.0));
+    REQUIRE(pl.vertices()[1].x == Approx(15.0));
+
+    pl.moveGripPoint(0, lcad::Point2D(-1, -1));
+    REQUIRE(pl.vertices()[0].x == Approx(-1.0));
+    REQUIRE(pl.vertices()[1].x == Approx(15.0)); // other vertex untouched
+}

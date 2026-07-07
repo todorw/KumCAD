@@ -5,6 +5,7 @@
 #include "core/geometry/Entity.h"
 
 #include <memory>
+#include <vector>
 
 namespace lcad {
 
@@ -37,6 +38,53 @@ private:
     Document& m_document;
     EntityId m_id;
     std::unique_ptr<Entity> m_entity;
+};
+
+// Rigid move of a set of entities by the same delta, e.g. from a click-drag.
+// Undo re-applies the inverse delta rather than restoring a snapshot, so it
+// composes fine with any other translate that happened in between.
+class TranslateEntitiesCommand : public Command {
+public:
+    TranslateEntitiesCommand(Document& document, std::vector<EntityId> ids, Point2D delta)
+        : m_document(document), m_ids(std::move(ids)), m_delta(delta) {}
+
+    void execute() override { apply(m_delta); }
+    void undo() override { apply(Point2D(-m_delta.x, -m_delta.y)); }
+    std::string description() const override { return "Move"; }
+
+private:
+    void apply(const Point2D& delta) {
+        for (EntityId id : m_ids) {
+            if (Entity* e = m_document.findEntity(id)) e->translate(delta);
+        }
+    }
+
+    Document& m_document;
+    std::vector<EntityId> m_ids;
+    Point2D m_delta;
+};
+
+// Reshapes a single entity by moving one of its grip points, e.g. dragging a
+// line endpoint or a circle's radius handle.
+class MoveGripCommand : public Command {
+public:
+    MoveGripCommand(Document& document, EntityId id, std::size_t gripIndex, Point2D oldPos, Point2D newPos)
+        : m_document(document), m_id(id), m_gripIndex(gripIndex), m_oldPos(oldPos), m_newPos(newPos) {}
+
+    void execute() override {
+        if (Entity* e = m_document.findEntity(m_id)) e->moveGripPoint(m_gripIndex, m_newPos);
+    }
+    void undo() override {
+        if (Entity* e = m_document.findEntity(m_id)) e->moveGripPoint(m_gripIndex, m_oldPos);
+    }
+    std::string description() const override { return "Stretch"; }
+
+private:
+    Document& m_document;
+    EntityId m_id;
+    std::size_t m_gripIndex;
+    Point2D m_oldPos;
+    Point2D m_newPos;
 };
 
 } // namespace lcad
