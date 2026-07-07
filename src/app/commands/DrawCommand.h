@@ -18,6 +18,17 @@ public:
 
     virtual QString start() = 0;
     virtual std::optional<QString> onPoint(const lcad::Point2D& pt) = 0;
+
+    // Bare-number typed input (e.g. a rotation angle in degrees, or a scale
+    // factor), for commands that support it as an alternative to picking a
+    // point. Default: not supported. Same finish convention as onPoint: check
+    // isFinished() after calling to tell "handled and done" apart from
+    // "rejected" (both return nullopt).
+    virtual std::optional<QString> onScalar(double value) {
+        (void)value;
+        return std::nullopt;
+    }
+
     virtual void onPreviewPoint(const lcad::Point2D& pt) { (void)pt; }
     virtual std::vector<std::pair<lcad::Point2D, lcad::Point2D>> previewSegments() const { return {}; }
 

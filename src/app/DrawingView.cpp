@@ -286,6 +286,13 @@ void DrawingView::eraseSelection() {
     m_selection.clear();
 }
 
+void DrawingView::resetViewState() {
+    m_selection.clear();
+    m_hoverEntityId.reset();
+    m_dragMode = DragMode::None;
+    zoomExtents();
+}
+
 void DrawingView::mousePressEvent(QMouseEvent* event) {
     const lcad::Point2D worldPt = screenToWorld(event->position());
 

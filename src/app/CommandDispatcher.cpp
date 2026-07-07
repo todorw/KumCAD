@@ -42,9 +42,23 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         lcad::Point2D pt;
         if (tryParsePoint(trimmed, pt)) {
             handlePointPicked(pt);
-        } else {
-            m_commandLine.appendLine(QStringLiteral("*Invalid point, expected x,y*"));
+            return;
         }
+        bool isNumber = false;
+        const double scalar = trimmed.toDouble(&isNumber);
+        if (isNumber) {
+            const std::optional<QString> prompt = m_activeCommand->onScalar(scalar);
+            if (m_activeCommand->isFinished()) {
+                finishCommand();
+                return;
+            }
+            if (prompt) {
+                m_commandLine.appendLine(*prompt);
+                emit documentChanged();
+                return;
+            }
+        }
+        m_commandLine.appendLine(QStringLiteral("*Invalid input, expected x,y or a number*"));
         return;
     }
 

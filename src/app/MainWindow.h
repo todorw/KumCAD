@@ -4,6 +4,7 @@
 #include "core/geometry/Point2D.h"
 
 #include <QMainWindow>
+#include <QString>
 
 class DrawingView;
 class CommandLine;
@@ -16,10 +17,24 @@ class MainWindow : public QMainWindow {
 public:
     explicit MainWindow(QWidget* parent = nullptr);
 
+protected:
+    void closeEvent(QCloseEvent* event) override;
+
 private:
     void setupDocks();
     void setupMenusAndToolbar();
     void updateCoordLabel(const lcad::Point2D& pt);
+
+    void markDirty();
+    void updateWindowTitle();
+
+    // Returns false if the user cancelled (caller should abort New/Open/close).
+    bool confirmDiscardUnsavedChanges();
+
+    void newDocument();
+    void openDocument();
+    bool saveDocument();
+    bool saveDocumentAs();
 
     lcad::Document m_document;
     DrawingView* m_view = nullptr;
@@ -27,4 +42,7 @@ private:
     CommandDispatcher* m_dispatcher = nullptr;
     LayerPanel* m_layerPanel = nullptr;
     QLabel* m_coordLabel = nullptr;
+
+    QString m_currentFilePath;
+    bool m_dirty = false;
 };

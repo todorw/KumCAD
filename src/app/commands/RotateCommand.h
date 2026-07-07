@@ -6,9 +6,9 @@
 #include <vector>
 
 // AutoCAD-style ROTATE: acts on a pre-existing selection. Specify base point,
-// then a point defining the rotation angle -- the angle applied is simply the
-// angle of the base->point vector (0 = East), matching AutoCAD's default
-// (non-Reference) point-pick behavior.
+// then either a point defining the rotation angle (the angle of the
+// base->point vector, 0 = East, matching AutoCAD's default non-Reference
+// point-pick behavior) or a typed number in degrees.
 class RotateCommand : public DrawCommand {
 public:
     RotateCommand(lcad::Document& document, std::vector<lcad::EntityId> ids)
@@ -16,6 +16,7 @@ public:
 
     QString start() override;
     std::optional<QString> onPoint(const lcad::Point2D& pt) override;
+    std::optional<QString> onScalar(double value) override;
     void onPreviewPoint(const lcad::Point2D& pt) override;
     std::vector<std::pair<lcad::Point2D, lcad::Point2D>> previewSegments() const override;
     bool isFinished() const override { return m_finished; }

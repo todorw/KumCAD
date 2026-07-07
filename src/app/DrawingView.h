@@ -33,6 +33,11 @@ public:
 
     void zoomExtents();
     void eraseSelection();
+
+    // Clears selection/hover/drag state and re-fits the view. Call after the
+    // Document's contents were replaced wholesale (New/Open), since any
+    // previously selected/hovered ids may no longer exist.
+    void resetViewState();
     bool hasSelection() const { return !m_selection.empty(); }
     std::vector<lcad::EntityId> selectedIds() const { return {m_selection.begin(), m_selection.end()}; }
 

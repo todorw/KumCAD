@@ -22,6 +22,16 @@ std::optional<QString> RotateCommand::onPoint(const lcad::Point2D& pt) {
     return std::nullopt;
 }
 
+std::optional<QString> RotateCommand::onScalar(double value) {
+    if (!m_hasBase) return std::nullopt; // need a base point first
+
+    const double angle = value * M_PI / 180.0; // typed rotation angles are in degrees
+    m_document.commandStack().execute(
+        std::make_unique<lcad::RotateEntitiesCommand>(m_document, m_ids, m_base, angle));
+    m_finished = true;
+    return std::nullopt;
+}
+
 void RotateCommand::onPreviewPoint(const lcad::Point2D& pt) {
     m_previewPoint = pt;
     m_hasPreview = true;

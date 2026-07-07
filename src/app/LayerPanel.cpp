@@ -1,8 +1,11 @@
 #include "LayerPanel.h"
 
+#include <QAction>
+#include <QFont>
 #include <QInputDialog>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QMenu>
 #include <QPainter>
 #include <QPixmap>
 #include <QPushButton>
@@ -36,6 +39,9 @@ LayerPanel::LayerPanel(lcad::Document& document, QWidget* parent) : QWidget(pare
     connect(m_list, &QListWidget::itemChanged, this, &LayerPanel::onItemChanged);
     connect(m_list, &QListWidget::currentRowChanged, this, &LayerPanel::onCurrentRowChanged);
 
+    m_list->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_list, &QListWidget::customContextMenuRequested, this, &LayerPanel::onContextMenuRequested);
+
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(4, 4, 4, 4);
     layout->addWidget(m_list);
@@ -52,10 +58,17 @@ void LayerPanel::refresh() {
     const auto& layers = m_document.layers();
     for (std::size_t i = 0; i < layers.size(); ++i) {
         const lcad::Layer& layer = layers[i];
-        auto* item = new QListWidgetItem(swatchIcon(layer.color), QString::fromStdString(layer.name));
+        QString text = QString::fromStdString(layer.name);
+        if (layer.locked) text += QStringLiteral(" (locked)");
+        auto* item = new QListWidgetItem(swatchIcon(layer.color), text);
         item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
         item->setCheckState(layer.visible ? Qt::Checked : Qt::Unchecked);
         item->setData(Qt::UserRole, static_cast<qulonglong>(layer.id));
+        if (layer.locked) {
+            QFont font = item->font();
+            font.setItalic(true);
+            item->setFont(font);
+        }
         m_list->addItem(item);
         if (layer.id == m_document.currentLayer()) currentRow = static_cast<int>(i);
     }
@@ -91,4 +104,21 @@ void LayerPanel::onCurrentRowChanged(int row) {
     if (!item) return;
     const lcad::LayerId id = static_cast<lcad::LayerId>(item->data(Qt::UserRole).toULongLong());
     m_document.setCurrentLayer(id);
+}
+
+void LayerPanel::onContextMenuRequested(const QPoint& pos) {
+    QListWidgetItem* item = m_list->itemAt(pos);
+    if (!item) return;
+    const lcad::LayerId id = static_cast<lcad::LayerId>(item->data(Qt::UserRole).toULongLong());
+    lcad::Layer* layer = m_document.findLayer(id);
+    if (!layer) return;
+
+    QMenu menu(this);
+    QAction* toggleLockAction = menu.addAction(layer->locked ? QStringLiteral("Unlock Layer") : QStringLiteral("Lock Layer"));
+    QAction* chosen = menu.exec(m_list->viewport()->mapToGlobal(pos));
+    if (chosen == toggleLockAction) {
+        layer->locked = !layer->locked;
+        refresh();
+        emit layersChanged();
+    }
 }

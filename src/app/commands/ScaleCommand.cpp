@@ -22,6 +22,15 @@ std::optional<QString> ScaleCommand::onPoint(const lcad::Point2D& pt) {
     return std::nullopt;
 }
 
+std::optional<QString> ScaleCommand::onScalar(double value) {
+    if (!m_hasBase || value < 1e-6) return std::nullopt; // need a base point and a positive factor
+
+    m_document.commandStack().execute(
+        std::make_unique<lcad::ScaleEntitiesCommand>(m_document, m_ids, m_base, value));
+    m_finished = true;
+    return std::nullopt;
+}
+
 void ScaleCommand::onPreviewPoint(const lcad::Point2D& pt) {
     m_previewPoint = pt;
     m_hasPreview = true;

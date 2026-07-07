@@ -17,6 +17,10 @@ add_library(lcad_core STATIC
     document/Commands.h
     document/Document.h
     document/Document.cpp
+    io/DxfWriter.h
+    io/DxfWriter.cpp
+    io/DxfReader.h
+    io/DxfReader.cpp
 )
 
 target_include_directories(lcad_core PUBLIC ${CMAKE_SOURCE_DIR}/src)

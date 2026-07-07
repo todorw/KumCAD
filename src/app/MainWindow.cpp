@@ -5,19 +5,24 @@
 #include "DrawingView.h"
 #include "IconFactory.h"
 #include "LayerPanel.h"
+#include "core/io/DxfReader.h"
+#include "core/io/DxfWriter.h"
 
 #include <QAction>
+#include <QCloseEvent>
 #include <QDockWidget>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QKeySequence>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
 #include <QMenuBar>
+#include <QMessageBox>
 #include <QStatusBar>
 #include <QToolBar>
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
-    setWindowTitle(QStringLiteral("KumCAD"));
     resize(1280, 800);
 
     m_view = new DrawingView(m_document, this);
@@ -30,6 +35,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     connect(m_dispatcher, &CommandDispatcher::documentChanged, m_view, QOverload<>::of(&QWidget::update));
     connect(m_dispatcher, &CommandDispatcher::previewChanged, m_view, QOverload<>::of(&QWidget::update));
+    connect(m_dispatcher, &CommandDispatcher::documentChanged, this, &MainWindow::markDirty);
     connect(m_view, &DrawingView::mouseWorldMoved, this, &MainWindow::updateCoordLabel);
 
     setupDocks();
@@ -43,6 +49,16 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         "KumCAD — type a command (LINE, CIRCLE, ARC, PLINE, MOVE, COPY, ROTATE, SCALE, ERASE, UNDO, REDO) and press Enter."));
     m_commandLine->appendLine(QStringLiteral("Command:"));
     m_commandLine->input()->setFocus();
+
+    updateWindowTitle();
+}
+
+void MainWindow::closeEvent(QCloseEvent* event) {
+    if (confirmDiscardUnsavedChanges()) {
+        event->accept();
+    } else {
+        event->ignore();
+    }
 }
 
 void MainWindow::setupDocks() {
@@ -54,6 +70,7 @@ void MainWindow::setupDocks() {
 
     m_layerPanel = new LayerPanel(m_document, this);
     connect(m_layerPanel, &LayerPanel::layersChanged, m_view, QOverload<>::of(&QWidget::update));
+    connect(m_layerPanel, &LayerPanel::layersChanged, this, &MainWindow::markDirty);
 
     auto* layerDock = new QDockWidget(QStringLiteral("Layers"), this);
     layerDock->setObjectName(QStringLiteral("LayerDock"));
@@ -63,6 +80,12 @@ void MainWindow::setupDocks() {
 
 void MainWindow::setupMenusAndToolbar() {
     QMenu* fileMenu = menuBar()->addMenu(QStringLiteral("&File"));
+    fileMenu->addAction(QStringLiteral("&New"), QKeySequence::New, this, &MainWindow::newDocument);
+    fileMenu->addAction(QStringLiteral("&Open..."), QKeySequence::Open, this, &MainWindow::openDocument);
+    fileMenu->addSeparator();
+    fileMenu->addAction(QStringLiteral("&Save"), QKeySequence::Save, this, [this]() { saveDocument(); });
+    fileMenu->addAction(QStringLiteral("Save &As..."), QKeySequence::SaveAs, this, [this]() { saveDocumentAs(); });
+    fileMenu->addSeparator();
     fileMenu->addAction(QStringLiteral("E&xit"), QKeySequence::Quit, this, &QWidget::close);
 
     QMenu* editMenu = menuBar()->addMenu(QStringLiteral("&Edit"));
@@ -106,4 +129,92 @@ void MainWindow::setupMenusAndToolbar() {
 
 void MainWindow::updateCoordLabel(const lcad::Point2D& pt) {
     if (m_coordLabel) m_coordLabel->setText(QStringLiteral("%1, %2").arg(pt.x, 0, 'f', 3).arg(pt.y, 0, 'f', 3));
+}
+
+void MainWindow::markDirty() {
+    if (m_dirty) return;
+    m_dirty = true;
+    updateWindowTitle();
+}
+
+void MainWindow::updateWindowTitle() {
+    const QString name = m_currentFilePath.isEmpty() ? QStringLiteral("Untitled") : QFileInfo(m_currentFilePath).fileName();
+    setWindowTitle(QStringLiteral("%1%2 — KumCAD").arg(name, m_dirty ? QStringLiteral("*") : QString()));
+}
+
+bool MainWindow::confirmDiscardUnsavedChanges() {
+    if (!m_dirty) return true;
+
+    const auto choice = QMessageBox::question(
+        this, QStringLiteral("Unsaved Changes"), QStringLiteral("This drawing has unsaved changes. Save before continuing?"),
+        QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel, QMessageBox::Save);
+
+    if (choice == QMessageBox::Cancel) return false;
+    if (choice == QMessageBox::Discard) return true;
+    return saveDocument();
+}
+
+void MainWindow::newDocument() {
+    if (!confirmDiscardUnsavedChanges()) return;
+
+    m_document = lcad::Document();
+    m_view->resetViewState();
+    m_layerPanel->refresh();
+    m_currentFilePath.clear();
+    m_dirty = false;
+    updateWindowTitle();
+    statusBar()->showMessage(QStringLiteral("New drawing"), 3000);
+}
+
+void MainWindow::openDocument() {
+    if (!confirmDiscardUnsavedChanges()) return;
+
+    const QString path =
+        QFileDialog::getOpenFileName(this, QStringLiteral("Open Drawing"), QString(), QStringLiteral("DXF Files (*.dxf)"));
+    if (path.isEmpty()) return;
+
+    std::string error;
+    if (!lcad::readDxf(m_document, path.toStdString(), &error)) {
+        QMessageBox::warning(this, QStringLiteral("Open Failed"), QString::fromStdString(error));
+        return;
+    }
+
+    m_view->resetViewState();
+    m_layerPanel->refresh();
+    m_currentFilePath = path;
+    m_dirty = false;
+    updateWindowTitle();
+    statusBar()->showMessage(QStringLiteral("Opened %1").arg(QFileInfo(path).fileName()), 3000);
+}
+
+bool MainWindow::saveDocument() {
+    if (m_currentFilePath.isEmpty()) return saveDocumentAs();
+
+    std::string error;
+    if (!lcad::writeDxf(m_document, m_currentFilePath.toStdString(), &error)) {
+        QMessageBox::warning(this, QStringLiteral("Save Failed"), QString::fromStdString(error));
+        return false;
+    }
+    m_dirty = false;
+    updateWindowTitle();
+    statusBar()->showMessage(QStringLiteral("Saved %1").arg(QFileInfo(m_currentFilePath).fileName()), 3000);
+    return true;
+}
+
+bool MainWindow::saveDocumentAs() {
+    QString path =
+        QFileDialog::getSaveFileName(this, QStringLiteral("Save Drawing As"), QString(), QStringLiteral("DXF Files (*.dxf)"));
+    if (path.isEmpty()) return false;
+    if (!path.endsWith(QStringLiteral(".dxf"), Qt::CaseInsensitive)) path += QStringLiteral(".dxf");
+
+    std::string error;
+    if (!lcad::writeDxf(m_document, path.toStdString(), &error)) {
+        QMessageBox::warning(this, QStringLiteral("Save Failed"), QString::fromStdString(error));
+        return false;
+    }
+    m_currentFilePath = path;
+    m_dirty = false;
+    updateWindowTitle();
+    statusBar()->showMessage(QStringLiteral("Saved %1").arg(QFileInfo(m_currentFilePath).fileName()), 3000);
+    return true;
 }

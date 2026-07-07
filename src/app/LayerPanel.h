@@ -6,10 +6,12 @@
 
 class QListWidget;
 class QListWidgetItem;
+class QPoint;
 
 // Dockable layer manager: lists Document's layers with a visibility checkbox
-// and color swatch, lets the user add layers and pick the current one (where
-// new entities get drawn), mirroring AutoCAD's Layer Properties palette.
+// and color swatch, lets the user add layers, pick the current one (where new
+// entities get drawn), and toggle locking (right-click), mirroring AutoCAD's
+// Layer Properties palette.
 class LayerPanel : public QWidget {
     Q_OBJECT
 public:
@@ -26,6 +28,7 @@ private slots:
     void onAddLayer();
     void onItemChanged(QListWidgetItem* item);
     void onCurrentRowChanged(int row);
+    void onContextMenuRequested(const QPoint& pos);
 
 private:
     lcad::Document& m_document;
