@@ -27,6 +27,14 @@ add_executable(kumcad
     commands/ArcCommand.cpp
     commands/PolylineCommand.h
     commands/PolylineCommand.cpp
+    commands/MoveCommand.h
+    commands/MoveCommand.cpp
+    commands/CopyCommand.h
+    commands/CopyCommand.cpp
+    commands/RotateCommand.h
+    commands/RotateCommand.cpp
+    commands/ScaleCommand.h
+    commands/ScaleCommand.cpp
 )
 
 target_include_directories(kumcad PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

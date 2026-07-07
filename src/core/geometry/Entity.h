@@ -23,6 +23,7 @@ public:
     virtual ~Entity() = default;
 
     EntityId id() const { return m_id; }
+    void setId(EntityId id) { m_id = id; }
     LayerId layer() const { return m_layer; }
     void setLayer(LayerId layer) { m_layer = layer; }
 
@@ -34,6 +35,12 @@ public:
 
     // Rigid move by delta, used for click-drag repositioning.
     virtual void translate(const Point2D& delta) = 0;
+
+    // Rigid rotation about center, used by the ROTATE command.
+    virtual void rotate(const Point2D& center, double angleRadians) = 0;
+
+    // Uniform scale about center, used by the SCALE command.
+    virtual void scale(const Point2D& center, double factor) = 0;
 
     // Key points shown as draggable grip handles when the entity is selected.
     virtual std::vector<Point2D> gripPoints() const = 0;

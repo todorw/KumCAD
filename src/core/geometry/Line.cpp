@@ -26,6 +26,16 @@ void LineEntity::translate(const Point2D& delta) {
     m_end = m_end + delta;
 }
 
+void LineEntity::rotate(const Point2D& center, double angleRadians) {
+    m_start = rotateAround(m_start, center, angleRadians);
+    m_end = rotateAround(m_end, center, angleRadians);
+}
+
+void LineEntity::scale(const Point2D& center, double factor) {
+    m_start = scaleAround(m_start, center, factor);
+    m_end = scaleAround(m_end, center, factor);
+}
+
 std::vector<Point2D> LineEntity::gripPoints() const {
     return {m_start, m_end, m_start + (m_end - m_start) * 0.5};
 }

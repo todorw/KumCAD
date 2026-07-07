@@ -26,6 +26,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_commandLine = new CommandLine(this);
     m_dispatcher = new CommandDispatcher(m_document, *m_commandLine, this);
     m_view->setDispatcher(m_dispatcher);
+    m_dispatcher->setView(m_view);
 
     connect(m_dispatcher, &CommandDispatcher::documentChanged, m_view, QOverload<>::of(&QWidget::update));
     connect(m_dispatcher, &CommandDispatcher::previewChanged, m_view, QOverload<>::of(&QWidget::update));
@@ -38,7 +39,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     statusBar()->addPermanentWidget(m_coordLabel);
     statusBar()->showMessage(QStringLiteral("Ready"));
 
-    m_commandLine->appendLine(QStringLiteral("KumCAD — type a command (LINE, CIRCLE, ARC, PLINE, UNDO, REDO) and press Enter."));
+    m_commandLine->appendLine(QStringLiteral(
+        "KumCAD — type a command (LINE, CIRCLE, ARC, PLINE, MOVE, COPY, ROTATE, SCALE, ERASE, UNDO, REDO) and press Enter."));
     m_commandLine->appendLine(QStringLiteral("Command:"));
     m_commandLine->input()->setFocus();
 }
@@ -89,6 +91,12 @@ void MainWindow::setupMenusAndToolbar() {
     addCommandAction(IconFactory::circleIcon(), QStringLiteral("Circle"), QStringLiteral("CIRCLE"));
     addCommandAction(IconFactory::arcIcon(), QStringLiteral("Arc"), QStringLiteral("ARC"));
     addCommandAction(IconFactory::polylineIcon(), QStringLiteral("Polyline"), QStringLiteral("PLINE"));
+
+    toolbar->addSeparator();
+    addCommandAction(IconFactory::moveIcon(), QStringLiteral("Move"), QStringLiteral("MOVE"));
+    addCommandAction(IconFactory::copyIcon(), QStringLiteral("Copy"), QStringLiteral("COPY"));
+    addCommandAction(IconFactory::rotateIcon(), QStringLiteral("Rotate"), QStringLiteral("ROTATE"));
+    addCommandAction(IconFactory::scaleIcon(), QStringLiteral("Scale"), QStringLiteral("SCALE"));
 
     toolbar->addSeparator();
     auto* eraseAction = toolbar->addAction(IconFactory::eraseIcon(), QStringLiteral("Erase"));

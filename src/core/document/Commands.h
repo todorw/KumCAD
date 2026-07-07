@@ -87,4 +87,51 @@ private:
     Point2D m_newPos;
 };
 
+// Rigid rotation of a set of entities about center, e.g. from the ROTATE command.
+class RotateEntitiesCommand : public Command {
+public:
+    RotateEntitiesCommand(Document& document, std::vector<EntityId> ids, Point2D center, double angleRadians)
+        : m_document(document), m_ids(std::move(ids)), m_center(center), m_angle(angleRadians) {}
+
+    void execute() override { apply(m_angle); }
+    void undo() override { apply(-m_angle); }
+    std::string description() const override { return "Rotate"; }
+
+private:
+    void apply(double angle) {
+        for (EntityId id : m_ids) {
+            if (Entity* e = m_document.findEntity(id)) e->rotate(m_center, angle);
+        }
+    }
+
+    Document& m_document;
+    std::vector<EntityId> m_ids;
+    Point2D m_center;
+    double m_angle;
+};
+
+// Uniform scale of a set of entities about center, e.g. from the SCALE command.
+// factor must be strictly positive so 1/factor is a valid inverse for undo.
+class ScaleEntitiesCommand : public Command {
+public:
+    ScaleEntitiesCommand(Document& document, std::vector<EntityId> ids, Point2D center, double factor)
+        : m_document(document), m_ids(std::move(ids)), m_center(center), m_factor(factor) {}
+
+    void execute() override { apply(m_factor); }
+    void undo() override { apply(1.0 / m_factor); }
+    std::string description() const override { return "Scale"; }
+
+private:
+    void apply(double factor) {
+        for (EntityId id : m_ids) {
+            if (Entity* e = m_document.findEntity(id)) e->scale(m_center, factor);
+        }
+    }
+
+    Document& m_document;
+    std::vector<EntityId> m_ids;
+    Point2D m_center;
+    double m_factor;
+};
+
 } // namespace lcad

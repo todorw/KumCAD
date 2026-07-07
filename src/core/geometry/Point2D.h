@@ -20,4 +20,15 @@ struct Point2D {
     double distanceTo(const Point2D& o) const { return (*this - o).length(); }
 };
 
+inline Point2D rotateAround(const Point2D& p, const Point2D& center, double angleRadians) {
+    const Point2D d = p - center;
+    const double c = std::cos(angleRadians);
+    const double s = std::sin(angleRadians);
+    return center + Point2D(d.x * c - d.y * s, d.x * s + d.y * c);
+}
+
+inline Point2D scaleAround(const Point2D& p, const Point2D& center, double factor) {
+    return center + (p - center) * factor;
+}
+
 } // namespace lcad

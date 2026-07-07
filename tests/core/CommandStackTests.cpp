@@ -86,3 +86,39 @@ TEST_CASE("MoveGripCommand undo/redo round-trips", "[commands]") {
     doc.commandStack().redo();
     REQUIRE(line->end().x == Catch::Approx(20.0));
 }
+
+TEST_CASE("RotateEntitiesCommand undo/redo round-trips", "[commands]") {
+    lcad::Document doc;
+    const lcad::EntityId id = doc.reserveEntityId();
+    doc.addEntity(std::make_unique<lcad::LineEntity>(id, doc.currentLayer(), lcad::Point2D(10, 0), lcad::Point2D(20, 0)));
+    auto* line = static_cast<lcad::LineEntity*>(doc.findEntity(id));
+
+    doc.commandStack().execute(std::make_unique<lcad::RotateEntitiesCommand>(
+        doc, std::vector<lcad::EntityId>{id}, lcad::Point2D(0, 0), M_PI / 2));
+    REQUIRE(line->start().x == Catch::Approx(0.0).margin(1e-9));
+    REQUIRE(line->start().y == Catch::Approx(10.0));
+
+    doc.commandStack().undo();
+    REQUIRE(line->start().x == Catch::Approx(10.0));
+    REQUIRE(line->start().y == Catch::Approx(0.0).margin(1e-9));
+
+    doc.commandStack().redo();
+    REQUIRE(line->start().y == Catch::Approx(10.0));
+}
+
+TEST_CASE("ScaleEntitiesCommand undo/redo round-trips", "[commands]") {
+    lcad::Document doc;
+    const lcad::EntityId id = doc.reserveEntityId();
+    doc.addEntity(std::make_unique<lcad::LineEntity>(id, doc.currentLayer(), lcad::Point2D(0, 0), lcad::Point2D(10, 0)));
+    auto* line = static_cast<lcad::LineEntity*>(doc.findEntity(id));
+
+    doc.commandStack().execute(
+        std::make_unique<lcad::ScaleEntitiesCommand>(doc, std::vector<lcad::EntityId>{id}, lcad::Point2D(0, 0), 2.0));
+    REQUIRE(line->end().x == Catch::Approx(20.0));
+
+    doc.commandStack().undo();
+    REQUIRE(line->end().x == Catch::Approx(10.0));
+
+    doc.commandStack().redo();
+    REQUIRE(line->end().x == Catch::Approx(20.0));
+}

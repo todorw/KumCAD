@@ -39,6 +39,14 @@ void PolylineEntity::translate(const Point2D& delta) {
     for (auto& v : m_vertices) v = v + delta;
 }
 
+void PolylineEntity::rotate(const Point2D& center, double angleRadians) {
+    for (auto& v : m_vertices) v = rotateAround(v, center, angleRadians);
+}
+
+void PolylineEntity::scale(const Point2D& center, double factor) {
+    for (auto& v : m_vertices) v = scaleAround(v, center, factor);
+}
+
 std::vector<Point2D> PolylineEntity::gripPoints() const {
     return m_vertices;
 }

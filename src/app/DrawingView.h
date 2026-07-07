@@ -10,6 +10,7 @@
 #include <optional>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 class CommandDispatcher;
 class QPainter;
@@ -33,6 +34,7 @@ public:
     void zoomExtents();
     void eraseSelection();
     bool hasSelection() const { return !m_selection.empty(); }
+    std::vector<lcad::EntityId> selectedIds() const { return {m_selection.begin(), m_selection.end()}; }
 
 signals:
     void mouseWorldMoved(const lcad::Point2D& pt);

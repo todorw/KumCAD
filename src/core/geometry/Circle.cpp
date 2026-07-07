@@ -19,6 +19,15 @@ void CircleEntity::translate(const Point2D& delta) {
     m_center = m_center + delta;
 }
 
+void CircleEntity::rotate(const Point2D& center, double angleRadians) {
+    m_center = rotateAround(m_center, center, angleRadians);
+}
+
+void CircleEntity::scale(const Point2D& center, double factor) {
+    m_center = scaleAround(m_center, center, factor);
+    m_radius *= factor;
+}
+
 std::vector<Point2D> CircleEntity::gripPoints() const {
     return {m_center, Point2D(m_center.x + m_radius, m_center.y)};
 }

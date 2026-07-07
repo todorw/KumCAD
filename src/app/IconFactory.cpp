@@ -97,6 +97,41 @@ QIcon moveIcon() {
     });
 }
 
+QIcon copyIcon() {
+    return build([](QPainter& painter) {
+        painter.drawRect(QRectF(6, 10, 14, 14));
+        painter.drawLine(QPointF(10, 10), QPointF(10, 6));
+        painter.drawLine(QPointF(10, 6), QPointF(24, 6));
+        painter.drawLine(QPointF(24, 6), QPointF(24, 20));
+        painter.drawLine(QPointF(24, 20), QPointF(20, 20));
+    });
+}
+
+QIcon rotateIcon() {
+    return build([](QPainter& painter) {
+        QPainterPath path;
+        path.arcMoveTo(6, 6, 20, 20, -30);
+        path.arcTo(6, 6, 20, 20, -30, 260);
+        painter.drawPath(path);
+        // Arrowhead at the open end of the sweep.
+        QPolygonF head;
+        head << QPointF(23.5, 8.5) << QPointF(27.5, 8.0) << QPointF(25.5, 12.0);
+        painter.setBrush(kStroke);
+        painter.drawPolygon(head);
+    });
+}
+
+QIcon scaleIcon() {
+    return build([](QPainter& painter) {
+        painter.drawRect(QRectF(6, 6, 12, 12));
+        painter.drawLine(QPointF(20, 20), QPointF(27, 27));
+        QPolygonF head;
+        head << QPointF(27, 21) << QPointF(27, 27) << QPointF(21, 27);
+        painter.setBrush(kStroke);
+        painter.drawPolygon(head);
+    });
+}
+
 QIcon eraseIcon() {
     return build([](QPainter& painter) {
         painter.drawLine(QPointF(9, 9), QPointF(23, 23));

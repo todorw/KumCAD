@@ -12,6 +12,9 @@ QIcon circleIcon();
 QIcon arcIcon();
 QIcon polylineIcon();
 QIcon moveIcon();
+QIcon copyIcon();
+QIcon rotateIcon();
+QIcon scaleIcon();
 QIcon eraseIcon();
 
 } // namespace IconFactory

@@ -8,8 +8,10 @@
 #include <QString>
 
 #include <memory>
+#include <vector>
 
 class CommandLine;
+class DrawingView;
 
 // Owns the currently-active DrawCommand (if any) and routes input from the
 // CommandLine widget and DrawingView (clicks, mouse-move, Escape) to it,
@@ -18,6 +20,9 @@ class CommandDispatcher : public QObject {
     Q_OBJECT
 public:
     CommandDispatcher(lcad::Document& document, CommandLine& commandLine, QObject* parent = nullptr);
+
+    // Needed so MOVE/COPY/ROTATE/SCALE/ERASE can act on the current selection.
+    void setView(DrawingView* view) { m_view = view; }
 
     bool hasActiveCommand() const { return m_activeCommand != nullptr; }
     DrawCommand* activeDrawCommand() const { return m_activeCommand.get(); }
@@ -41,7 +46,12 @@ private:
     void finishCommand();
     static bool tryParsePoint(const QString& text, lcad::Point2D& out);
 
+    // Returns the current DrawingView selection, or an empty vector (with a
+    // command-line message) if there isn't one. Used by MOVE/COPY/ROTATE/SCALE/ERASE.
+    std::vector<lcad::EntityId> selectionForModify() const;
+
     lcad::Document& m_document;
     CommandLine& m_commandLine;
+    DrawingView* m_view = nullptr;
     std::unique_ptr<DrawCommand> m_activeCommand;
 };

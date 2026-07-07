@@ -1,10 +1,15 @@
 #include "CommandDispatcher.h"
 
 #include "CommandLine.h"
+#include "DrawingView.h"
 #include "commands/ArcCommand.h"
 #include "commands/CircleCommand.h"
+#include "commands/CopyCommand.h"
 #include "commands/LineCommand.h"
+#include "commands/MoveCommand.h"
 #include "commands/PolylineCommand.h"
+#include "commands/RotateCommand.h"
+#include "commands/ScaleCommand.h"
 
 #include <QStringList>
 
@@ -52,6 +57,25 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         startCommand(std::make_unique<ArcCommand>(m_document), QStringLiteral("ARC"));
     } else if (cmd == QLatin1String("PLINE") || cmd == QLatin1String("PL")) {
         startCommand(std::make_unique<PolylineCommand>(m_document), QStringLiteral("PLINE"));
+    } else if (cmd == QLatin1String("MOVE") || cmd == QLatin1String("M")) {
+        const std::vector<lcad::EntityId> ids = selectionForModify();
+        if (!ids.empty()) startCommand(std::make_unique<MoveCommand>(m_document, ids), QStringLiteral("MOVE"));
+    } else if (cmd == QLatin1String("COPY") || cmd == QLatin1String("CO") || cmd == QLatin1String("CP")) {
+        const std::vector<lcad::EntityId> ids = selectionForModify();
+        if (!ids.empty()) startCommand(std::make_unique<CopyCommand>(m_document, ids), QStringLiteral("COPY"));
+    } else if (cmd == QLatin1String("ROTATE") || cmd == QLatin1String("RO")) {
+        const std::vector<lcad::EntityId> ids = selectionForModify();
+        if (!ids.empty()) startCommand(std::make_unique<RotateCommand>(m_document, ids), QStringLiteral("ROTATE"));
+    } else if (cmd == QLatin1String("SCALE") || cmd == QLatin1String("SC")) {
+        const std::vector<lcad::EntityId> ids = selectionForModify();
+        if (!ids.empty()) startCommand(std::make_unique<ScaleCommand>(m_document, ids), QStringLiteral("SCALE"));
+    } else if (cmd == QLatin1String("ERASE") || cmd == QLatin1String("E")) {
+        const std::vector<lcad::EntityId> ids = selectionForModify();
+        if (!ids.empty()) {
+            m_view->eraseSelection();
+            m_commandLine.appendLine(QStringLiteral("*%1 erased*").arg(ids.size()));
+            emit documentChanged();
+        }
     } else if (cmd == QLatin1String("UNDO") || cmd == QLatin1String("U")) {
         undo();
     } else if (cmd == QLatin1String("REDO")) {
@@ -100,6 +124,14 @@ void CommandDispatcher::redo() {
     m_document.commandStack().redo();
     m_commandLine.appendLine(QStringLiteral("*Redo*"));
     emit documentChanged();
+}
+
+std::vector<lcad::EntityId> CommandDispatcher::selectionForModify() const {
+    if (!m_view || !m_view->hasSelection()) {
+        m_commandLine.appendLine(QStringLiteral("*Select objects first, then run this command*"));
+        return {};
+    }
+    return m_view->selectedIds();
 }
 
 bool CommandDispatcher::tryParsePoint(const QString& text, lcad::Point2D& out) {

@@ -99,3 +99,41 @@ TEST_CASE("PolylineEntity translate and grip editing", "[geometry]") {
     REQUIRE(pl.vertices()[0].x == Approx(-1.0));
     REQUIRE(pl.vertices()[1].x == Approx(15.0)); // other vertex untouched
 }
+
+TEST_CASE("LineEntity rotate and scale", "[geometry]") {
+    lcad::LineEntity line(1, 0, lcad::Point2D(10, 0), lcad::Point2D(20, 0));
+
+    line.rotate(lcad::Point2D(0, 0), M_PI / 2); // 90 degrees CCW about origin
+    REQUIRE(line.start().x == Approx(0.0).margin(1e-9));
+    REQUIRE(line.start().y == Approx(10.0));
+    REQUIRE(line.end().x == Approx(0.0).margin(1e-9));
+    REQUIRE(line.end().y == Approx(20.0));
+
+    lcad::LineEntity line2(2, 0, lcad::Point2D(10, 0), lcad::Point2D(20, 0));
+    line2.scale(lcad::Point2D(10, 0), 2.0); // scale about the start point
+    REQUIRE(line2.start().x == Approx(10.0)); // fixed point untouched
+    REQUIRE(line2.end().x == Approx(30.0));   // 10 units away doubled to 20 units away
+}
+
+TEST_CASE("CircleEntity rotate and scale", "[geometry]") {
+    lcad::CircleEntity circle(1, 0, lcad::Point2D(10, 0), 5.0);
+
+    circle.rotate(lcad::Point2D(0, 0), M_PI / 2);
+    REQUIRE(circle.center().x == Approx(0.0).margin(1e-9));
+    REQUIRE(circle.center().y == Approx(10.0));
+    REQUIRE(circle.radius() == Approx(5.0)); // rotation doesn't affect radius
+
+    circle.scale(circle.center(), 2.0);
+    REQUIRE(circle.radius() == Approx(10.0));
+}
+
+TEST_CASE("ArcEntity rotate carries its sweep with it", "[geometry]") {
+    lcad::ArcEntity arc(1, 0, lcad::Point2D(0, 0), 5.0, 0.0, M_PI / 2);
+
+    arc.rotate(lcad::Point2D(0, 0), M_PI / 2); // spin the sweep itself by 90 degrees
+    REQUIRE(arc.startAngle() == Approx(M_PI / 2));
+    REQUIRE(arc.endAngle() == Approx(M_PI));
+
+    arc.scale(lcad::Point2D(0, 0), 2.0);
+    REQUIRE(arc.radius() == Approx(10.0));
+}
