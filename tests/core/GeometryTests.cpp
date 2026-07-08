@@ -137,3 +137,54 @@ TEST_CASE("ArcEntity rotate carries its sweep with it", "[geometry]") {
     arc.scale(lcad::Point2D(0, 0), 2.0);
     REQUIRE(arc.radius() == Approx(10.0));
 }
+
+namespace {
+bool hasSnapAt(const std::vector<lcad::SnapPoint>& snaps, lcad::SnapKind kind, lcad::Point2D pt) {
+    for (const auto& s : snaps) {
+        if (s.kind == kind && s.point.distanceTo(pt) < 1e-6) return true;
+    }
+    return false;
+}
+} // namespace
+
+TEST_CASE("LineEntity snap candidates", "[geometry][snap]") {
+    lcad::LineEntity line(1, 0, lcad::Point2D(0, 0), lcad::Point2D(10, 0));
+    const auto snaps = line.snapCandidates();
+    REQUIRE(snaps.size() == 3);
+    REQUIRE(hasSnapAt(snaps, lcad::SnapKind::Endpoint, lcad::Point2D(0, 0)));
+    REQUIRE(hasSnapAt(snaps, lcad::SnapKind::Endpoint, lcad::Point2D(10, 0)));
+    REQUIRE(hasSnapAt(snaps, lcad::SnapKind::Midpoint, lcad::Point2D(5, 0)));
+}
+
+TEST_CASE("CircleEntity snap candidates", "[geometry][snap]") {
+    lcad::CircleEntity circle(1, 0, lcad::Point2D(0, 0), 5.0);
+    const auto snaps = circle.snapCandidates();
+    REQUIRE(hasSnapAt(snaps, lcad::SnapKind::Center, lcad::Point2D(0, 0)));
+    REQUIRE(hasSnapAt(snaps, lcad::SnapKind::Quadrant, lcad::Point2D(5, 0)));
+    REQUIRE(hasSnapAt(snaps, lcad::SnapKind::Quadrant, lcad::Point2D(0, 5)));
+    REQUIRE(hasSnapAt(snaps, lcad::SnapKind::Quadrant, lcad::Point2D(-5, 0)));
+    REQUIRE(hasSnapAt(snaps, lcad::SnapKind::Quadrant, lcad::Point2D(0, -5)));
+}
+
+TEST_CASE("ArcEntity snap candidates include midpoint and in-sweep quadrants only", "[geometry][snap]") {
+    // Quarter arc from 0 to 90 degrees: midpoint at 45deg, only the 0 and 90 quadrants are in-sweep.
+    lcad::ArcEntity arc(1, 0, lcad::Point2D(0, 0), 5.0, 0.0, M_PI / 2);
+    const auto snaps = arc.snapCandidates();
+    REQUIRE(hasSnapAt(snaps, lcad::SnapKind::Endpoint, lcad::Point2D(5, 0)));
+    REQUIRE(hasSnapAt(snaps, lcad::SnapKind::Endpoint, lcad::Point2D(0, 5)));
+    REQUIRE(hasSnapAt(snaps, lcad::SnapKind::Center, lcad::Point2D(0, 0)));
+    REQUIRE(hasSnapAt(snaps, lcad::SnapKind::Midpoint, lcad::Point2D(5 * std::cos(M_PI / 4), 5 * std::sin(M_PI / 4))));
+    REQUIRE(hasSnapAt(snaps, lcad::SnapKind::Quadrant, lcad::Point2D(5, 0)));
+    REQUIRE(hasSnapAt(snaps, lcad::SnapKind::Quadrant, lcad::Point2D(0, 5)));
+    REQUIRE_FALSE(hasSnapAt(snaps, lcad::SnapKind::Quadrant, lcad::Point2D(-5, 0))); // out of sweep
+}
+
+TEST_CASE("PolylineEntity snap candidates", "[geometry][snap]") {
+    std::vector<lcad::Point2D> verts{{0, 0}, {10, 0}, {10, 10}};
+    lcad::PolylineEntity pl(1, 0, verts, false);
+    const auto snaps = pl.snapCandidates();
+    REQUIRE(hasSnapAt(snaps, lcad::SnapKind::Endpoint, lcad::Point2D(0, 0)));
+    REQUIRE(hasSnapAt(snaps, lcad::SnapKind::Endpoint, lcad::Point2D(10, 10)));
+    REQUIRE(hasSnapAt(snaps, lcad::SnapKind::Midpoint, lcad::Point2D(5, 0)));
+    REQUIRE(hasSnapAt(snaps, lcad::SnapKind::Midpoint, lcad::Point2D(10, 5)));
+}

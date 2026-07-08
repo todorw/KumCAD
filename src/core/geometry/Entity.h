@@ -15,6 +15,21 @@ enum class EntityType {
     Circle,
     Arc,
     Polyline,
+    Ellipse,
+    Text,
+};
+
+// Object-snap candidate kinds, mirroring AutoCAD's OSNAP markers.
+enum class SnapKind {
+    Endpoint,
+    Midpoint,
+    Center,
+    Quadrant,
+};
+
+struct SnapPoint {
+    Point2D point;
+    SnapKind kind;
 };
 
 class Entity {
@@ -47,6 +62,10 @@ public:
 
     // Reshape the entity by moving a single grip (index into gripPoints()) to newPos.
     virtual void moveGripPoint(std::size_t index, const Point2D& newPos) = 0;
+
+    // Points offered to the object-snap engine while picking a point for a
+    // command (endpoints, midpoints, centers, quadrants).
+    virtual std::vector<SnapPoint> snapCandidates() const = 0;
 
     virtual std::unique_ptr<Entity> clone() const = 0;
 

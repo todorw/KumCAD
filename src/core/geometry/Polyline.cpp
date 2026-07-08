@@ -55,6 +55,18 @@ void PolylineEntity::moveGripPoint(std::size_t index, const Point2D& newPos) {
     if (index < m_vertices.size()) m_vertices[index] = newPos;
 }
 
+std::vector<SnapPoint> PolylineEntity::snapCandidates() const {
+    std::vector<SnapPoint> result;
+    for (const auto& v : m_vertices) result.push_back({v, SnapKind::Endpoint});
+    for (std::size_t i = 0; i + 1 < m_vertices.size(); ++i) {
+        result.push_back({m_vertices[i] + (m_vertices[i + 1] - m_vertices[i]) * 0.5, SnapKind::Midpoint});
+    }
+    if (m_closed && m_vertices.size() > 1) {
+        result.push_back({m_vertices.back() + (m_vertices.front() - m_vertices.back()) * 0.5, SnapKind::Midpoint});
+    }
+    return result;
+}
+
 std::unique_ptr<Entity> PolylineEntity::clone() const {
     return std::make_unique<PolylineEntity>(*this);
 }

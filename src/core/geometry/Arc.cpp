@@ -82,6 +82,29 @@ void ArcEntity::moveGripPoint(std::size_t index, const Point2D& newPos) {
     }
 }
 
+std::vector<SnapPoint> ArcEntity::snapCandidates() const {
+    const double ns = normalizeAngle(m_startAngle);
+    const double ne = normalizeAngle(m_endAngle);
+    double sweep = ne - ns;
+    if (sweep <= 0) sweep += kTwoPi;
+    const double midAngle = m_startAngle + sweep / 2.0;
+    const Point2D midPoint(m_center.x + m_radius * std::cos(midAngle), m_center.y + m_radius * std::sin(midAngle));
+
+    std::vector<SnapPoint> result{
+        {startPoint(), SnapKind::Endpoint},
+        {endPoint(), SnapKind::Endpoint},
+        {midPoint, SnapKind::Midpoint},
+        {m_center, SnapKind::Center},
+    };
+    for (double angle : {0.0, M_PI / 2, M_PI, 3 * M_PI / 2}) {
+        if (angleInSweep(angle)) {
+            result.push_back(
+                {Point2D(m_center.x + m_radius * std::cos(angle), m_center.y + m_radius * std::sin(angle)), SnapKind::Quadrant});
+        }
+    }
+    return result;
+}
+
 std::unique_ptr<Entity> ArcEntity::clone() const {
     return std::make_unique<ArcEntity>(*this);
 }

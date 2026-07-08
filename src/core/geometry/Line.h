@@ -20,6 +20,7 @@ public:
     void scale(const Point2D& center, double factor) override;
     std::vector<Point2D> gripPoints() const override;
     void moveGripPoint(std::size_t index, const Point2D& newPos) override;
+    std::vector<SnapPoint> snapCandidates() const override;
     std::unique_ptr<Entity> clone() const override;
 
 private:

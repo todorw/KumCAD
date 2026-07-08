@@ -51,6 +51,14 @@ void LineEntity::moveGripPoint(std::size_t index, const Point2D& newPos) {
     }
 }
 
+std::vector<SnapPoint> LineEntity::snapCandidates() const {
+    return {
+        {m_start, SnapKind::Endpoint},
+        {m_end, SnapKind::Endpoint},
+        {m_start + (m_end - m_start) * 0.5, SnapKind::Midpoint},
+    };
+}
+
 std::unique_ptr<Entity> LineEntity::clone() const {
     return std::make_unique<LineEntity>(*this);
 }

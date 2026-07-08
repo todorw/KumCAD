@@ -24,6 +24,7 @@ private:
     void setupDocks();
     void setupMenusAndToolbar();
     void updateCoordLabel(const lcad::Point2D& pt);
+    void updateModeLabels();
 
     void markDirty();
     void updateWindowTitle();
@@ -42,6 +43,9 @@ private:
     CommandDispatcher* m_dispatcher = nullptr;
     LayerPanel* m_layerPanel = nullptr;
     QLabel* m_coordLabel = nullptr;
+    QLabel* m_osnapLabel = nullptr;
+    QLabel* m_orthoLabel = nullptr;
+    QLabel* m_gridLabel = nullptr;
 
     QString m_currentFilePath;
     bool m_dirty = false;

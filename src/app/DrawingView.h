@@ -41,8 +41,18 @@ public:
     bool hasSelection() const { return !m_selection.empty(); }
     std::vector<lcad::EntityId> selectedIds() const { return {m_selection.begin(), m_selection.end()}; }
 
+    // Drafting aid toggles (F3/F8/F9), mirroring AutoCAD's OSNAP/ORTHO/SNAP.
+    bool osnapEnabled() const { return m_osnapEnabled; }
+    bool orthoEnabled() const { return m_orthoEnabled; }
+    bool gridSnapEnabled() const { return m_gridSnapEnabled; }
+    void setOsnapEnabled(bool on);
+    void setOrthoEnabled(bool on);
+    void setGridSnapEnabled(bool on);
+
 signals:
     void mouseWorldMoved(const lcad::Point2D& pt);
+    void selectionChanged();
+    void modesChanged();
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -61,11 +71,23 @@ private:
     void drawPreview(QPainter& painter);
     void drawDragPreview(QPainter& painter);
     void drawSelectionBox(QPainter& painter);
+    void drawSnapMarker(QPainter& painter);
     void updateSelectionFromBox(const QRectF& screenBox, bool crossing);
 
     lcad::Entity* hitTestEntity(const lcad::Point2D& worldPt) const;
     std::optional<std::pair<lcad::EntityId, std::size_t>> hitTestGrip(const QPointF& screenPt) const;
     double pickToleranceWorld() const { return 6.0 / m_scale; }
+    double gridSpacing() const;
+
+    // Resolves a screen click/move into the world point a command should
+    // actually see: object snap first (if enabled and a candidate is close
+    // enough), then ortho (constrains to horizontal/vertical off the active
+    // command's anchor point), then grid snap. Updates m_currentSnap for the
+    // on-screen marker as a side effect.
+    lcad::Point2D resolvePoint(const QPointF& screenPos);
+    std::optional<lcad::SnapPoint> findSnapCandidate(const QPointF& screenPos) const;
+    lcad::Point2D applyOrtho(const lcad::Point2D& anchor, const lcad::Point2D& pt) const;
+    lcad::Point2D snapToGrid(const lcad::Point2D& pt) const;
 
     lcad::Document& m_document;
     CommandDispatcher* m_dispatcher = nullptr;
@@ -89,4 +111,9 @@ private:
     std::optional<lcad::EntityId> m_hoverEntityId;
 
     std::optional<lcad::Point2D> m_lastMouseWorld;
+
+    bool m_osnapEnabled = true;
+    bool m_orthoEnabled = false;
+    bool m_gridSnapEnabled = false;
+    std::optional<lcad::SnapPoint> m_currentSnap;
 };

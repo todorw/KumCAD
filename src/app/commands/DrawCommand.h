@@ -32,6 +32,11 @@ public:
     virtual void onPreviewPoint(const lcad::Point2D& pt) { (void)pt; }
     virtual std::vector<std::pair<lcad::Point2D, lcad::Point2D>> previewSegments() const { return {}; }
 
+    // The command's current reference point (base/center/last vertex), if it
+    // has one yet, used by DrawingView's ortho mode to constrain the next
+    // point to be exactly horizontal or vertical relative to it.
+    virtual std::optional<lcad::Point2D> anchorPoint() const { return std::nullopt; }
+
     // Enter/right-click with no point typed: try to finish with the points
     // collected so far. Returns true if the command finished successfully.
     virtual bool requestFinish() { return false; }

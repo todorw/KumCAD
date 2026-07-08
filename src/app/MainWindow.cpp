@@ -37,16 +37,28 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(m_dispatcher, &CommandDispatcher::previewChanged, m_view, QOverload<>::of(&QWidget::update));
     connect(m_dispatcher, &CommandDispatcher::documentChanged, this, &MainWindow::markDirty);
     connect(m_view, &DrawingView::mouseWorldMoved, this, &MainWindow::updateCoordLabel);
+    connect(m_view, &DrawingView::modesChanged, this, &MainWindow::updateModeLabels);
 
     setupDocks();
     setupMenusAndToolbar();
 
     m_coordLabel = new QLabel(QStringLiteral("0.000, 0.000"), this);
+    m_gridLabel = new QLabel(QStringLiteral("GRID"), this);
+    m_orthoLabel = new QLabel(QStringLiteral("ORTHO"), this);
+    m_osnapLabel = new QLabel(QStringLiteral("OSNAP"), this);
+    for (QLabel* label : {m_gridLabel, m_orthoLabel, m_osnapLabel}) {
+        label->setToolTip(QStringLiteral("F9 Grid Snap / F8 Ortho / F3 Object Snap"));
+    }
     statusBar()->addPermanentWidget(m_coordLabel);
+    statusBar()->addPermanentWidget(m_gridLabel);
+    statusBar()->addPermanentWidget(m_orthoLabel);
+    statusBar()->addPermanentWidget(m_osnapLabel);
     statusBar()->showMessage(QStringLiteral("Ready"));
+    updateModeLabels();
 
     m_commandLine->appendLine(QStringLiteral(
         "KumCAD — type a command (LINE, CIRCLE, ARC, PLINE, MOVE, COPY, ROTATE, SCALE, ERASE, UNDO, REDO) and press Enter."));
+    m_commandLine->appendLine(QStringLiteral("F3 Object Snap / F8 Ortho / F9 Grid Snap toggle the drafting aids below."));
     m_commandLine->appendLine(QStringLiteral("Command:"));
     m_commandLine->input()->setFocus();
 
@@ -96,6 +108,24 @@ void MainWindow::setupMenusAndToolbar() {
 
     QMenu* viewMenu = menuBar()->addMenu(QStringLiteral("&View"));
     viewMenu->addAction(QStringLiteral("Zoom &Extents"), this, [this]() { m_view->zoomExtents(); });
+    viewMenu->addSeparator();
+    auto* osnapAction = viewMenu->addAction(QStringLiteral("&Object Snap"), QKeySequence(Qt::Key_F3), this,
+                                             [this]() { m_view->setOsnapEnabled(!m_view->osnapEnabled()); });
+    osnapAction->setCheckable(true);
+    auto* orthoAction = viewMenu->addAction(QStringLiteral("&Ortho Mode"), QKeySequence(Qt::Key_F8), this,
+                                             [this]() { m_view->setOrthoEnabled(!m_view->orthoEnabled()); });
+    orthoAction->setCheckable(true);
+    auto* gridSnapAction = viewMenu->addAction(QStringLiteral("&Grid Snap"), QKeySequence(Qt::Key_F9), this,
+                                                [this]() { m_view->setGridSnapEnabled(!m_view->gridSnapEnabled()); });
+    gridSnapAction->setCheckable(true);
+    connect(m_view, &DrawingView::modesChanged, this, [this, osnapAction, orthoAction, gridSnapAction]() {
+        osnapAction->setChecked(m_view->osnapEnabled());
+        orthoAction->setChecked(m_view->orthoEnabled());
+        gridSnapAction->setChecked(m_view->gridSnapEnabled());
+    });
+    osnapAction->setChecked(m_view->osnapEnabled());
+    orthoAction->setChecked(m_view->orthoEnabled());
+    gridSnapAction->setChecked(m_view->gridSnapEnabled());
 
     QToolBar* toolbar = addToolBar(QStringLiteral("Draw"));
     toolbar->setIconSize(QSize(22, 22));
@@ -129,6 +159,16 @@ void MainWindow::setupMenusAndToolbar() {
 
 void MainWindow::updateCoordLabel(const lcad::Point2D& pt) {
     if (m_coordLabel) m_coordLabel->setText(QStringLiteral("%1, %2").arg(pt.x, 0, 'f', 3).arg(pt.y, 0, 'f', 3));
+}
+
+void MainWindow::updateModeLabels() {
+    if (!m_osnapLabel || !m_orthoLabel || !m_gridLabel) return;
+    auto style = [](bool on) {
+        return on ? QStringLiteral("color: #7CFC9A; font-weight: bold;") : QStringLiteral("color: #888;");
+    };
+    m_osnapLabel->setStyleSheet(style(m_view->osnapEnabled()));
+    m_orthoLabel->setStyleSheet(style(m_view->orthoEnabled()));
+    m_gridLabel->setStyleSheet(style(m_view->gridSnapEnabled()));
 }
 
 void MainWindow::markDirty() {

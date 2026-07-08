@@ -40,6 +40,16 @@ void CircleEntity::moveGripPoint(std::size_t index, const Point2D& newPos) {
     }
 }
 
+std::vector<SnapPoint> CircleEntity::snapCandidates() const {
+    return {
+        {m_center, SnapKind::Center},
+        {Point2D(m_center.x + m_radius, m_center.y), SnapKind::Quadrant},
+        {Point2D(m_center.x, m_center.y + m_radius), SnapKind::Quadrant},
+        {Point2D(m_center.x - m_radius, m_center.y), SnapKind::Quadrant},
+        {Point2D(m_center.x, m_center.y - m_radius), SnapKind::Quadrant},
+    };
+}
+
 std::unique_ptr<Entity> CircleEntity::clone() const {
     return std::make_unique<CircleEntity>(*this);
 }
