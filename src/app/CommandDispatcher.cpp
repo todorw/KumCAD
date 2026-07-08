@@ -5,11 +5,13 @@
 #include "commands/ArcCommand.h"
 #include "commands/CircleCommand.h"
 #include "commands/CopyCommand.h"
+#include "commands/EllipseCommand.h"
 #include "commands/LineCommand.h"
 #include "commands/MoveCommand.h"
 #include "commands/PolylineCommand.h"
 #include "commands/RotateCommand.h"
 #include "commands/ScaleCommand.h"
+#include "commands/TextCommand.h"
 
 #include <QStringList>
 
@@ -35,6 +37,22 @@ void CommandDispatcher::handleCommandText(const QString& text) {
     const QString trimmed = text.trimmed();
 
     if (m_activeCommand) {
+        if (m_activeCommand->wantsTextInput()) {
+            // Free-text stage (e.g. TEXT's "Enter text:"): route everything here,
+            // including an empty Enter, rather than trying to parse it as a point/number.
+            const std::optional<QString> prompt = m_activeCommand->onText(trimmed);
+            if (m_activeCommand->isFinished()) {
+                finishCommand();
+                return;
+            }
+            if (prompt) {
+                m_commandLine.appendLine(*prompt);
+                emit documentChanged();
+                return;
+            }
+            m_commandLine.appendLine(QStringLiteral("*Invalid input*"));
+            return;
+        }
         if (trimmed.isEmpty()) {
             handleFinishRequested();
             return;
@@ -71,6 +89,10 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         startCommand(std::make_unique<ArcCommand>(m_document), QStringLiteral("ARC"));
     } else if (cmd == QLatin1String("PLINE") || cmd == QLatin1String("PL")) {
         startCommand(std::make_unique<PolylineCommand>(m_document), QStringLiteral("PLINE"));
+    } else if (cmd == QLatin1String("ELLIPSE") || cmd == QLatin1String("EL")) {
+        startCommand(std::make_unique<EllipseCommand>(m_document), QStringLiteral("ELLIPSE"));
+    } else if (cmd == QLatin1String("TEXT") || cmd == QLatin1String("DT")) {
+        startCommand(std::make_unique<TextCommand>(m_document), QStringLiteral("TEXT"));
     } else if (cmd == QLatin1String("MOVE") || cmd == QLatin1String("M")) {
         const std::vector<lcad::EntityId> ids = selectionForModify();
         if (!ids.empty()) startCommand(std::make_unique<MoveCommand>(m_document, ids), QStringLiteral("MOVE"));

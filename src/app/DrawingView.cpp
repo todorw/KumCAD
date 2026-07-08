@@ -4,9 +4,12 @@
 #include "core/document/Commands.h"
 #include "core/geometry/Arc.h"
 #include "core/geometry/Circle.h"
+#include "core/geometry/Ellipse.h"
 #include "core/geometry/Line.h"
 #include "core/geometry/Polyline.h"
+#include "core/geometry/Text.h"
 
+#include <QFont>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPainter>
@@ -287,6 +290,28 @@ void DrawingView::drawEntity(QPainter& painter, const lcad::Entity& entity, cons
             painter.drawLine(worldToScreen(verts[i]), worldToScreen(verts[i + 1]));
         }
         if (pl.closed() && verts.size() > 1) painter.drawLine(worldToScreen(verts.back()), worldToScreen(verts.front()));
+        break;
+    }
+    case lcad::EntityType::Ellipse: {
+        const auto& ellipse = static_cast<const lcad::EllipseEntity&>(entity);
+        const QPointF c = worldToScreen(ellipse.center());
+        painter.drawEllipse(c, ellipse.radiusX() * m_scale, ellipse.radiusY() * m_scale);
+        break;
+    }
+    case lcad::EntityType::Text: {
+        const auto& text = static_cast<const lcad::TextEntity&>(entity);
+        QFont font = painter.font();
+        font.setPixelSize(std::max(1, static_cast<int>(std::round(text.height() * m_scale))));
+        painter.save();
+        painter.setFont(font);
+        painter.translate(worldToScreen(text.position()));
+        // painter.rotate() is clockwise in raw (Y-down) screen space, which is
+        // visually clockwise too since we draw directly in that space with no
+        // further flip -- our world angle convention is CCW-positive (visually),
+        // so it needs the opposite sign here, same reasoning as the ARC case above.
+        painter.rotate(-qRadiansToDegrees(text.rotation()));
+        painter.drawText(QPointF(0, 0), QString::fromStdString(text.text()));
+        painter.restore();
         break;
     }
     }

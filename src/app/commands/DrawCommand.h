@@ -32,6 +32,17 @@ public:
     virtual void onPreviewPoint(const lcad::Point2D& pt) { (void)pt; }
     virtual std::vector<std::pair<lcad::Point2D, lcad::Point2D>> previewSegments() const { return {}; }
 
+    // True once the command has reached a stage where it wants raw text
+    // content (e.g. TEXT's "Enter text:" prompt) rather than a point/number --
+    // CommandDispatcher routes ALL typed input to onText() while this is true,
+    // including things that would otherwise look like a coordinate or a bare
+    // number, and including an empty string for a bare Enter.
+    virtual bool wantsTextInput() const { return false; }
+    virtual std::optional<QString> onText(const QString& text) {
+        (void)text;
+        return std::nullopt;
+    }
+
     // The command's current reference point (base/center/last vertex), if it
     // has one yet, used by DrawingView's ortho mode to constrain the next
     // point to be exactly horizontal or vertical relative to it.

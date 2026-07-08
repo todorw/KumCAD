@@ -27,6 +27,10 @@ add_executable(kumcad
     commands/ArcCommand.cpp
     commands/PolylineCommand.h
     commands/PolylineCommand.cpp
+    commands/EllipseCommand.h
+    commands/EllipseCommand.cpp
+    commands/TextCommand.h
+    commands/TextCommand.cpp
     commands/MoveCommand.h
     commands/MoveCommand.cpp
     commands/CopyCommand.h

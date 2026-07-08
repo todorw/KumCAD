@@ -57,7 +57,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     updateModeLabels();
 
     m_commandLine->appendLine(QStringLiteral(
-        "KumCAD — type a command (LINE, CIRCLE, ARC, PLINE, MOVE, COPY, ROTATE, SCALE, ERASE, UNDO, REDO) and press Enter."));
+        "KumCAD — type a command (LINE, CIRCLE, ARC, PLINE, ELLIPSE, TEXT, MOVE, COPY, ROTATE, SCALE, ERASE, UNDO, REDO) "
+        "and press Enter."));
     m_commandLine->appendLine(QStringLiteral("F3 Object Snap / F8 Ortho / F9 Grid Snap toggle the drafting aids below."));
     m_commandLine->appendLine(QStringLiteral("Command:"));
     m_commandLine->input()->setFocus();
@@ -144,6 +145,8 @@ void MainWindow::setupMenusAndToolbar() {
     addCommandAction(IconFactory::circleIcon(), QStringLiteral("Circle"), QStringLiteral("CIRCLE"));
     addCommandAction(IconFactory::arcIcon(), QStringLiteral("Arc"), QStringLiteral("ARC"));
     addCommandAction(IconFactory::polylineIcon(), QStringLiteral("Polyline"), QStringLiteral("PLINE"));
+    addCommandAction(IconFactory::ellipseIcon(), QStringLiteral("Ellipse"), QStringLiteral("ELLIPSE"));
+    addCommandAction(IconFactory::textIcon(), QStringLiteral("Text"), QStringLiteral("TEXT"));
 
     toolbar->addSeparator();
     addCommandAction(IconFactory::moveIcon(), QStringLiteral("Move"), QStringLiteral("MOVE"));

@@ -1,7 +1,9 @@
 #include "core/geometry/Arc.h"
 #include "core/geometry/Circle.h"
+#include "core/geometry/Ellipse.h"
 #include "core/geometry/Line.h"
 #include "core/geometry/Polyline.h"
+#include "core/geometry/Text.h"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -187,4 +189,81 @@ TEST_CASE("PolylineEntity snap candidates", "[geometry][snap]") {
     REQUIRE(hasSnapAt(snaps, lcad::SnapKind::Endpoint, lcad::Point2D(10, 10)));
     REQUIRE(hasSnapAt(snaps, lcad::SnapKind::Midpoint, lcad::Point2D(5, 0)));
     REQUIRE(hasSnapAt(snaps, lcad::SnapKind::Midpoint, lcad::Point2D(10, 5)));
+}
+
+TEST_CASE("EllipseEntity distance, bounding box, and snap candidates", "[geometry]") {
+    lcad::EllipseEntity ellipse(1, 0, lcad::Point2D(0, 0), 10.0, 5.0);
+
+    REQUIRE(ellipse.distanceTo(lcad::Point2D(10, 0)) == Approx(0.0).margin(0.05));
+    REQUIRE(ellipse.distanceTo(lcad::Point2D(0, 5)) == Approx(0.0).margin(0.05));
+    REQUIRE(ellipse.distanceTo(lcad::Point2D(0, 0)) > 4.0); // center is well inside, far from the rim
+
+    const auto box = ellipse.boundingBox();
+    REQUIRE(box.min.x == Approx(-10.0));
+    REQUIRE(box.max.x == Approx(10.0));
+    REQUIRE(box.min.y == Approx(-5.0));
+    REQUIRE(box.max.y == Approx(5.0));
+
+    const auto snaps = ellipse.snapCandidates();
+    REQUIRE(hasSnapAt(snaps, lcad::SnapKind::Center, lcad::Point2D(0, 0)));
+    REQUIRE(hasSnapAt(snaps, lcad::SnapKind::Quadrant, lcad::Point2D(10, 0)));
+    REQUIRE(hasSnapAt(snaps, lcad::SnapKind::Quadrant, lcad::Point2D(0, 5)));
+}
+
+TEST_CASE("EllipseEntity translate, rotate, scale, and grip editing", "[geometry]") {
+    lcad::EllipseEntity ellipse(1, 0, lcad::Point2D(10, 0), 10.0, 5.0);
+
+    ellipse.translate(lcad::Point2D(1, 1));
+    REQUIRE(ellipse.center().x == Approx(11.0));
+    REQUIRE(ellipse.center().y == Approx(1.0));
+
+    ellipse.rotate(lcad::Point2D(1, 1), M_PI / 2); // only the center moves, matching the axis-aligned simplification
+    REQUIRE(ellipse.center().x == Approx(1.0).margin(1e-9));
+    REQUIRE(ellipse.center().y == Approx(11.0));
+    REQUIRE(ellipse.radiusX() == Approx(10.0));
+    REQUIRE(ellipse.radiusY() == Approx(5.0));
+
+    ellipse.scale(ellipse.center(), 2.0);
+    REQUIRE(ellipse.radiusX() == Approx(20.0));
+    REQUIRE(ellipse.radiusY() == Approx(10.0));
+
+    lcad::EllipseEntity e2(2, 0, lcad::Point2D(0, 0), 10.0, 5.0);
+    REQUIRE(e2.gripPoints().size() == 5);
+    e2.moveGripPoint(1, lcad::Point2D(20, 0)); // drag the +X radius grip
+    REQUIRE(e2.radiusX() == Approx(20.0));
+    REQUIRE(e2.radiusY() == Approx(5.0)); // untouched
+}
+
+TEST_CASE("TextEntity bounding box, distance, and grip editing (unrotated)", "[geometry]") {
+    lcad::TextEntity text(1, 0, lcad::Point2D(0, 0), "HI", 2.0); // 2 chars, height 2 -> approx width 0.6*2*2=2.4
+
+    const auto box = text.boundingBox();
+    REQUIRE(box.min.x == Approx(0.0));
+    REQUIRE(box.min.y == Approx(0.0));
+    REQUIRE(box.max.x == Approx(text.approximateWidth()));
+    REQUIRE(box.max.y == Approx(2.0));
+
+    REQUIRE(text.distanceTo(lcad::Point2D(1, 1)) == Approx(0.0)); // inside the bbox
+    REQUIRE(text.distanceTo(lcad::Point2D(-1, 0)) == Approx(1.0)); // 1 unit left of the box
+
+    REQUIRE(text.gripPoints().size() == 1);
+    text.moveGripPoint(0, lcad::Point2D(5, 5));
+    REQUIRE(text.position().x == Approx(5.0));
+    REQUIRE(text.position().y == Approx(5.0));
+}
+
+TEST_CASE("TextEntity rotate carries its own rotation and translate/scale behave", "[geometry]") {
+    lcad::TextEntity text(1, 0, lcad::Point2D(10, 0), "X", 1.0);
+
+    text.rotate(lcad::Point2D(0, 0), M_PI / 2);
+    REQUIRE(text.position().x == Approx(0.0).margin(1e-9));
+    REQUIRE(text.position().y == Approx(10.0));
+    REQUIRE(text.rotation() == Approx(M_PI / 2));
+
+    text.translate(lcad::Point2D(1, 1));
+    REQUIRE(text.position().x == Approx(1.0).margin(1e-9));
+    REQUIRE(text.position().y == Approx(11.0));
+
+    text.scale(text.position(), 3.0);
+    REQUIRE(text.height() == Approx(3.0));
 }

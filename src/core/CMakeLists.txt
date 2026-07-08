@@ -11,6 +11,10 @@ add_library(lcad_core STATIC
     geometry/Arc.cpp
     geometry/Polyline.h
     geometry/Polyline.cpp
+    geometry/Ellipse.h
+    geometry/Ellipse.cpp
+    geometry/Text.h
+    geometry/Text.cpp
     document/Layer.h
     document/Command.h
     document/Command.cpp

@@ -1,8 +1,10 @@
 #include "core/document/Document.h"
 #include "core/geometry/Arc.h"
 #include "core/geometry/Circle.h"
+#include "core/geometry/Ellipse.h"
 #include "core/geometry/Line.h"
 #include "core/geometry/Polyline.h"
+#include "core/geometry/Text.h"
 #include "core/io/DxfReader.h"
 #include "core/io/DxfWriter.h"
 
@@ -38,6 +40,10 @@ TEST_CASE("DXF round-trip preserves entities and layers", "[dxf]") {
                                                       5.0, 0.0, M_PI / 2));
     std::vector<lcad::Point2D> verts{{0, 0}, {10, 0}, {10, 10}};
     doc.addEntity(std::make_unique<lcad::PolylineEntity>(doc.reserveEntityId(), wallsLayer, verts, true));
+    doc.addEntity(
+        std::make_unique<lcad::EllipseEntity>(doc.reserveEntityId(), doc.currentLayer(), lcad::Point2D(20, 20), 8.0, 3.0));
+    doc.addEntity(std::make_unique<lcad::TextEntity>(doc.reserveEntityId(), doc.currentLayer(), lcad::Point2D(5, 5),
+                                                       "Hello KumCAD", 2.5, M_PI / 4));
 
     std::string writeError;
     REQUIRE(lcad::writeDxf(doc, temp.path.string(), &writeError));
@@ -48,7 +54,7 @@ TEST_CASE("DXF round-trip preserves entities and layers", "[dxf]") {
     REQUIRE(lcad::readDxf(loaded, temp.path.string(), &readError));
     REQUIRE(readError.empty());
 
-    REQUIRE(loaded.entities().size() == 4);
+    REQUIRE(loaded.entities().size() == 6);
     REQUIRE(loaded.layers().size() == 2); // default "0" + "Walls"
 
     const lcad::Layer* loadedWalls = nullptr;
@@ -64,6 +70,8 @@ TEST_CASE("DXF round-trip preserves entities and layers", "[dxf]") {
     bool foundCircle = false;
     bool foundArc = false;
     bool foundPolyline = false;
+    bool foundEllipse = false;
+    bool foundText = false;
     for (const lcad::Entity* e : loaded.entities()) {
         switch (e->type()) {
         case lcad::EntityType::Line: {
@@ -97,12 +105,31 @@ TEST_CASE("DXF round-trip preserves entities and layers", "[dxf]") {
             foundPolyline = true;
             break;
         }
+        case lcad::EntityType::Ellipse: {
+            const auto* ellipse = static_cast<const lcad::EllipseEntity*>(e);
+            REQUIRE(ellipse->center().x == Approx(20.0));
+            REQUIRE(ellipse->radiusX() == Approx(8.0));
+            REQUIRE(ellipse->radiusY() == Approx(3.0));
+            foundEllipse = true;
+            break;
+        }
+        case lcad::EntityType::Text: {
+            const auto* text = static_cast<const lcad::TextEntity*>(e);
+            REQUIRE(text->text() == "Hello KumCAD");
+            REQUIRE(text->height() == Approx(2.5));
+            REQUIRE(text->position().x == Approx(5.0));
+            REQUIRE(text->rotation() == Approx(M_PI / 4));
+            foundText = true;
+            break;
+        }
         }
     }
     REQUIRE(foundLine);
     REQUIRE(foundCircle);
     REQUIRE(foundArc);
     REQUIRE(foundPolyline);
+    REQUIRE(foundEllipse);
+    REQUIRE(foundText);
 }
 
 TEST_CASE("DXF read replaces document contents and clears undo history", "[dxf]") {

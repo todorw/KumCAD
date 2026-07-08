@@ -2,8 +2,10 @@
 
 #include "core/geometry/Arc.h"
 #include "core/geometry/Circle.h"
+#include "core/geometry/Ellipse.h"
 #include "core/geometry/Line.h"
 #include "core/geometry/Polyline.h"
+#include "core/geometry/Text.h"
 
 #include <cmath>
 #include <fstream>
@@ -115,6 +117,37 @@ bool writeDxf(const Document& document, const std::string& path, std::string* er
                 writeGroup(out, 10, v.x);
                 writeGroup(out, 20, v.y);
             }
+            break;
+        }
+        case EntityType::Ellipse: {
+            const auto& ellipse = static_cast<const EllipseEntity&>(*e);
+            const bool xIsMajor = ellipse.radiusX() >= ellipse.radiusY();
+            const double majorRadius = xIsMajor ? ellipse.radiusX() : ellipse.radiusY();
+            const double minorRadius = xIsMajor ? ellipse.radiusY() : ellipse.radiusX();
+            const double ratio = majorRadius > 1e-12 ? minorRadius / majorRadius : 1.0;
+            writeGroup(out, 0, "ELLIPSE");
+            writeGroup(out, 8, layer);
+            writeGroup(out, 10, ellipse.center().x);
+            writeGroup(out, 20, ellipse.center().y);
+            writeGroup(out, 30, 0.0);
+            writeGroup(out, 11, xIsMajor ? majorRadius : 0.0); // major axis endpoint, relative to center
+            writeGroup(out, 21, xIsMajor ? 0.0 : majorRadius);
+            writeGroup(out, 31, 0.0);
+            writeGroup(out, 40, ratio);
+            writeGroup(out, 41, 0.0);        // start parameter: full ellipse
+            writeGroup(out, 42, 2.0 * M_PI); // end parameter
+            break;
+        }
+        case EntityType::Text: {
+            const auto& text = static_cast<const TextEntity&>(*e);
+            writeGroup(out, 0, "TEXT");
+            writeGroup(out, 8, layer);
+            writeGroup(out, 10, text.position().x);
+            writeGroup(out, 20, text.position().y);
+            writeGroup(out, 30, 0.0);
+            writeGroup(out, 40, text.height());
+            writeGroup(out, 1, text.text());
+            writeGroup(out, 50, text.rotation() * 180.0 / M_PI);
             break;
         }
         }

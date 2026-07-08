@@ -2,8 +2,10 @@
 
 #include "core/geometry/Arc.h"
 #include "core/geometry/Circle.h"
+#include "core/geometry/Ellipse.h"
 #include "core/geometry/Line.h"
 #include "core/geometry/Polyline.h"
+#include "core/geometry/Text.h"
 
 #include <cmath>
 #include <fstream>
@@ -110,12 +112,16 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
     std::string curLayerRef = "0";
     Point2D p10, p11;
     double radius = 0.0;
+    double ellipseRatio = 1.0;
     double startAngleDeg = 0.0;
     double endAngleDeg = 0.0;
     std::vector<Point2D> polyVerts;
     double pendingVertX = 0.0;
     bool havePendingVertX = false;
     bool closed = false;
+    double textHeight = 0.0;
+    double textRotationDeg = 0.0;
+    std::string textContent;
 
     auto flushEntity = [&]() {
         if (curEntityType.empty()) return;
@@ -131,6 +137,18 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
                                                           endAngleDeg * M_PI / 180.0));
         } else if ((curEntityType == "LWPOLYLINE" || curEntityType == "POLYLINE") && polyVerts.size() >= 2) {
             fresh.addEntity(std::make_unique<PolylineEntity>(id, layerId, polyVerts, closed));
+        } else if (curEntityType == "ELLIPSE") {
+            // p11 is the major axis endpoint relative to center; we only support
+            // axis-aligned ellipses, so treat whichever axis it's closer to as major.
+            const double majorRadius = std::sqrt(p11.x * p11.x + p11.y * p11.y);
+            const double minorRadius = majorRadius * ellipseRatio;
+            const bool xIsMajor = std::abs(p11.x) >= std::abs(p11.y);
+            const double rx = xIsMajor ? majorRadius : minorRadius;
+            const double ry = xIsMajor ? minorRadius : majorRadius;
+            fresh.addEntity(std::make_unique<EllipseEntity>(id, layerId, p10, rx, ry));
+        } else if (curEntityType == "TEXT" && !textContent.empty()) {
+            fresh.addEntity(
+                std::make_unique<TextEntity>(id, layerId, p10, textContent, textHeight, textRotationDeg * M_PI / 180.0));
         }
 
         curEntityType.clear();
@@ -138,11 +156,15 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
         p10 = Point2D();
         p11 = Point2D();
         radius = 0.0;
+        ellipseRatio = 1.0;
         startAngleDeg = 0.0;
         endAngleDeg = 0.0;
         polyVerts.clear();
         havePendingVertX = false;
         closed = false;
+        textHeight = 0.0;
+        textRotationDeg = 0.0;
+        textContent.clear();
     };
 
     for (const Group& g : groups) {
@@ -220,16 +242,22 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             p11.y = toDouble(g.value);
             break;
         case 40:
-            radius = toDouble(g.value);
+            if (curEntityType == "ELLIPSE") ellipseRatio = toDouble(g.value, 1.0);
+            else if (curEntityType == "TEXT") textHeight = toDouble(g.value);
+            else radius = toDouble(g.value);
             break;
         case 50:
-            startAngleDeg = toDouble(g.value);
+            if (curEntityType == "TEXT") textRotationDeg = toDouble(g.value);
+            else startAngleDeg = toDouble(g.value);
             break;
         case 51:
             endAngleDeg = toDouble(g.value);
             break;
         case 70:
             if (curEntityType == "LWPOLYLINE") closed = (toInt(g.value) & 1) != 0;
+            break;
+        case 1:
+            if (curEntityType == "TEXT") textContent = g.value;
             break;
         default:
             break;

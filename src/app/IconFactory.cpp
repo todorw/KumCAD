@@ -82,6 +82,24 @@ QIcon polylineIcon() {
     });
 }
 
+QIcon ellipseIcon() {
+    return build([](QPainter& painter) {
+        painter.save();
+        painter.translate(16, 16);
+        painter.rotate(20);
+        painter.drawEllipse(QPointF(0, 0), 11, 6.5);
+        painter.restore();
+    });
+}
+
+QIcon textIcon() {
+    return build([](QPainter& painter) {
+        painter.drawLine(QPointF(7, 8), QPointF(25, 8));
+        painter.drawLine(QPointF(16, 8), QPointF(16, 24));
+        painter.drawLine(QPointF(11, 24), QPointF(21, 24));
+    });
+}
+
 QIcon moveIcon() {
     return build([](QPainter& painter) {
         painter.drawLine(QPointF(16, 5), QPointF(16, 27));

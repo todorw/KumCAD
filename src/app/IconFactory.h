@@ -11,6 +11,8 @@ QIcon lineIcon();
 QIcon circleIcon();
 QIcon arcIcon();
 QIcon polylineIcon();
+QIcon ellipseIcon();
+QIcon textIcon();
 QIcon moveIcon();
 QIcon copyIcon();
 QIcon rotateIcon();
