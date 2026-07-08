@@ -5,6 +5,7 @@
 #include "DrawingView.h"
 #include "IconFactory.h"
 #include "LayerPanel.h"
+#include "PropertiesPanel.h"
 #include "core/io/DxfReader.h"
 #include "core/io/DxfWriter.h"
 
@@ -89,6 +90,20 @@ void MainWindow::setupDocks() {
     layerDock->setObjectName(QStringLiteral("LayerDock"));
     layerDock->setWidget(m_layerPanel);
     addDockWidget(Qt::RightDockWidgetArea, layerDock);
+
+    m_propertiesPanel = new PropertiesPanel(m_document, *m_view, this);
+    connect(m_view, &DrawingView::selectionChanged, m_propertiesPanel, &PropertiesPanel::refresh);
+    connect(m_dispatcher, &CommandDispatcher::documentChanged, m_propertiesPanel, &PropertiesPanel::refresh);
+    connect(m_layerPanel, &LayerPanel::layersChanged, m_propertiesPanel, &PropertiesPanel::refresh);
+    connect(m_propertiesPanel, &PropertiesPanel::documentChanged, m_view, QOverload<>::of(&QWidget::update));
+    connect(m_propertiesPanel, &PropertiesPanel::documentChanged, this, &MainWindow::markDirty);
+
+    auto* propertiesDock = new QDockWidget(QStringLiteral("Properties"), this);
+    propertiesDock->setObjectName(QStringLiteral("PropertiesDock"));
+    propertiesDock->setWidget(m_propertiesPanel);
+    addDockWidget(Qt::RightDockWidgetArea, propertiesDock);
+    tabifyDockWidget(layerDock, propertiesDock);
+    layerDock->raise();
 }
 
 void MainWindow::setupMenusAndToolbar() {
@@ -203,6 +218,7 @@ void MainWindow::newDocument() {
     m_document = lcad::Document();
     m_view->resetViewState();
     m_layerPanel->refresh();
+    m_propertiesPanel->refresh();
     m_currentFilePath.clear();
     m_dirty = false;
     updateWindowTitle();
@@ -224,6 +240,7 @@ void MainWindow::openDocument() {
 
     m_view->resetViewState();
     m_layerPanel->refresh();
+    m_propertiesPanel->refresh();
     m_currentFilePath = path;
     m_dirty = false;
     updateWindowTitle();

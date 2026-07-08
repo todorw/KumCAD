@@ -18,6 +18,8 @@ add_executable(kumcad
     IconFactory.cpp
     LayerPanel.h
     LayerPanel.cpp
+    PropertiesPanel.h
+    PropertiesPanel.cpp
     commands/DrawCommand.h
     commands/LineCommand.h
     commands/LineCommand.cpp

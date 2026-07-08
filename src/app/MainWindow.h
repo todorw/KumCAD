@@ -10,6 +10,7 @@ class DrawingView;
 class CommandLine;
 class CommandDispatcher;
 class LayerPanel;
+class PropertiesPanel;
 class QLabel;
 
 class MainWindow : public QMainWindow {
@@ -42,6 +43,7 @@ private:
     CommandLine* m_commandLine = nullptr;
     CommandDispatcher* m_dispatcher = nullptr;
     LayerPanel* m_layerPanel = nullptr;
+    PropertiesPanel* m_propertiesPanel = nullptr;
     QLabel* m_coordLabel = nullptr;
     QLabel* m_osnapLabel = nullptr;
     QLabel* m_orthoLabel = nullptr;

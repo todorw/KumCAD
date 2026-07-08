@@ -122,3 +122,27 @@ TEST_CASE("ScaleEntitiesCommand undo/redo round-trips", "[commands]") {
     doc.commandStack().redo();
     REQUIRE(line->end().x == Catch::Approx(20.0));
 }
+
+TEST_CASE("SetEntityLayerCommand undo/redo round-trips with mixed original layers", "[commands]") {
+    lcad::Document doc;
+    const lcad::LayerId wallsLayer = doc.addLayer("Walls", lcad::Color{255, 0, 0});
+    const lcad::LayerId doorsLayer = doc.addLayer("Doors", lcad::Color{0, 255, 0});
+
+    const lcad::EntityId id1 = doc.reserveEntityId();
+    doc.addEntity(std::make_unique<lcad::LineEntity>(id1, wallsLayer, lcad::Point2D(0, 0), lcad::Point2D(1, 1)));
+    const lcad::EntityId id2 = doc.reserveEntityId();
+    doc.addEntity(std::make_unique<lcad::LineEntity>(id2, doc.currentLayer(), lcad::Point2D(2, 2), lcad::Point2D(3, 3)));
+
+    doc.commandStack().execute(
+        std::make_unique<lcad::SetEntityLayerCommand>(doc, std::vector<lcad::EntityId>{id1, id2}, doorsLayer));
+    REQUIRE(doc.findEntity(id1)->layer() == doorsLayer);
+    REQUIRE(doc.findEntity(id2)->layer() == doorsLayer);
+
+    doc.commandStack().undo();
+    REQUIRE(doc.findEntity(id1)->layer() == wallsLayer); // restored to its own original layer
+    REQUIRE(doc.findEntity(id2)->layer() == doc.currentLayer()); // and this one to its (different) original
+
+    doc.commandStack().redo();
+    REQUIRE(doc.findEntity(id1)->layer() == doorsLayer);
+    REQUIRE(doc.findEntity(id2)->layer() == doorsLayer);
+}

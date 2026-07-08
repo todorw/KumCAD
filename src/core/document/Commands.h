@@ -5,6 +5,7 @@
 #include "core/geometry/Entity.h"
 
 #include <memory>
+#include <utility>
 #include <vector>
 
 namespace lcad {
@@ -132,6 +133,37 @@ private:
     std::vector<EntityId> m_ids;
     Point2D m_center;
     double m_factor;
+};
+
+// Reassigns a set of entities to a different layer, e.g. from the Properties
+// panel. Captures each entity's prior layer on first execute() so undo can
+// restore per-entity origins even if the selection had mixed layers.
+class SetEntityLayerCommand : public Command {
+public:
+    SetEntityLayerCommand(Document& document, std::vector<EntityId> ids, LayerId newLayer)
+        : m_document(document), m_ids(std::move(ids)), m_newLayer(newLayer) {}
+
+    void execute() override {
+        m_oldLayers.clear();
+        for (EntityId id : m_ids) {
+            if (Entity* e = m_document.findEntity(id)) {
+                m_oldLayers.emplace_back(id, e->layer());
+                e->setLayer(m_newLayer);
+            }
+        }
+    }
+    void undo() override {
+        for (const auto& [id, layer] : m_oldLayers) {
+            if (Entity* e = m_document.findEntity(id)) e->setLayer(layer);
+        }
+    }
+    std::string description() const override { return "Change Layer"; }
+
+private:
+    Document& m_document;
+    std::vector<EntityId> m_ids;
+    LayerId m_newLayer;
+    std::vector<std::pair<EntityId, LayerId>> m_oldLayers;
 };
 
 } // namespace lcad
