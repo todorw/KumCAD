@@ -31,4 +31,14 @@ inline Point2D scaleAround(const Point2D& p, const Point2D& center, double facto
     return center + (p - center) * factor;
 }
 
+// Reflects p across the (infinite) line through a and b. If a == b the line is
+// degenerate; p is returned unchanged.
+inline Point2D mirrorAcross(const Point2D& p, const Point2D& a, const Point2D& b) {
+    const Point2D d = b - a;
+    const double lenSq = d.dot(d);
+    if (lenSq < 1e-12) return p;
+    const Point2D proj = a + d * ((p - a).dot(d) / lenSq);
+    return proj * 2.0 - p;
+}
+
 } // namespace lcad

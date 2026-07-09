@@ -100,6 +100,14 @@ QIcon textIcon() {
     });
 }
 
+QIcon rectangleIcon() {
+    return build([](QPainter& painter) {
+        painter.drawRect(QRectF(6, 9, 20, 14));
+        dot(painter, QPointF(6, 23));
+        dot(painter, QPointF(26, 9));
+    });
+}
+
 QIcon moveIcon() {
     return build([](QPainter& painter) {
         painter.drawLine(QPointF(16, 5), QPointF(16, 27));
@@ -147,6 +155,96 @@ QIcon scaleIcon() {
         head << QPointF(27, 21) << QPointF(27, 27) << QPointF(21, 27);
         painter.setBrush(kStroke);
         painter.drawPolygon(head);
+    });
+}
+
+QIcon mirrorIcon() {
+    return build([](QPainter& painter) {
+        // Dashed mirror axis with a solid triangle and its reflection.
+        QPen dashed = painter.pen();
+        dashed.setStyle(Qt::DashLine);
+        painter.save();
+        painter.setPen(dashed);
+        painter.drawLine(QPointF(16, 4), QPointF(16, 28));
+        painter.restore();
+        QPolygonF left;
+        left << QPointF(12, 10) << QPointF(5, 22) << QPointF(12, 22) << QPointF(12, 10);
+        painter.setBrush(kStroke);
+        painter.drawPolygon(left);
+        painter.setBrush(Qt::NoBrush);
+        QPolygonF right;
+        right << QPointF(20, 10) << QPointF(27, 22) << QPointF(20, 22) << QPointF(20, 10);
+        painter.drawPolygon(right);
+    });
+}
+
+QIcon offsetIcon() {
+    return build([](QPainter& painter) {
+        painter.drawEllipse(QPointF(14, 18), 8, 8);
+        QPen thin = painter.pen();
+        thin.setWidthF(1.4);
+        painter.save();
+        painter.setPen(thin);
+        painter.drawEllipse(QPointF(14, 18), 12.5, 12.5);
+        painter.restore();
+    });
+}
+
+QIcon trimIcon() {
+    return build([](QPainter& painter) {
+        // Cutting edge with the trimmed-away part dashed.
+        painter.drawLine(QPointF(16, 4), QPointF(16, 28));
+        painter.drawLine(QPointF(4, 16), QPointF(16, 16));
+        QPen dashed = painter.pen();
+        dashed.setStyle(Qt::DashLine);
+        painter.save();
+        painter.setPen(dashed);
+        painter.drawLine(QPointF(16, 16), QPointF(28, 16));
+        painter.restore();
+    });
+}
+
+QIcon extendIcon() {
+    return build([](QPainter& painter) {
+        // Line growing (dashed) toward a boundary edge.
+        painter.drawLine(QPointF(26, 4), QPointF(26, 28));
+        painter.drawLine(QPointF(4, 16), QPointF(14, 16));
+        QPen dashed = painter.pen();
+        dashed.setStyle(Qt::DashLine);
+        painter.save();
+        painter.setPen(dashed);
+        painter.drawLine(QPointF(14, 16), QPointF(25, 16));
+        painter.restore();
+        QPolygonF head;
+        head << QPointF(25, 16) << QPointF(20, 13) << QPointF(20, 19);
+        painter.setBrush(kStroke);
+        painter.drawPolygon(head);
+    });
+}
+
+QIcon filletIcon() {
+    return build([](QPainter& painter) {
+        QPainterPath path;
+        path.moveTo(6, 6);
+        path.lineTo(6, 16);
+        path.arcTo(QRectF(6, 6, 20, 20), 180, 90); // rounded corner
+        path.lineTo(26, 26);
+        painter.drawPath(path);
+    });
+}
+
+QIcon dimensionIcon() {
+    return build([](QPainter& painter) {
+        painter.drawLine(QPointF(6, 6), QPointF(6, 26));
+        painter.drawLine(QPointF(26, 6), QPointF(26, 26));
+        painter.drawLine(QPointF(6, 16), QPointF(26, 16));
+        painter.setBrush(kStroke);
+        QPolygonF left;
+        left << QPointF(6, 16) << QPointF(11, 13.5) << QPointF(11, 18.5);
+        painter.drawPolygon(left);
+        QPolygonF right;
+        right << QPointF(26, 16) << QPointF(21, 13.5) << QPointF(21, 18.5);
+        painter.drawPolygon(right);
     });
 }
 

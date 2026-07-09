@@ -28,6 +28,10 @@ void CircleEntity::scale(const Point2D& center, double factor) {
     m_radius *= factor;
 }
 
+void CircleEntity::mirror(const Point2D& a, const Point2D& b) {
+    m_center = mirrorAcross(m_center, a, b);
+}
+
 std::vector<Point2D> CircleEntity::gripPoints() const {
     return {m_center, Point2D(m_center.x + m_radius, m_center.y)};
 }

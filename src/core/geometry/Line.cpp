@@ -36,6 +36,11 @@ void LineEntity::scale(const Point2D& center, double factor) {
     m_end = scaleAround(m_end, center, factor);
 }
 
+void LineEntity::mirror(const Point2D& a, const Point2D& b) {
+    m_start = mirrorAcross(m_start, a, b);
+    m_end = mirrorAcross(m_end, a, b);
+}
+
 std::vector<Point2D> LineEntity::gripPoints() const {
     return {m_start, m_end, m_start + (m_end - m_start) * 0.5};
 }

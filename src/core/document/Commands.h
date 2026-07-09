@@ -5,10 +5,34 @@
 #include "core/geometry/Entity.h"
 
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
 namespace lcad {
+
+// Groups several commands into one undo step, e.g. erasing a multi-entity
+// selection or placing a batch of copies. Children execute in order and undo
+// in reverse.
+class BatchCommand : public Command {
+public:
+    explicit BatchCommand(std::string description) : m_description(std::move(description)) {}
+
+    void add(std::unique_ptr<Command> command) { m_commands.push_back(std::move(command)); }
+    bool empty() const { return m_commands.empty(); }
+
+    void execute() override {
+        for (auto& command : m_commands) command->execute();
+    }
+    void undo() override {
+        for (auto it = m_commands.rbegin(); it != m_commands.rend(); ++it) (*it)->undo();
+    }
+    std::string description() const override { return m_description; }
+
+private:
+    std::string m_description;
+    std::vector<std::unique_ptr<Command>> m_commands;
+};
 
 // Wraps Document::addEntity so it can be undone. Own the entity while it is
 // not in the document (i.e. before execute() / after undo()).

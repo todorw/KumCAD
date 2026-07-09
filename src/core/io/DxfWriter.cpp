@@ -2,7 +2,9 @@
 
 #include "core/geometry/Arc.h"
 #include "core/geometry/Circle.h"
+#include "core/geometry/Dimension.h"
 #include "core/geometry/Ellipse.h"
+#include "core/io/DxfColors.h"
 #include "core/geometry/Line.h"
 #include "core/geometry/Polyline.h"
 #include "core/geometry/Text.h"
@@ -61,7 +63,11 @@ bool writeDxf(const Document& document, const std::string& path, std::string* er
         writeGroup(out, 0, "LAYER");
         writeGroup(out, 2, layer.name);
         writeGroup(out, 70, layer.locked ? 4 : 0); // bit 2 = frozen/locked flag
-        writeGroup(out, 62, layer.visible ? 7 : -7); // negative ACI = off, matches DXF convention
+        // ACI (62) carries the nearest indexed color for readers that ignore
+        // true color, with a negative sign meaning the layer is off; 420
+        // carries the exact RGB for readers that support it.
+        const int aci = colorToAci(layer.color);
+        writeGroup(out, 62, layer.visible ? aci : -aci);
         writeGroup(out, 420, trueColor(layer.color));
         writeGroup(out, 6, "CONTINUOUS");
     }
@@ -125,17 +131,39 @@ bool writeDxf(const Document& document, const std::string& path, std::string* er
             const double majorRadius = xIsMajor ? ellipse.radiusX() : ellipse.radiusY();
             const double minorRadius = xIsMajor ? ellipse.radiusY() : ellipse.radiusX();
             const double ratio = majorRadius > 1e-12 ? minorRadius / majorRadius : 1.0;
+            // 11/21 is the major axis endpoint relative to the center; its
+            // direction encodes the ellipse's rotation.
+            const double majorDir = xIsMajor ? ellipse.rotation() : ellipse.rotation() + M_PI / 2;
             writeGroup(out, 0, "ELLIPSE");
             writeGroup(out, 8, layer);
             writeGroup(out, 10, ellipse.center().x);
             writeGroup(out, 20, ellipse.center().y);
             writeGroup(out, 30, 0.0);
-            writeGroup(out, 11, xIsMajor ? majorRadius : 0.0); // major axis endpoint, relative to center
-            writeGroup(out, 21, xIsMajor ? 0.0 : majorRadius);
+            writeGroup(out, 11, majorRadius * std::cos(majorDir));
+            writeGroup(out, 21, majorRadius * std::sin(majorDir));
             writeGroup(out, 31, 0.0);
             writeGroup(out, 40, ratio);
             writeGroup(out, 41, 0.0);        // start parameter: full ellipse
             writeGroup(out, 42, 2.0 * M_PI); // end parameter
+            break;
+        }
+        case EntityType::Dimension: {
+            const auto& dim = static_cast<const DimensionEntity&>(*e);
+            writeGroup(out, 0, "DIMENSION");
+            writeGroup(out, 8, layer);
+            writeGroup(out, 10, dim.linePoint().x); // definition point on the dimension line
+            writeGroup(out, 20, dim.linePoint().y);
+            writeGroup(out, 30, 0.0);
+            writeGroup(out, 13, dim.point1().x); // first extension line origin
+            writeGroup(out, 23, dim.point1().y);
+            writeGroup(out, 33, 0.0);
+            writeGroup(out, 14, dim.point2().x); // second extension line origin
+            writeGroup(out, 24, dim.point2().y);
+            writeGroup(out, 34, 0.0);
+            // Type: 0 = rotated (linear), 1 = aligned; bit 32 = block-reference
+            // flag that AutoCAD always sets.
+            writeGroup(out, 70, dim.aligned() ? 33 : 32);
+            writeGroup(out, 140, dim.textHeight()); // dim style text-height override
             break;
         }
         case EntityType::Text: {

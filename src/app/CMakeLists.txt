@@ -41,6 +41,24 @@ add_executable(kumcad
     commands/RotateCommand.cpp
     commands/ScaleCommand.h
     commands/ScaleCommand.cpp
+    commands/RectangCommand.h
+    commands/RectangCommand.cpp
+    commands/MirrorCommand.h
+    commands/MirrorCommand.cpp
+    commands/OffsetCommand.h
+    commands/OffsetCommand.cpp
+    commands/DistCommand.h
+    commands/DistCommand.cpp
+    commands/TrimCommand.h
+    commands/TrimCommand.cpp
+    commands/ExtendCommand.h
+    commands/ExtendCommand.cpp
+    commands/FilletCommand.h
+    commands/FilletCommand.cpp
+    commands/DimCommand.h
+    commands/DimCommand.cpp
+    commands/AreaCommand.h
+    commands/AreaCommand.cpp
 )
 
 target_include_directories(kumcad PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

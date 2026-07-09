@@ -9,7 +9,19 @@ QString PolylineCommand::start() {
 
 std::optional<QString> PolylineCommand::onPoint(const lcad::Point2D& pt) {
     m_points.push_back(pt);
-    return QStringLiteral("Specify next point or [Enter to finish]:");
+    return QStringLiteral("Specify next point or [Close/Enter to finish]:");
+}
+
+std::optional<QString> PolylineCommand::onOption(const QString& option) {
+    const QString opt = option.toUpper();
+    if (opt != QLatin1String("C") && opt != QLatin1String("CLOSE")) return std::nullopt;
+    if (m_points.size() < 3) return QStringLiteral("*Need at least three points to close*");
+
+    const auto id = m_document.reserveEntityId();
+    auto entity = std::make_unique<lcad::PolylineEntity>(id, m_document.currentLayer(), m_points, true);
+    m_document.commandStack().execute(std::make_unique<lcad::AddEntityCommand>(m_document, std::move(entity)));
+    m_finished = true;
+    return std::nullopt;
 }
 
 void PolylineCommand::onPreviewPoint(const lcad::Point2D& pt) {

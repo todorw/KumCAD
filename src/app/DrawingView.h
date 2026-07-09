@@ -33,6 +33,11 @@ public:
 
     void zoomExtents();
     void eraseSelection();
+    void selectAll();
+
+    // Drops selected entities whose layer has become locked or hidden (e.g.
+    // after a Layers-panel change), matching click-select's rules.
+    void pruneSelectionForLayerState();
 
     // Clears selection/hover/drag state and re-fits the view. Call after the
     // Document's contents were replaced wholesale (New/Open), since any
@@ -40,6 +45,10 @@ public:
     void resetViewState();
     bool hasSelection() const { return !m_selection.empty(); }
     std::vector<lcad::EntityId> selectedIds() const { return {m_selection.begin(), m_selection.end()}; }
+
+    // World-space distance corresponding to the pixel click tolerance at the
+    // current zoom; commands that pick entities themselves (TRIM/EXTEND) use it.
+    double pickToleranceWorld() const { return 6.0 / m_scale; }
 
     // Drafting aid toggles (F3/F8/F9), mirroring AutoCAD's OSNAP/ORTHO/SNAP.
     bool osnapEnabled() const { return m_osnapEnabled; }
@@ -53,6 +62,12 @@ signals:
     void mouseWorldMoved(const lcad::Point2D& pt);
     void selectionChanged();
     void modesChanged();
+
+    // Emitted after this view executes a command on the document's command
+    // stack (drag move, grip edit, erase) so the window can mark the file
+    // dirty and dependent panels can refresh -- these edits don't go through
+    // CommandDispatcher and would otherwise be invisible to them.
+    void documentEdited();
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -76,7 +91,6 @@ private:
 
     lcad::Entity* hitTestEntity(const lcad::Point2D& worldPt) const;
     std::optional<std::pair<lcad::EntityId, std::size_t>> hitTestGrip(const QPointF& screenPt) const;
-    double pickToleranceWorld() const { return 6.0 / m_scale; }
     double gridSpacing() const;
 
     // Resolves a screen click/move into the world point a command should
@@ -85,6 +99,7 @@ private:
     // command's anchor point), then grid snap. Updates m_currentSnap for the
     // on-screen marker as a side effect.
     lcad::Point2D resolvePoint(const QPointF& screenPos);
+    lcad::Point2D resolvePointWithAnchor(const QPointF& screenPos, const std::optional<lcad::Point2D>& orthoAnchor);
     std::optional<lcad::SnapPoint> findSnapCandidate(const QPointF& screenPos) const;
     lcad::Point2D applyOrtho(const lcad::Point2D& anchor, const lcad::Point2D& pt) const;
     lcad::Point2D snapToGrid(const lcad::Point2D& pt) const;

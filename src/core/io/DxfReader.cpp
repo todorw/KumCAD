@@ -2,12 +2,15 @@
 
 #include "core/geometry/Arc.h"
 #include "core/geometry/Circle.h"
+#include "core/geometry/Dimension.h"
 #include "core/geometry/Ellipse.h"
 #include "core/geometry/Line.h"
 #include "core/geometry/Polyline.h"
 #include "core/geometry/Text.h"
+#include "core/io/DxfColors.h"
 
 #include <cmath>
+#include <cstdlib>
 #include <fstream>
 #include <unordered_map>
 #include <vector>
@@ -88,6 +91,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
 
     std::string curLayerName;
     Color curLayerColor{255, 255, 255};
+    bool curLayerHasTrueColor = false;
     bool curLayerVisible = true;
     bool curLayerLocked = false;
     bool haveLayerName = false;
@@ -104,13 +108,16 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
         }
         haveLayerName = false;
         curLayerColor = Color{255, 255, 255};
+        curLayerHasTrueColor = false;
         curLayerVisible = true;
         curLayerLocked = false;
     };
 
     std::string curEntityType;
     std::string curLayerRef = "0";
-    Point2D p10, p11;
+    Point2D p10, p11, p13, p14;
+    int dimType = 32;
+    double dimTextHeight = 2.5;
     double radius = 0.0;
     double ellipseRatio = 1.0;
     double startAngleDeg = 0.0;
@@ -118,6 +125,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
     std::vector<Point2D> polyVerts;
     double pendingVertX = 0.0;
     bool havePendingVertX = false;
+    bool inVertex = false; // inside a VERTEX sub-entity of an old-style POLYLINE
     bool closed = false;
     double textHeight = 0.0;
     double textRotationDeg = 0.0;
@@ -138,29 +146,48 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
         } else if ((curEntityType == "LWPOLYLINE" || curEntityType == "POLYLINE") && polyVerts.size() >= 2) {
             fresh.addEntity(std::make_unique<PolylineEntity>(id, layerId, polyVerts, closed));
         } else if (curEntityType == "ELLIPSE") {
-            // p11 is the major axis endpoint relative to center; we only support
-            // axis-aligned ellipses, so treat whichever axis it's closer to as major.
+            // p11 is the major axis endpoint relative to center; its direction
+            // is the ellipse's rotation. An ellipse is symmetric under 180
+            // degrees, so normalize the rotation into [0, pi), and prefer the
+            // representation with rotation < 90 degrees (swapping which local
+            // axis is "major") so axis-aligned ellipses come back with
+            // rotation exactly 0.
             const double majorRadius = std::sqrt(p11.x * p11.x + p11.y * p11.y);
             const double minorRadius = majorRadius * ellipseRatio;
-            const bool xIsMajor = std::abs(p11.x) >= std::abs(p11.y);
-            const double rx = xIsMajor ? majorRadius : minorRadius;
-            const double ry = xIsMajor ? minorRadius : majorRadius;
-            fresh.addEntity(std::make_unique<EllipseEntity>(id, layerId, p10, rx, ry));
+            double rotation = std::atan2(p11.y, p11.x);
+            rotation = std::fmod(rotation, M_PI);
+            if (rotation < 0) rotation += M_PI;
+            double rx = majorRadius;
+            double ry = minorRadius;
+            if (rotation >= M_PI / 2) {
+                rotation -= M_PI / 2;
+                rx = minorRadius;
+                ry = majorRadius;
+            }
+            fresh.addEntity(std::make_unique<EllipseEntity>(id, layerId, p10, rx, ry, rotation));
         } else if (curEntityType == "TEXT" && !textContent.empty()) {
             fresh.addEntity(
                 std::make_unique<TextEntity>(id, layerId, p10, textContent, textHeight, textRotationDeg * M_PI / 180.0));
+        } else if (curEntityType == "DIMENSION") {
+            const bool aligned = (dimType & 7) == 1; // low bits: 0 = rotated/linear, 1 = aligned
+            fresh.addEntity(std::make_unique<DimensionEntity>(id, layerId, p13, p14, p10, aligned, dimTextHeight));
         }
 
         curEntityType.clear();
         curLayerRef = "0";
         p10 = Point2D();
         p11 = Point2D();
+        p13 = Point2D();
+        p14 = Point2D();
+        dimType = 32;
+        dimTextHeight = 2.5;
         radius = 0.0;
         ellipseRatio = 1.0;
         startAngleDeg = 0.0;
         endAngleDeg = 0.0;
         polyVerts.clear();
         havePendingVertX = false;
+        inVertex = false;
         closed = false;
         textHeight = 0.0;
         textRotationDeg = 0.0;
@@ -170,7 +197,15 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
     for (const Group& g : groups) {
         if (g.code == 0) {
             if (section == Section::Tables && inLayerTable) flushLayer();
+            // Old-style POLYLINE carries its points as VERTEX sub-entities
+            // terminated by SEQEND, so those two must not flush the pending
+            // polyline the way a new top-level entity would.
+            if (section == Section::Entities && g.value == "VERTEX" && curEntityType == "POLYLINE") {
+                inVertex = true;
+                continue;
+            }
             if (section == Section::Entities) flushEntity();
+            if (g.value == "SEQEND") continue;
 
             if (g.value == "SECTION") {
                 section = Section::None; // determined by the group 2 that follows
@@ -203,8 +238,13 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
         if (section == Section::Tables && inLayerTable) {
             if (g.code == 420) {
                 curLayerColor = colorFromTrueColor(toInt(g.value));
+                curLayerHasTrueColor = true;
             } else if (g.code == 62) {
-                curLayerVisible = toInt(g.value, 7) >= 0; // negative ACI = layer off
+                const int aci = toInt(g.value, 7);
+                curLayerVisible = aci >= 0; // negative ACI = layer off
+                // Most files carry only the indexed color; a 420 true color
+                // (before or after this group) always wins.
+                if (!curLayerHasTrueColor) curLayerColor = aciToColor(std::abs(aci));
             } else if (g.code == 70) {
                 curLayerLocked = (toInt(g.value) & 4) != 0; // bit 2 = locked/frozen
             }
@@ -218,7 +258,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             curLayerRef = g.value;
             break;
         case 10:
-            if (curEntityType == "LWPOLYLINE") {
+            if (curEntityType == "LWPOLYLINE" || inVertex) {
                 pendingVertX = toDouble(g.value);
                 havePendingVertX = true;
             } else {
@@ -226,7 +266,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             }
             break;
         case 20:
-            if (curEntityType == "LWPOLYLINE") {
+            if (curEntityType == "LWPOLYLINE" || inVertex) {
                 if (havePendingVertX) {
                     polyVerts.emplace_back(pendingVertX, toDouble(g.value));
                     havePendingVertX = false;
@@ -241,6 +281,21 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
         case 21:
             p11.y = toDouble(g.value);
             break;
+        case 13:
+            p13.x = toDouble(g.value);
+            break;
+        case 23:
+            p13.y = toDouble(g.value);
+            break;
+        case 14:
+            p14.x = toDouble(g.value);
+            break;
+        case 24:
+            p14.y = toDouble(g.value);
+            break;
+        case 140:
+            if (curEntityType == "DIMENSION") dimTextHeight = toDouble(g.value, 2.5);
+            break;
         case 40:
             if (curEntityType == "ELLIPSE") ellipseRatio = toDouble(g.value, 1.0);
             else if (curEntityType == "TEXT") textHeight = toDouble(g.value);
@@ -254,7 +309,13 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             endAngleDeg = toDouble(g.value);
             break;
         case 70:
-            if (curEntityType == "LWPOLYLINE") closed = (toInt(g.value) & 1) != 0;
+            // Closed flag (bit 0) on the polyline header; a VERTEX's own 70
+            // holds unrelated vertex flags, so skip it there.
+            if (curEntityType == "LWPOLYLINE" || (curEntityType == "POLYLINE" && !inVertex)) {
+                closed = (toInt(g.value) & 1) != 0;
+            } else if (curEntityType == "DIMENSION") {
+                dimType = toInt(g.value, 32);
+            }
             break;
         case 1:
             if (curEntityType == "TEXT") textContent = g.value;

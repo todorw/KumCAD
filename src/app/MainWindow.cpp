@@ -37,6 +37,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(m_dispatcher, &CommandDispatcher::documentChanged, m_view, QOverload<>::of(&QWidget::update));
     connect(m_dispatcher, &CommandDispatcher::previewChanged, m_view, QOverload<>::of(&QWidget::update));
     connect(m_dispatcher, &CommandDispatcher::documentChanged, this, &MainWindow::markDirty);
+    connect(m_view, &DrawingView::documentEdited, this, &MainWindow::markDirty);
     connect(m_view, &DrawingView::mouseWorldMoved, this, &MainWindow::updateCoordLabel);
     connect(m_view, &DrawingView::modesChanged, this, &MainWindow::updateModeLabels);
 
@@ -58,8 +59,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     updateModeLabels();
 
     m_commandLine->appendLine(QStringLiteral(
-        "KumCAD — type a command (LINE, CIRCLE, ARC, PLINE, ELLIPSE, TEXT, MOVE, COPY, ROTATE, SCALE, ERASE, UNDO, REDO) "
-        "and press Enter."));
+        "KumCAD — type a command (LINE, CIRCLE, ARC, PLINE, RECTANG, ELLIPSE, TEXT, DIMLINEAR, DIMALIGNED, MOVE, COPY, "
+        "ROTATE, SCALE, MIRROR, OFFSET, TRIM, EXTEND, FILLET, ERASE, DIST, AREA, ZOOM, UNDO, REDO) and press Enter."));
     m_commandLine->appendLine(QStringLiteral("F3 Object Snap / F8 Ortho / F9 Grid Snap toggle the drafting aids below."));
     m_commandLine->appendLine(QStringLiteral("Command:"));
     m_commandLine->input()->setFocus();
@@ -83,6 +84,7 @@ void MainWindow::setupDocks() {
     addDockWidget(Qt::BottomDockWidgetArea, commandDock);
 
     m_layerPanel = new LayerPanel(m_document, this);
+    connect(m_layerPanel, &LayerPanel::layersChanged, m_view, &DrawingView::pruneSelectionForLayerState);
     connect(m_layerPanel, &LayerPanel::layersChanged, m_view, QOverload<>::of(&QWidget::update));
     connect(m_layerPanel, &LayerPanel::layersChanged, this, &MainWindow::markDirty);
 
@@ -93,6 +95,7 @@ void MainWindow::setupDocks() {
 
     m_propertiesPanel = new PropertiesPanel(m_document, *m_view, this);
     connect(m_view, &DrawingView::selectionChanged, m_propertiesPanel, &PropertiesPanel::refresh);
+    connect(m_view, &DrawingView::documentEdited, m_propertiesPanel, &PropertiesPanel::refresh);
     connect(m_dispatcher, &CommandDispatcher::documentChanged, m_propertiesPanel, &PropertiesPanel::refresh);
     connect(m_layerPanel, &LayerPanel::layersChanged, m_propertiesPanel, &PropertiesPanel::refresh);
     connect(m_propertiesPanel, &PropertiesPanel::documentChanged, m_view, QOverload<>::of(&QWidget::update));
@@ -120,6 +123,7 @@ void MainWindow::setupMenusAndToolbar() {
     editMenu->addAction(QStringLiteral("&Undo"), QKeySequence::Undo, m_dispatcher, &CommandDispatcher::undo);
     editMenu->addAction(QStringLiteral("&Redo"), QKeySequence::Redo, m_dispatcher, &CommandDispatcher::redo);
     editMenu->addSeparator();
+    editMenu->addAction(QStringLiteral("Select &All"), QKeySequence::SelectAll, m_view, &DrawingView::selectAll);
     editMenu->addAction(QStringLiteral("&Erase Selected"), QKeySequence::Delete, m_view, &DrawingView::eraseSelection);
 
     QMenu* viewMenu = menuBar()->addMenu(QStringLiteral("&View"));
@@ -161,6 +165,7 @@ void MainWindow::setupMenusAndToolbar() {
     addCommandAction(IconFactory::arcIcon(), QStringLiteral("Arc"), QStringLiteral("ARC"));
     addCommandAction(IconFactory::polylineIcon(), QStringLiteral("Polyline"), QStringLiteral("PLINE"));
     addCommandAction(IconFactory::ellipseIcon(), QStringLiteral("Ellipse"), QStringLiteral("ELLIPSE"));
+    addCommandAction(IconFactory::rectangleIcon(), QStringLiteral("Rectangle"), QStringLiteral("RECTANG"));
     addCommandAction(IconFactory::textIcon(), QStringLiteral("Text"), QStringLiteral("TEXT"));
 
     toolbar->addSeparator();
@@ -168,6 +173,14 @@ void MainWindow::setupMenusAndToolbar() {
     addCommandAction(IconFactory::copyIcon(), QStringLiteral("Copy"), QStringLiteral("COPY"));
     addCommandAction(IconFactory::rotateIcon(), QStringLiteral("Rotate"), QStringLiteral("ROTATE"));
     addCommandAction(IconFactory::scaleIcon(), QStringLiteral("Scale"), QStringLiteral("SCALE"));
+    addCommandAction(IconFactory::mirrorIcon(), QStringLiteral("Mirror"), QStringLiteral("MIRROR"));
+    addCommandAction(IconFactory::offsetIcon(), QStringLiteral("Offset"), QStringLiteral("OFFSET"));
+    addCommandAction(IconFactory::trimIcon(), QStringLiteral("Trim"), QStringLiteral("TRIM"));
+    addCommandAction(IconFactory::extendIcon(), QStringLiteral("Extend"), QStringLiteral("EXTEND"));
+    addCommandAction(IconFactory::filletIcon(), QStringLiteral("Fillet"), QStringLiteral("FILLET"));
+
+    toolbar->addSeparator();
+    addCommandAction(IconFactory::dimensionIcon(), QStringLiteral("Dimension"), QStringLiteral("DIMLINEAR"));
 
     toolbar->addSeparator();
     auto* eraseAction = toolbar->addAction(IconFactory::eraseIcon(), QStringLiteral("Erase"));

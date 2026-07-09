@@ -47,6 +47,10 @@ void PolylineEntity::scale(const Point2D& center, double factor) {
     for (auto& v : m_vertices) v = scaleAround(v, center, factor);
 }
 
+void PolylineEntity::mirror(const Point2D& a, const Point2D& b) {
+    for (auto& v : m_vertices) v = mirrorAcross(v, a, b);
+}
+
 std::vector<Point2D> PolylineEntity::gripPoints() const {
     return m_vertices;
 }

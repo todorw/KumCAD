@@ -68,6 +68,17 @@ void ArcEntity::scale(const Point2D& center, double factor) {
     m_radius *= factor;
 }
 
+void ArcEntity::mirror(const Point2D& a, const Point2D& b) {
+    m_center = mirrorAcross(m_center, a, b);
+    // Reflection maps angle t to 2*phi - t (phi = mirror line's angle) and
+    // flips orientation, so swap start/end to keep the CCW sweep convention.
+    const double phi = std::atan2(b.y - a.y, b.x - a.x);
+    const double newStart = 2.0 * phi - m_endAngle;
+    const double newEnd = 2.0 * phi - m_startAngle;
+    m_startAngle = newStart;
+    m_endAngle = newEnd;
+}
+
 std::vector<Point2D> ArcEntity::gripPoints() const {
     return {startPoint(), endPoint(), m_center};
 }

@@ -50,6 +50,10 @@ private:
     // command-line message) if there isn't one. Used by MOVE/COPY/ROTATE/SCALE/ERASE.
     std::vector<lcad::EntityId> selectionForModify() const;
 
+    // World-space click tolerance from the view's current zoom, for commands
+    // that pick entities themselves (TRIM/EXTEND).
+    double pickTolerance() const;
+
     lcad::Document& m_document;
     CommandLine& m_commandLine;
     DrawingView* m_view = nullptr;

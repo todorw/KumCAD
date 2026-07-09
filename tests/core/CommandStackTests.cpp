@@ -146,3 +146,26 @@ TEST_CASE("SetEntityLayerCommand undo/redo round-trips with mixed original layer
     REQUIRE(doc.findEntity(id1)->layer() == doorsLayer);
     REQUIRE(doc.findEntity(id2)->layer() == doorsLayer);
 }
+
+TEST_CASE("BatchCommand groups children into one undo step", "[commands]") {
+    lcad::Document doc;
+    const lcad::EntityId id1 = doc.reserveEntityId();
+    const lcad::EntityId id2 = doc.reserveEntityId();
+    doc.addEntity(std::make_unique<lcad::LineEntity>(id1, doc.currentLayer(), lcad::Point2D(0, 0), lcad::Point2D(1, 1)));
+    doc.addEntity(std::make_unique<lcad::LineEntity>(id2, doc.currentLayer(), lcad::Point2D(2, 2), lcad::Point2D(3, 3)));
+
+    auto batch = std::make_unique<lcad::BatchCommand>("Erase");
+    batch->add(std::make_unique<lcad::DeleteEntityCommand>(doc, id1));
+    batch->add(std::make_unique<lcad::DeleteEntityCommand>(doc, id2));
+    doc.commandStack().execute(std::move(batch));
+    REQUIRE(doc.entities().empty());
+
+    doc.commandStack().undo(); // a single undo restores both
+    REQUIRE(doc.entities().size() == 2);
+    REQUIRE(doc.findEntity(id1) != nullptr);
+    REQUIRE(doc.findEntity(id2) != nullptr);
+    REQUIRE_FALSE(doc.commandStack().canUndo());
+
+    doc.commandStack().redo();
+    REQUIRE(doc.entities().empty());
+}

@@ -20,12 +20,17 @@ public:
     Point2D startPoint() const;
     Point2D endPoint() const;
 
+    // True if the (any-range) angle lies within the CCW sweep from startAngle
+    // to endAngle. Used by hit-testing, bounding boxes, and intersection math.
+    bool containsAngle(double angle) const { return angleInSweep(angle); }
+
     EntityType type() const override { return EntityType::Arc; }
     BoundingBox boundingBox() const override;
     double distanceTo(const Point2D& pt) const override;
     void translate(const Point2D& delta) override;
     void rotate(const Point2D& center, double angleRadians) override;
     void scale(const Point2D& center, double factor) override;
+    void mirror(const Point2D& a, const Point2D& b) override;
     std::vector<Point2D> gripPoints() const override;
     void moveGripPoint(std::size_t index, const Point2D& newPos) override;
     std::vector<SnapPoint> snapCandidates() const override;

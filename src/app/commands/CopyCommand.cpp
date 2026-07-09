@@ -14,14 +14,17 @@ std::optional<QString> CopyCommand::onPoint(const lcad::Point2D& pt) {
     }
 
     const lcad::Point2D delta = pt - m_base;
+    auto batch = std::make_unique<lcad::BatchCommand>("Copy");
     for (lcad::EntityId id : m_ids) {
         const lcad::Entity* source = m_document.findEntity(id);
         if (!source) continue;
         std::unique_ptr<lcad::Entity> copy = source->clone();
         copy->translate(delta);
         copy->setId(m_document.reserveEntityId());
-        m_document.commandStack().execute(std::make_unique<lcad::AddEntityCommand>(m_document, std::move(copy)));
+        batch->add(std::make_unique<lcad::AddEntityCommand>(m_document, std::move(copy)));
     }
+    // One undo step per placement (a repeated COPY can place several sets).
+    if (!batch->empty()) m_document.commandStack().execute(std::move(batch));
     return QStringLiteral("Specify second point or [Enter to finish]:");
 }
 

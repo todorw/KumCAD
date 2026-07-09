@@ -4,6 +4,7 @@
 #include "core/document/Commands.h"
 #include "core/geometry/Arc.h"
 #include "core/geometry/Circle.h"
+#include "core/geometry/Dimension.h"
 #include "core/geometry/Ellipse.h"
 #include "core/geometry/Line.h"
 #include "core/geometry/Polyline.h"
@@ -123,6 +124,15 @@ lcad::Point2D DrawingView::snapToGrid(const lcad::Point2D& pt) const {
 }
 
 lcad::Point2D DrawingView::resolvePoint(const QPointF& screenPos) {
+    std::optional<lcad::Point2D> anchor;
+    if (m_dispatcher && m_dispatcher->hasActiveCommand()) {
+        anchor = m_dispatcher->activeDrawCommand()->anchorPoint();
+    }
+    return resolvePointWithAnchor(screenPos, anchor);
+}
+
+lcad::Point2D DrawingView::resolvePointWithAnchor(const QPointF& screenPos,
+                                                  const std::optional<lcad::Point2D>& orthoAnchor) {
     m_currentSnap.reset();
     if (m_osnapEnabled) {
         if (auto snap = findSnapCandidate(screenPos)) {
@@ -133,11 +143,7 @@ lcad::Point2D DrawingView::resolvePoint(const QPointF& screenPos) {
 
     lcad::Point2D working = screenToWorld(screenPos);
 
-    if (m_orthoEnabled && m_dispatcher && m_dispatcher->hasActiveCommand()) {
-        if (auto anchor = m_dispatcher->activeDrawCommand()->anchorPoint()) {
-            working = applyOrtho(*anchor, working);
-        }
-    }
+    if (m_orthoEnabled && orthoAnchor) working = applyOrtho(*orthoAnchor, working);
 
     if (m_gridSnapEnabled) working = snapToGrid(working);
 
@@ -294,8 +300,53 @@ void DrawingView::drawEntity(QPainter& painter, const lcad::Entity& entity, cons
     }
     case lcad::EntityType::Ellipse: {
         const auto& ellipse = static_cast<const lcad::EllipseEntity&>(entity);
-        const QPointF c = worldToScreen(ellipse.center());
-        painter.drawEllipse(c, ellipse.radiusX() * m_scale, ellipse.radiusY() * m_scale);
+        painter.save();
+        painter.translate(worldToScreen(ellipse.center()));
+        // World CCW rotation is clockwise in raw Y-down screen space, hence
+        // the sign flip -- same reasoning as the Text case below.
+        painter.rotate(-qRadiansToDegrees(ellipse.rotation()));
+        painter.drawEllipse(QPointF(0, 0), ellipse.radiusX() * m_scale, ellipse.radiusY() * m_scale);
+        painter.restore();
+        break;
+    }
+    case lcad::EntityType::Dimension: {
+        const auto& dim = static_cast<const lcad::DimensionEntity&>(entity);
+        const auto geo = dim.geometry();
+
+        painter.drawLine(worldToScreen(geo.ext1A), worldToScreen(geo.ext1B));
+        painter.drawLine(worldToScreen(geo.ext2A), worldToScreen(geo.ext2B));
+        painter.drawLine(worldToScreen(geo.dimA), worldToScreen(geo.dimB));
+
+        // Arrowheads: slim filled triangles at the dimension line's ends,
+        // pointing outward, sized relative to the label text.
+        const lcad::Point2D span = geo.dimB - geo.dimA;
+        const double spanLen = span.length();
+        if (spanLen > 1e-9) {
+            const lcad::Point2D dir = span * (1.0 / spanLen);
+            const lcad::Point2D normal(-dir.y, dir.x);
+            const double arrow = 0.5 * dim.textHeight();
+            auto drawArrow = [&](const lcad::Point2D& tip, const lcad::Point2D& inward) {
+                QPolygonF tri;
+                tri << worldToScreen(tip) << worldToScreen(tip + inward * arrow + normal * (arrow / 3.0))
+                    << worldToScreen(tip + inward * arrow - normal * (arrow / 3.0));
+                painter.setBrush(color);
+                painter.drawPolygon(tri);
+                painter.setBrush(Qt::NoBrush);
+            };
+            drawArrow(geo.dimA, dir);
+            drawArrow(geo.dimB, dir * -1.0);
+        }
+
+        const QString label = QString::number(geo.value, 'f', 2);
+        QFont font = painter.font();
+        font.setPixelSize(std::max(1, static_cast<int>(std::round(dim.textHeight() * m_scale))));
+        painter.save();
+        painter.setFont(font);
+        painter.translate(worldToScreen(geo.textPos));
+        painter.rotate(-qRadiansToDegrees(geo.textAngle)); // same sign flip as the Text case
+        const QFontMetricsF metrics(font);
+        painter.drawText(QPointF(-metrics.horizontalAdvance(label) / 2.0, metrics.height() / 4.0), label);
+        painter.restore();
         break;
     }
     case lcad::EntityType::Text: {
@@ -414,11 +465,44 @@ void DrawingView::updateSelectionFromBox(const QRectF& screenBox, bool crossing)
 }
 
 void DrawingView::eraseSelection() {
+    if (m_selection.empty()) return;
+    auto batch = std::make_unique<lcad::BatchCommand>("Erase");
     for (lcad::EntityId id : m_selection) {
-        m_document.commandStack().execute(std::make_unique<lcad::DeleteEntityCommand>(m_document, id));
+        batch->add(std::make_unique<lcad::DeleteEntityCommand>(m_document, id));
     }
+    m_document.commandStack().execute(std::move(batch));
     m_selection.clear();
     emit selectionChanged();
+    emit documentEdited();
+}
+
+void DrawingView::selectAll() {
+    m_selection.clear();
+    for (lcad::Entity* e : m_document.entities()) {
+        const lcad::Layer* layer = m_document.findLayer(e->layer());
+        if (layer && (!layer->visible || layer->locked)) continue;
+        m_selection.insert(e->id());
+    }
+    emit selectionChanged();
+    update();
+}
+
+void DrawingView::pruneSelectionForLayerState() {
+    bool changed = false;
+    for (auto it = m_selection.begin(); it != m_selection.end();) {
+        const lcad::Entity* e = m_document.findEntity(*it);
+        const lcad::Layer* layer = e ? m_document.findLayer(e->layer()) : nullptr;
+        if (!e || (layer && (!layer->visible || layer->locked))) {
+            it = m_selection.erase(it);
+            changed = true;
+        } else {
+            ++it;
+        }
+    }
+    if (changed) {
+        emit selectionChanged();
+        update();
+    }
 }
 
 void DrawingView::resetViewState() {
@@ -519,7 +603,11 @@ void DrawingView::mouseMoveEvent(QMouseEvent* event) {
     }
     if (m_dragMode == DragMode::MoveSelection || m_dragMode == DragMode::Grip) {
         m_dragCurrentScreen = event->position();
-        m_dragCurrentWorld = worldPt;
+        // Drags honor the drafting aids too: osnap onto other geometry, ortho
+        // relative to where the drag started (the grip's old position for grip
+        // edits), and grid snap.
+        const lcad::Point2D anchor = m_dragMode == DragMode::Grip ? m_gripOldPos : m_dragStartWorld;
+        m_dragCurrentWorld = resolvePointWithAnchor(event->position(), anchor);
         update();
         return;
     }
@@ -565,6 +653,7 @@ void DrawingView::mouseReleaseEvent(QMouseEvent* event) {
 
     if (m_dragMode == DragMode::MoveSelection) {
         m_dragMode = DragMode::None;
+        m_currentSnap.reset();
         const QPointF screenDelta = m_dragCurrentScreen - m_dragStartScreen;
         const double screenDist = std::sqrt(screenDelta.x() * screenDelta.x() + screenDelta.y() * screenDelta.y());
         if (screenDist >= 3.0) {
@@ -572,6 +661,7 @@ void DrawingView::mouseReleaseEvent(QMouseEvent* event) {
             std::vector<lcad::EntityId> ids(m_selection.begin(), m_selection.end());
             m_document.commandStack().execute(
                 std::make_unique<lcad::TranslateEntitiesCommand>(m_document, std::move(ids), delta));
+            emit documentEdited();
         }
         update();
         return;
@@ -579,8 +669,16 @@ void DrawingView::mouseReleaseEvent(QMouseEvent* event) {
 
     if (m_dragMode == DragMode::Grip) {
         m_dragMode = DragMode::None;
-        m_document.commandStack().execute(std::make_unique<lcad::MoveGripCommand>(
-            m_document, m_gripEntityId, m_gripIndex, m_gripOldPos, m_dragCurrentWorld));
+        m_currentSnap.reset();
+        // Same 3px threshold as a selection drag: a plain click on a grip must
+        // not nudge the geometry to the (up to pick-tolerance off) click point.
+        const QPointF screenDelta = m_dragCurrentScreen - m_dragStartScreen;
+        const double screenDist = std::sqrt(screenDelta.x() * screenDelta.x() + screenDelta.y() * screenDelta.y());
+        if (screenDist >= 3.0) {
+            m_document.commandStack().execute(std::make_unique<lcad::MoveGripCommand>(
+                m_document, m_gripEntityId, m_gripIndex, m_gripOldPos, m_dragCurrentWorld));
+            emit documentEdited();
+        }
         update();
         return;
     }

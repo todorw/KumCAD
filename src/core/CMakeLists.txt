@@ -15,12 +15,18 @@ add_library(lcad_core STATIC
     geometry/Ellipse.cpp
     geometry/Text.h
     geometry/Text.cpp
+    geometry/Dimension.h
+    geometry/Dimension.cpp
+    geometry/Intersect.h
+    geometry/Intersect.cpp
     document/Layer.h
     document/Command.h
     document/Command.cpp
     document/Commands.h
     document/Document.h
     document/Document.cpp
+    io/DxfColors.h
+    io/DxfColors.cpp
     io/DxfWriter.h
     io/DxfWriter.cpp
     io/DxfReader.h

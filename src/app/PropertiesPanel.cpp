@@ -4,6 +4,7 @@
 #include "core/document/Commands.h"
 #include "core/geometry/Arc.h"
 #include "core/geometry/Circle.h"
+#include "core/geometry/Dimension.h"
 #include "core/geometry/Ellipse.h"
 #include "core/geometry/Line.h"
 #include "core/geometry/Polyline.h"
@@ -159,6 +160,18 @@ void PropertiesPanel::refresh() {
         addRow(QStringLiteral("Center Y:"), formatNumber(ellipse->center().y));
         addRow(QStringLiteral("Radius X:"), formatNumber(ellipse->radiusX()));
         addRow(QStringLiteral("Radius Y:"), formatNumber(ellipse->radiusY()));
+        addRow(QStringLiteral("Rotation:"), formatDegrees(ellipse->rotation()));
+        break;
+    }
+    case lcad::EntityType::Dimension: {
+        const auto* dim = static_cast<const lcad::DimensionEntity*>(e);
+        m_summaryLabel->setText(QStringLiteral("Dimension"));
+        addRow(QStringLiteral("Type:"), dim->aligned() ? QStringLiteral("Aligned") : QStringLiteral("Linear"));
+        addRow(QStringLiteral("Value:"), formatNumber(dim->geometry().value));
+        addRow(QStringLiteral("Point 1:"),
+               QStringLiteral("%1, %2").arg(formatNumber(dim->point1().x), formatNumber(dim->point1().y)));
+        addRow(QStringLiteral("Point 2:"),
+               QStringLiteral("%1, %2").arg(formatNumber(dim->point2().x), formatNumber(dim->point2().y)));
         break;
     }
     case lcad::EntityType::Text: {

@@ -17,6 +17,7 @@ enum class EntityType {
     Polyline,
     Ellipse,
     Text,
+    Dimension,
 };
 
 // Object-snap candidate kinds, mirroring AutoCAD's OSNAP markers.
@@ -56,6 +57,11 @@ public:
 
     // Uniform scale about center, used by the SCALE command.
     virtual void scale(const Point2D& center, double factor) = 0;
+
+    // Reflects the entity across the line through a and b, used by the MIRROR
+    // command. Implementations must preserve their own invariants (e.g. an
+    // arc's CCW start-to-end sweep convention).
+    virtual void mirror(const Point2D& a, const Point2D& b) = 0;
 
     // Key points shown as draggable grip handles when the entity is selected.
     virtual std::vector<Point2D> gripPoints() const = 0;

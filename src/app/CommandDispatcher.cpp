@@ -3,15 +3,24 @@
 #include "CommandLine.h"
 #include "DrawingView.h"
 #include "commands/ArcCommand.h"
+#include "commands/AreaCommand.h"
 #include "commands/CircleCommand.h"
 #include "commands/CopyCommand.h"
+#include "commands/DimCommand.h"
+#include "commands/DistCommand.h"
 #include "commands/EllipseCommand.h"
+#include "commands/ExtendCommand.h"
+#include "commands/FilletCommand.h"
 #include "commands/LineCommand.h"
+#include "commands/MirrorCommand.h"
 #include "commands/MoveCommand.h"
+#include "commands/OffsetCommand.h"
 #include "commands/PolylineCommand.h"
+#include "commands/RectangCommand.h"
 #include "commands/RotateCommand.h"
 #include "commands/ScaleCommand.h"
 #include "commands/TextCommand.h"
+#include "commands/TrimCommand.h"
 
 #include <QStringList>
 
@@ -42,6 +51,7 @@ void CommandDispatcher::handleCommandText(const QString& text) {
             // including an empty Enter, rather than trying to parse it as a point/number.
             const std::optional<QString> prompt = m_activeCommand->onText(trimmed);
             if (m_activeCommand->isFinished()) {
+                if (prompt) m_commandLine.appendLine(*prompt); // final result message (e.g. DIST)
                 finishCommand();
                 return;
             }
@@ -67,6 +77,20 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         if (isNumber) {
             const std::optional<QString> prompt = m_activeCommand->onScalar(scalar);
             if (m_activeCommand->isFinished()) {
+                if (prompt) m_commandLine.appendLine(*prompt);
+                finishCommand();
+                return;
+            }
+            if (prompt) {
+                m_commandLine.appendLine(*prompt);
+                emit documentChanged();
+                return;
+            }
+        } else {
+            // Keyword option like PLINE's "C" (close).
+            const std::optional<QString> prompt = m_activeCommand->onOption(trimmed);
+            if (m_activeCommand->isFinished()) {
+                if (prompt) m_commandLine.appendLine(*prompt);
                 finishCommand();
                 return;
             }
@@ -91,6 +115,8 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         startCommand(std::make_unique<PolylineCommand>(m_document), QStringLiteral("PLINE"));
     } else if (cmd == QLatin1String("ELLIPSE") || cmd == QLatin1String("EL")) {
         startCommand(std::make_unique<EllipseCommand>(m_document), QStringLiteral("ELLIPSE"));
+    } else if (cmd == QLatin1String("RECTANG") || cmd == QLatin1String("RECTANGLE") || cmd == QLatin1String("REC")) {
+        startCommand(std::make_unique<RectangCommand>(m_document), QStringLiteral("RECTANG"));
     } else if (cmd == QLatin1String("TEXT") || cmd == QLatin1String("DT")) {
         startCommand(std::make_unique<TextCommand>(m_document), QStringLiteral("TEXT"));
     } else if (cmd == QLatin1String("MOVE") || cmd == QLatin1String("M")) {
@@ -105,6 +131,45 @@ void CommandDispatcher::handleCommandText(const QString& text) {
     } else if (cmd == QLatin1String("SCALE") || cmd == QLatin1String("SC")) {
         const std::vector<lcad::EntityId> ids = selectionForModify();
         if (!ids.empty()) startCommand(std::make_unique<ScaleCommand>(m_document, ids), QStringLiteral("SCALE"));
+    } else if (cmd == QLatin1String("MIRROR") || cmd == QLatin1String("MI")) {
+        const std::vector<lcad::EntityId> ids = selectionForModify();
+        if (!ids.empty()) startCommand(std::make_unique<MirrorCommand>(m_document, ids), QStringLiteral("MIRROR"));
+    } else if (cmd == QLatin1String("OFFSET") || cmd == QLatin1String("O")) {
+        const std::vector<lcad::EntityId> ids = selectionForModify();
+        if (!ids.empty()) startCommand(std::make_unique<OffsetCommand>(m_document, ids), QStringLiteral("OFFSET"));
+    } else if (cmd == QLatin1String("TRIM") || cmd == QLatin1String("TR")) {
+        // Empty selection = every entity is a cutting edge (quick-trim style).
+        const std::vector<lcad::EntityId> ids = m_view ? m_view->selectedIds() : std::vector<lcad::EntityId>{};
+        startCommand(std::make_unique<TrimCommand>(m_document, ids, pickTolerance()), QStringLiteral("TRIM"));
+    } else if (cmd == QLatin1String("EXTEND") || cmd == QLatin1String("EX")) {
+        const std::vector<lcad::EntityId> ids = m_view ? m_view->selectedIds() : std::vector<lcad::EntityId>{};
+        startCommand(std::make_unique<ExtendCommand>(m_document, ids, pickTolerance()), QStringLiteral("EXTEND"));
+    } else if (cmd == QLatin1String("FILLET") || cmd == QLatin1String("F")) {
+        std::vector<lcad::EntityId> lineIds;
+        if (m_view) {
+            for (lcad::EntityId id : m_view->selectedIds()) {
+                const lcad::Entity* e = m_document.findEntity(id);
+                if (e && e->type() == lcad::EntityType::Line) lineIds.push_back(id);
+            }
+        }
+        if (lineIds.size() == 2) {
+            startCommand(std::make_unique<FilletCommand>(m_document, lineIds[0], lineIds[1]), QStringLiteral("FILLET"));
+        } else {
+            m_commandLine.appendLine(QStringLiteral("*Select exactly two lines first, then run FILLET*"));
+        }
+    } else if (cmd == QLatin1String("DIMLINEAR") || cmd == QLatin1String("DLI")) {
+        startCommand(std::make_unique<DimCommand>(m_document, false), QStringLiteral("DIMLINEAR"));
+    } else if (cmd == QLatin1String("DIMALIGNED") || cmd == QLatin1String("DAL")) {
+        startCommand(std::make_unique<DimCommand>(m_document, true), QStringLiteral("DIMALIGNED"));
+    } else if (cmd == QLatin1String("AREA") || cmd == QLatin1String("AA")) {
+        startCommand(std::make_unique<AreaCommand>(), QStringLiteral("AREA"));
+    } else if (cmd == QLatin1String("DIST") || cmd == QLatin1String("DI")) {
+        startCommand(std::make_unique<DistCommand>(), QStringLiteral("DIST"));
+    } else if (cmd == QLatin1String("ZOOM") || cmd == QLatin1String("Z")) {
+        if (m_view) {
+            m_view->zoomExtents();
+            m_commandLine.appendLine(QStringLiteral("*Zoom extents*"));
+        }
     } else if (cmd == QLatin1String("ERASE") || cmd == QLatin1String("E")) {
         const std::vector<lcad::EntityId> ids = selectionForModify();
         if (!ids.empty()) {
@@ -125,6 +190,7 @@ void CommandDispatcher::handlePointPicked(const lcad::Point2D& pt) {
     if (!m_activeCommand) return;
     const std::optional<QString> prompt = m_activeCommand->onPoint(pt);
     if (m_activeCommand->isFinished()) {
+        if (prompt) m_commandLine.appendLine(*prompt);
         finishCommand();
         return;
     }
@@ -141,6 +207,7 @@ void CommandDispatcher::handleMouseMoved(const lcad::Point2D& pt) {
 void CommandDispatcher::handleFinishRequested() {
     if (!m_activeCommand) return;
     m_activeCommand->requestFinish();
+    if (const auto message = m_activeCommand->resultMessage()) m_commandLine.appendLine(*message);
     finishCommand();
 }
 
@@ -160,6 +227,10 @@ void CommandDispatcher::redo() {
     m_document.commandStack().redo();
     m_commandLine.appendLine(QStringLiteral("*Redo*"));
     emit documentChanged();
+}
+
+double CommandDispatcher::pickTolerance() const {
+    return m_view ? m_view->pickToleranceWorld() : 0.5;
 }
 
 std::vector<lcad::EntityId> CommandDispatcher::selectionForModify() const {

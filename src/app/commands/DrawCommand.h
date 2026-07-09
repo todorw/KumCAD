@@ -29,6 +29,15 @@ public:
         return std::nullopt;
     }
 
+    // Typed input that parsed as neither a point nor a bare number -- a
+    // keyword option like PLINE's "C" (close). Called with the trimmed text.
+    // Return the next prompt if handled (check isFinished() as with onPoint);
+    // nullopt means unrecognized and the dispatcher reports invalid input.
+    virtual std::optional<QString> onOption(const QString& option) {
+        (void)option;
+        return std::nullopt;
+    }
+
     virtual void onPreviewPoint(const lcad::Point2D& pt) { (void)pt; }
     virtual std::vector<std::pair<lcad::Point2D, lcad::Point2D>> previewSegments() const { return {}; }
 
@@ -51,6 +60,10 @@ public:
     // Enter/right-click with no point typed: try to finish with the points
     // collected so far. Returns true if the command finished successfully.
     virtual bool requestFinish() { return false; }
+
+    // Message to print when the command ends via requestFinish (e.g. AREA's
+    // measured result). Queried by the dispatcher after requestFinish().
+    virtual std::optional<QString> resultMessage() const { return std::nullopt; }
 
     virtual bool isFinished() const = 0;
     virtual void cancel() = 0;
