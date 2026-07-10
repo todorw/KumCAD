@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/document/LineType.h"
 #include "core/geometry/Entity.h"
 
 #include <QColor>
@@ -17,7 +18,10 @@ namespace EntityPainter {
 using WorldToScreen = std::function<QPointF(const lcad::Point2D&)>;
 
 // scale = device pixels per world unit (for radii and text sizes).
+// linetype is the entity's resolved linetype (override or layer), with
+// patterns in drawing units scaled by ltScale (the document's LTSCALE).
 void paint(QPainter& painter, const lcad::Entity& entity, const WorldToScreen& toScreen, double scale,
-           const QColor& color, double penWidth);
+           const QColor& color, double penWidth, lcad::LineType linetype = lcad::LineType::Continuous,
+           double ltScale = 1.0);
 
 } // namespace EntityPainter

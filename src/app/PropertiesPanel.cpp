@@ -10,6 +10,7 @@
 #include "core/geometry/Insert.h"
 #include "core/geometry/Line.h"
 #include "core/geometry/Polyline.h"
+#include "core/geometry/Spline.h"
 #include "core/geometry/Text.h"
 
 #include <QColorDialog>
@@ -87,9 +88,15 @@ PropertiesPanel::PropertiesPanel(lcad::Document& document, DrawingView& view, QW
     connect(m_colorCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
             &PropertiesPanel::onColorComboChanged);
 
+    m_linetypeCombo = new QComboBox(this);
+    populateLinetypeCombo();
+    connect(m_linetypeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            &PropertiesPanel::onLinetypeComboChanged);
+
     auto* topForm = new QFormLayout();
     topForm->addRow(QStringLiteral("Layer:"), m_layerCombo);
     topForm->addRow(QStringLiteral("Color:"), m_colorCombo);
+    topForm->addRow(QStringLiteral("Linetype:"), m_linetypeCombo);
 
     m_fieldsForm = new QFormLayout();
 
@@ -124,11 +131,13 @@ void PropertiesPanel::refresh() {
         m_summaryLabel->setText(QStringLiteral("No selection"));
         m_layerCombo->setEnabled(false);
         m_colorCombo->setEnabled(false);
+        m_linetypeCombo->setEnabled(false);
         m_updating = false;
         return;
     }
     m_layerCombo->setEnabled(true);
     m_colorCombo->setEnabled(true);
+    m_linetypeCombo->setEnabled(true);
 
     // Color combo: ByLayer when nothing is overridden, the matching swatch
     // when every entity carries the same override, Custom for mixed states.
@@ -159,6 +168,34 @@ void PropertiesPanel::refresh() {
         }
     }
     m_colorCombo->setCurrentIndex(colorIndex);
+
+    // Linetype combo: index 0 is ByLayer; a specific linetype is shown only
+    // when every selected entity carries that same override.
+    int linetypeIndex = 0;
+    {
+        bool first = true;
+        bool uniform = true;
+        std::optional<lcad::LineType> common;
+        for (lcad::EntityId id : ids) {
+            if (const lcad::Entity* e = m_document.findEntity(id)) {
+                if (first) {
+                    common = e->linetypeOverride();
+                    first = false;
+                } else if (e->linetypeOverride() != common) {
+                    uniform = false;
+                }
+            }
+        }
+        if (uniform && common) {
+            for (int i = 1; i < m_linetypeCombo->count(); ++i) {
+                if (static_cast<lcad::LineType>(m_linetypeCombo->itemData(i).toInt()) == *common) {
+                    linetypeIndex = i;
+                    break;
+                }
+            }
+        }
+    }
+    m_linetypeCombo->setCurrentIndex(linetypeIndex);
 
     std::optional<lcad::LayerId> commonLayer;
     bool uniformLayer = true;
@@ -241,6 +278,14 @@ void PropertiesPanel::refresh() {
         addRow(QStringLiteral("Rotation:"), formatDegrees(ellipse->rotation()));
         break;
     }
+    case lcad::EntityType::Spline: {
+        const auto* spline = static_cast<const lcad::SplineEntity*>(e);
+        m_summaryLabel->setText(QStringLiteral("Spline"));
+        addRow(QStringLiteral("Degree:"), QString::number(spline->degree()));
+        addRow(QStringLiteral("Control points:"), QString::number(spline->controlPoints().size()));
+        addRow(QStringLiteral("Fit points:"), QString::number(spline->fitPoints().size()));
+        break;
+    }
     case lcad::EntityType::Dimension: {
         const auto* dim = static_cast<const lcad::DimensionEntity*>(e);
         m_summaryLabel->setText(QStringLiteral("Dimension"));
@@ -290,6 +335,26 @@ void PropertiesPanel::populateColorCombo() {
         m_colorCombo->addItem(colorSwatch(nc.color), QString::fromLatin1(nc.name), packColor(nc.color));
     }
     m_colorCombo->addItem(QStringLiteral("Custom..."), kCustomData);
+}
+
+void PropertiesPanel::populateLinetypeCombo() {
+    m_linetypeCombo->addItem(QStringLiteral("ByLayer"), kByLayerData);
+    for (lcad::LineType type : lcad::allLineTypes()) {
+        m_linetypeCombo->addItem(QLatin1String(lcad::lineTypeName(type)), static_cast<int>(type));
+    }
+}
+
+void PropertiesPanel::onLinetypeComboChanged(int index) {
+    if (m_updating || index < 0) return;
+    const auto ids = m_view.selectedIds();
+    if (ids.empty()) return;
+
+    std::optional<lcad::LineType> linetype;
+    if (m_linetypeCombo->itemData(index).toInt() != kByLayerData) {
+        linetype = static_cast<lcad::LineType>(m_linetypeCombo->itemData(index).toInt());
+    }
+    m_document.commandStack().execute(std::make_unique<lcad::SetEntityLinetypeCommand>(m_document, ids, linetype));
+    emit documentChanged();
 }
 
 void PropertiesPanel::applyColor(std::optional<lcad::Color> color) {

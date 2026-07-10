@@ -27,7 +27,9 @@ public:
     bool hasActiveCommand() const { return m_activeCommand != nullptr; }
     DrawCommand* activeDrawCommand() const { return m_activeCommand.get(); }
 
-    void handlePointPicked(const lcad::Point2D& pt);
+    // snapRef carries the osnap hit the point came from (nullopt for typed
+    // coordinates or free clicks), for commands that record associativity.
+    void handlePointPicked(const lcad::Point2D& pt, const std::optional<lcad::SnapRef>& snapRef = std::nullopt);
     void handleMouseMoved(const lcad::Point2D& pt);
     void handleFinishRequested();
     void handleEscape();

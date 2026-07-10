@@ -8,6 +8,7 @@
 #include "core/geometry/Insert.h"
 #include "core/geometry/Line.h"
 #include "core/geometry/Polyline.h"
+#include "core/geometry/Spline.h"
 #include "core/geometry/Text.h"
 #include "core/io/DxfColors.h"
 
@@ -91,11 +92,14 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
     enum class Section { None, Header, Tables, Blocks, Entities } section = Section::None;
     bool inLayerTable = false;
 
+    std::string curHeaderVar;
+
     std::string curLayerName;
     Color curLayerColor{255, 255, 255};
     bool curLayerHasTrueColor = false;
     bool curLayerVisible = true;
     bool curLayerLocked = false;
+    LineType curLayerLinetype = LineType::Continuous;
     bool haveLayerName = false;
 
     auto flushLayer = [&]() {
@@ -106,6 +110,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             if (Layer* layer = fresh.findLayer(id)) {
                 layer->visible = curLayerVisible;
                 layer->locked = curLayerLocked;
+                layer->linetype = curLayerLinetype;
             }
         }
         haveLayerName = false;
@@ -113,6 +118,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
         curLayerHasTrueColor = false;
         curLayerVisible = true;
         curLayerLocked = false;
+        curLayerLinetype = LineType::Continuous;
     };
 
     // Block-definition state: while a BLOCK ... ENDBLK is open, flushed
@@ -149,6 +155,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
     double startAngleDeg = 0.0;
     double endAngleDeg = 0.0;
     std::vector<Point2D> polyVerts;
+    std::vector<double> polyBulges;
     double pendingVertX = 0.0;
     bool havePendingVertX = false;
     bool inVertex = false; // inside a VERTEX sub-entity of an old-style POLYLINE
@@ -159,9 +166,15 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
     int hatchVertsExpected = 0;
     std::string insertName;
     double insertScale = 1.0;
+    int splineDegree = 3;
+    std::vector<double> splineKnots;
+    std::vector<Point2D> splineFit;
+    double pendingFitX = 0.0;
+    bool havePendingFitX = false;
     int entityAci = 0;             // per-entity color override, 0 = none seen
     bool entityHasTrueColor = false;
     Color entityTrueColor{255, 255, 255};
+    std::string entityLinetypeName; // per-entity linetype override, empty = ByLayer
 
     auto flushEntity = [&]() {
         if (curEntityType.empty()) return;
@@ -178,7 +191,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             made = std::make_unique<ArcEntity>(id, layerId, p10, radius, startAngleDeg * M_PI / 180.0,
                                                endAngleDeg * M_PI / 180.0);
         } else if ((curEntityType == "LWPOLYLINE" || curEntityType == "POLYLINE") && polyVerts.size() >= 2) {
-            made = std::make_unique<PolylineEntity>(id, layerId, polyVerts, closed);
+            made = std::make_unique<PolylineEntity>(id, layerId, polyVerts, polyBulges, closed);
         } else if (curEntityType == "ELLIPSE") {
             // p11 is the major axis endpoint relative to center; its direction
             // is the ellipse's rotation. An ellipse is symmetric under 180
@@ -207,6 +220,16 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             made = std::make_unique<DimensionEntity>(id, layerId, p13, p14, p10, aligned, dimTextHeight);
         } else if (curEntityType == "HATCH" && polyVerts.size() >= 3) {
             made = std::make_unique<HatchEntity>(id, layerId, polyVerts);
+        } else if (curEntityType == "SPLINE" && polyVerts.size() >= 2) {
+            // Control points were collected into polyVerts. Prefer the exact
+            // control-point + knot form; fall back to re-fitting from fit
+            // points when the knot vector is inconsistent.
+            const std::size_t expectedKnots = polyVerts.size() + splineDegree + 1;
+            if (splineKnots.size() == expectedKnots) {
+                made = std::make_unique<SplineEntity>(id, layerId, splineDegree, polyVerts, splineKnots, splineFit);
+            } else if (splineFit.size() >= 2) {
+                made = SplineEntity::fromFitPoints(id, layerId, splineFit);
+            }
         } else if (curEntityType == "INSERT" && !insertName.empty()) {
             if (const BlockDefinition* block = fresh.findBlock(insertName)) {
                 made = std::make_unique<InsertEntity>(id, layerId, block, p10, insertScale,
@@ -219,6 +242,10 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
                 made->setColorOverride(entityTrueColor);
             } else if (entityAci >= 1 && entityAci <= 255) {
                 made->setColorOverride(aciToColor(entityAci));
+            }
+            // Unknown names (including BYLAYER/BYBLOCK) stay ByLayer.
+            if (const auto linetype = lineTypeFromName(entityLinetypeName)) {
+                made->setLinetypeOverride(*linetype);
             }
             if (inBlockBody) {
                 curBlockEntities.push_back(std::move(made));
@@ -240,6 +267,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
         startAngleDeg = 0.0;
         endAngleDeg = 0.0;
         polyVerts.clear();
+        polyBulges.clear();
         havePendingVertX = false;
         inVertex = false;
         closed = false;
@@ -249,8 +277,13 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
         hatchVertsExpected = 0;
         insertName.clear();
         insertScale = 1.0;
+        splineDegree = 3;
+        splineKnots.clear();
+        splineFit.clear();
+        havePendingFitX = false;
         entityAci = 0;
         entityHasTrueColor = false;
+        entityLinetypeName.clear();
     };
 
     for (const Group& g : groups) {
@@ -318,8 +351,19 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             continue;
         }
 
+        if (section == Section::Header) {
+            if (g.code == 9) {
+                curHeaderVar = g.value;
+            } else if (g.code == 40 && curHeaderVar == "$LTSCALE") {
+                fresh.setLineTypeScale(toDouble(g.value, 1.0));
+            }
+            continue;
+        }
+
         if (section == Section::Tables && inLayerTable) {
-            if (g.code == 420) {
+            if (g.code == 6) {
+                curLayerLinetype = lineTypeFromName(g.value).value_or(LineType::Continuous);
+            } else if (g.code == 420) {
                 curLayerColor = colorFromTrueColor(toInt(g.value));
                 curLayerHasTrueColor = true;
             } else if (g.code == 62) {
@@ -343,11 +387,14 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
         if (!entityContext || curEntityType.empty()) continue;
 
         switch (g.code) {
+        case 6:
+            entityLinetypeName = g.value;
+            break;
         case 8:
             curLayerRef = g.value;
             break;
         case 10:
-            if (curEntityType == "LWPOLYLINE" || inVertex) {
+            if (curEntityType == "LWPOLYLINE" || curEntityType == "SPLINE" || inVertex) {
                 pendingVertX = toDouble(g.value);
                 havePendingVertX = true;
             } else if (curEntityType == "HATCH") {
@@ -360,9 +407,10 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             }
             break;
         case 20:
-            if (curEntityType == "LWPOLYLINE" || inVertex || curEntityType == "HATCH") {
+            if (curEntityType == "LWPOLYLINE" || curEntityType == "SPLINE" || inVertex || curEntityType == "HATCH") {
                 if (havePendingVertX) {
                     polyVerts.emplace_back(pendingVertX, toDouble(g.value));
+                    polyBulges.push_back(0.0); // a following group 42 may overwrite this
                     havePendingVertX = false;
                     if (curEntityType == "HATCH" && hatchVertsExpected > 0) --hatchVertsExpected;
                 }
@@ -371,10 +419,22 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             }
             break;
         case 11:
-            p11.x = toDouble(g.value);
+            if (curEntityType == "SPLINE") {
+                pendingFitX = toDouble(g.value);
+                havePendingFitX = true;
+            } else {
+                p11.x = toDouble(g.value);
+            }
             break;
         case 21:
-            p11.y = toDouble(g.value);
+            if (curEntityType == "SPLINE") {
+                if (havePendingFitX) {
+                    splineFit.emplace_back(pendingFitX, toDouble(g.value));
+                    havePendingFitX = false;
+                }
+            } else {
+                p11.y = toDouble(g.value);
+            }
             break;
         case 13:
             p13.x = toDouble(g.value);
@@ -391,10 +451,18 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
         case 40:
             if (curEntityType == "ELLIPSE") ellipseRatio = toDouble(g.value, 1.0);
             else if (curEntityType == "TEXT") textHeight = toDouble(g.value);
+            else if (curEntityType == "SPLINE") splineKnots.push_back(toDouble(g.value));
             else radius = toDouble(g.value);
             break;
         case 41:
             if (curEntityType == "INSERT") insertScale = toDouble(g.value, 1.0);
+            break;
+        case 42:
+            // Segment bulge, on LWPOLYLINE vertices and old-style VERTEX
+            // sub-entities only (42 means other things on ELLIPSE/INSERT/HATCH).
+            if ((curEntityType == "LWPOLYLINE" || inVertex) && !polyBulges.empty()) {
+                polyBulges.back() = toDouble(g.value);
+            }
             break;
         case 50:
             if (curEntityType == "TEXT") textRotationDeg = toDouble(g.value);
@@ -418,6 +486,9 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             } else if (curEntityType == "DIMENSION") {
                 dimType = toInt(g.value, 32);
             }
+            break;
+        case 71:
+            if (curEntityType == "SPLINE") splineDegree = std::max(1, toInt(g.value, 3));
             break;
         case 93:
             if (curEntityType == "HATCH") hatchVertsExpected = toInt(g.value);

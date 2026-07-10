@@ -25,6 +25,7 @@ add_executable(kumcad
     commands/DrawCommand.h
     commands/LineCommand.h
     commands/LineCommand.cpp
+    commands/LtScaleCommand.h
     commands/CircleCommand.h
     commands/CircleCommand.cpp
     commands/ArcCommand.h
@@ -33,6 +34,8 @@ add_executable(kumcad
     commands/PolylineCommand.cpp
     commands/EllipseCommand.h
     commands/EllipseCommand.cpp
+    commands/SplineCommand.h
+    commands/SplineCommand.cpp
     commands/TextCommand.h
     commands/TextCommand.cpp
     commands/MoveCommand.h

@@ -100,7 +100,7 @@ private:
     // on-screen marker as a side effect.
     lcad::Point2D resolvePoint(const QPointF& screenPos);
     lcad::Point2D resolvePointWithAnchor(const QPointF& screenPos, const std::optional<lcad::Point2D>& orthoAnchor);
-    std::optional<lcad::SnapPoint> findSnapCandidate(const QPointF& screenPos) const;
+    std::optional<std::pair<lcad::SnapPoint, lcad::SnapRef>> findSnapCandidate(const QPointF& screenPos) const;
     lcad::Point2D applyOrtho(const lcad::Point2D& anchor, const lcad::Point2D& pt) const;
     lcad::Point2D snapToGrid(const lcad::Point2D& pt) const;
 
@@ -131,4 +131,7 @@ private:
     bool m_orthoEnabled = false;
     bool m_gridSnapEnabled = false;
     std::optional<lcad::SnapPoint> m_currentSnap;
+    // Which entity snap point the last resolvePoint() osnap hit came from,
+    // handed to the dispatcher so commands can record associativity.
+    std::optional<lcad::SnapRef> m_currentSnapRef;
 };

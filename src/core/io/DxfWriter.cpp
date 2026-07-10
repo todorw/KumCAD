@@ -8,6 +8,7 @@
 #include "core/geometry/Insert.h"
 #include "core/geometry/Line.h"
 #include "core/geometry/Polyline.h"
+#include "core/geometry/Spline.h"
 #include "core/geometry/Text.h"
 #include "core/io/DxfColors.h"
 
@@ -39,10 +40,13 @@ std::string layerName(const Document& doc, LayerId id) {
     return "0";
 }
 
-// Layer reference plus the optional per-entity color override -- the groups
-// every entity type shares right after its "0 <TYPE>" record.
+// Layer reference plus the optional per-entity color/linetype overrides --
+// the groups every entity type shares right after its "0 <TYPE>" record.
 void writeCommon(std::ofstream& out, const Document& doc, const Entity& e) {
     writeGroup(out, 8, layerName(doc, e.layer()));
+    if (const auto& linetype = e.linetypeOverride()) {
+        writeGroup(out, 6, lineTypeName(*linetype));
+    }
     if (const auto& color = e.colorOverride()) {
         writeGroup(out, 62, colorToAci(*color));
         writeGroup(out, 420, trueColor(*color));
@@ -91,9 +95,10 @@ void writeEntity(std::ofstream& out, const Document& document, const Entity& e) 
         writeCommon(out, document, e);
         writeGroup(out, 90, static_cast<int>(pl.vertices().size()));
         writeGroup(out, 70, pl.closed() ? 1 : 0);
-        for (const Point2D& v : pl.vertices()) {
-            writeGroup(out, 10, v.x);
-            writeGroup(out, 20, v.y);
+        for (std::size_t i = 0; i < pl.vertices().size(); ++i) {
+            writeGroup(out, 10, pl.vertices()[i].x);
+            writeGroup(out, 20, pl.vertices()[i].y);
+            if (std::abs(pl.bulgeAt(i)) > 1e-9) writeGroup(out, 42, pl.bulgeAt(i));
         }
         break;
     }
@@ -117,6 +122,28 @@ void writeEntity(std::ofstream& out, const Document& document, const Entity& e) 
         writeGroup(out, 40, ratio);
         writeGroup(out, 41, 0.0);        // start parameter: full ellipse
         writeGroup(out, 42, 2.0 * M_PI); // end parameter
+        break;
+    }
+    case EntityType::Spline: {
+        const auto& spline = static_cast<const SplineEntity&>(e);
+        writeGroup(out, 0, "SPLINE");
+        writeCommon(out, document, e);
+        writeGroup(out, 70, 8); // planar
+        writeGroup(out, 71, spline.degree());
+        writeGroup(out, 72, static_cast<int>(spline.knots().size()));
+        writeGroup(out, 73, static_cast<int>(spline.controlPoints().size()));
+        writeGroup(out, 74, static_cast<int>(spline.fitPoints().size()));
+        for (double knot : spline.knots()) writeGroup(out, 40, knot);
+        for (const Point2D& p : spline.controlPoints()) {
+            writeGroup(out, 10, p.x);
+            writeGroup(out, 20, p.y);
+            writeGroup(out, 30, 0.0);
+        }
+        for (const Point2D& p : spline.fitPoints()) {
+            writeGroup(out, 11, p.x);
+            writeGroup(out, 21, p.y);
+            writeGroup(out, 31, 0.0);
+        }
         break;
     }
     case EntityType::Dimension: {
@@ -204,10 +231,32 @@ bool writeDxf(const Document& document, const std::string& path, std::string* er
     writeGroup(out, 2, "HEADER");
     writeGroup(out, 9, "$ACADVER");
     writeGroup(out, 1, "AC1015");
+    writeGroup(out, 9, "$LTSCALE");
+    writeGroup(out, 40, document.lineTypeScale());
     writeGroup(out, 0, "ENDSEC");
 
     writeGroup(out, 0, "SECTION");
     writeGroup(out, 2, "TABLES");
+    writeGroup(out, 0, "TABLE");
+    writeGroup(out, 2, "LTYPE");
+    writeGroup(out, 70, static_cast<int>(allLineTypes().size()));
+    for (LineType type : allLineTypes()) {
+        const auto& pattern = lineTypePattern(type);
+        double patternLength = 0.0;
+        for (double element : pattern) patternLength += std::abs(element);
+        writeGroup(out, 0, "LTYPE");
+        writeGroup(out, 2, lineTypeName(type));
+        writeGroup(out, 70, 0);
+        writeGroup(out, 3, lineTypeName(type));
+        writeGroup(out, 72, 65); // alignment: always 'A'
+        writeGroup(out, 73, static_cast<int>(pattern.size()));
+        writeGroup(out, 40, patternLength);
+        for (double element : pattern) {
+            writeGroup(out, 49, element);
+            writeGroup(out, 74, 0); // simple element (no embedded shape/text)
+        }
+    }
+    writeGroup(out, 0, "ENDTAB");
     writeGroup(out, 0, "TABLE");
     writeGroup(out, 2, "LAYER");
     writeGroup(out, 70, static_cast<int>(document.layers().size()));
@@ -221,7 +270,7 @@ bool writeDxf(const Document& document, const std::string& path, std::string* er
         const int aci = colorToAci(layer.color);
         writeGroup(out, 62, layer.visible ? aci : -aci);
         writeGroup(out, 420, trueColor(layer.color));
-        writeGroup(out, 6, "CONTINUOUS");
+        writeGroup(out, 6, lineTypeName(layer.linetype));
     }
     writeGroup(out, 0, "ENDTAB");
     writeGroup(out, 0, "ENDSEC");

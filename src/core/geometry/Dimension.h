@@ -35,6 +35,17 @@ public:
     bool aligned() const { return m_aligned; }
     double textHeight() const { return m_textHeight; }
 
+    void setPoint1(const Point2D& p) { m_p1 = p; }
+    void setPoint2(const Point2D& p) { m_p2 = p; }
+
+    // Associativity: optional snap references binding each definition point
+    // to another entity. Document::reassociateDimensions() re-resolves them
+    // after edits so the dimension follows the measured geometry.
+    const std::optional<SnapRef>& anchor1() const { return m_anchor1; }
+    const std::optional<SnapRef>& anchor2() const { return m_anchor2; }
+    void setAnchor1(std::optional<SnapRef> ref) { m_anchor1 = ref; }
+    void setAnchor2(std::optional<SnapRef> ref) { m_anchor2 = ref; }
+
     Geometry geometry() const;
 
     EntityType type() const override { return EntityType::Dimension; }
@@ -55,6 +66,8 @@ private:
     Point2D m_linePoint;
     bool m_aligned;
     double m_textHeight;
+    std::optional<SnapRef> m_anchor1;
+    std::optional<SnapRef> m_anchor2;
 };
 
 } // namespace lcad

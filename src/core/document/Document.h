@@ -44,6 +44,18 @@ public:
 
     CommandStack& commandStack() { return m_commandStack; }
 
+    // Re-resolves every associative dimension's anchored definition points
+    // from the entities they reference (dropping anchors whose entity is
+    // gone). The app calls this after each document mutation so dimensions
+    // follow the geometry they measure.
+    void reassociateDimensions();
+
+    // Global linetype pattern scale, AutoCAD's LTSCALE (DXF header $LTSCALE).
+    double lineTypeScale() const { return m_lineTypeScale; }
+    void setLineTypeScale(double scale) {
+        if (scale > 1e-9) m_lineTypeScale = scale;
+    }
+
 private:
     std::vector<Layer> m_layers;
     LayerId m_nextLayerId = 1;
@@ -54,6 +66,8 @@ private:
     EntityId m_nextEntityId = 1;
 
     std::vector<std::unique_ptr<BlockDefinition>> m_blocks;
+
+    double m_lineTypeScale = 1.0;
 
     CommandStack m_commandStack;
 };

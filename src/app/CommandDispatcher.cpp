@@ -14,6 +14,7 @@
 #include "commands/FilletCommand.h"
 #include "commands/InsertCommand.h"
 #include "commands/LineCommand.h"
+#include "commands/LtScaleCommand.h"
 #include "commands/MirrorCommand.h"
 #include "commands/MoveCommand.h"
 #include "commands/OffsetCommand.h"
@@ -21,9 +22,11 @@
 #include "commands/RectangCommand.h"
 #include "commands/RotateCommand.h"
 #include "commands/ScaleCommand.h"
+#include "commands/SplineCommand.h"
 #include "commands/TextCommand.h"
 #include "commands/TrimCommand.h"
 #include "core/document/Commands.h"
+#include "core/geometry/Arc.h"
 #include "core/geometry/Hatch.h"
 #include "core/geometry/Insert.h"
 #include "core/geometry/Line.h"
@@ -120,6 +123,8 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         startCommand(std::make_unique<ArcCommand>(m_document), QStringLiteral("ARC"));
     } else if (cmd == QLatin1String("PLINE") || cmd == QLatin1String("PL")) {
         startCommand(std::make_unique<PolylineCommand>(m_document), QStringLiteral("PLINE"));
+    } else if (cmd == QLatin1String("SPLINE") || cmd == QLatin1String("SPL")) {
+        startCommand(std::make_unique<SplineCommand>(m_document), QStringLiteral("SPLINE"));
     } else if (cmd == QLatin1String("ELLIPSE") || cmd == QLatin1String("EL")) {
         startCommand(std::make_unique<EllipseCommand>(m_document), QStringLiteral("ELLIPSE"));
     } else if (cmd == QLatin1String("RECTANG") || cmd == QLatin1String("RECTANGLE") || cmd == QLatin1String("REC")) {
@@ -181,6 +186,8 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         startCommand(std::make_unique<AreaCommand>(), QStringLiteral("AREA"));
     } else if (cmd == QLatin1String("DIST") || cmd == QLatin1String("DI")) {
         startCommand(std::make_unique<DistCommand>(), QStringLiteral("DIST"));
+    } else if (cmd == QLatin1String("LTSCALE") || cmd == QLatin1String("LTS")) {
+        startCommand(std::make_unique<LtScaleCommand>(m_document), QStringLiteral("LTSCALE"));
     } else if (cmd == QLatin1String("ZOOM") || cmd == QLatin1String("Z")) {
         if (m_view) {
             m_view->zoomExtents();
@@ -202,8 +209,9 @@ void CommandDispatcher::handleCommandText(const QString& text) {
     }
 }
 
-void CommandDispatcher::handlePointPicked(const lcad::Point2D& pt) {
+void CommandDispatcher::handlePointPicked(const lcad::Point2D& pt, const std::optional<lcad::SnapRef>& snapRef) {
     if (!m_activeCommand) return;
+    m_activeCommand->onSnapContext(snapRef);
     const std::optional<QString> prompt = m_activeCommand->onPoint(pt);
     if (m_activeCommand->isFinished()) {
         if (prompt) m_commandLine.appendLine(*prompt);
@@ -263,7 +271,7 @@ void CommandDispatcher::hatchSelection() {
             if (pl.closed() && pl.vertices().size() >= 3) {
                 batch->add(std::make_unique<lcad::AddEntityCommand>(
                     m_document, std::make_unique<lcad::HatchEntity>(m_document.reserveEntityId(), e->layer(),
-                                                                    pl.vertices())));
+                                                                    pl.flattenedVertices())));
                 ++made;
                 continue;
             }
@@ -302,18 +310,22 @@ void CommandDispatcher::explodeSelection() {
             ++made;
         } else if (e->type() == lcad::EntityType::Polyline) {
             const auto& pl = static_cast<const lcad::PolylineEntity&>(*e);
-            const auto& v = pl.vertices();
             batch->add(std::make_unique<lcad::DeleteEntityCommand>(m_document, id));
-            for (std::size_t i = 0; i + 1 < v.size(); ++i) {
-                batch->add(std::make_unique<lcad::AddEntityCommand>(
-                    m_document,
-                    std::make_unique<lcad::LineEntity>(m_document.reserveEntityId(), e->layer(), v[i], v[i + 1])));
-            }
-            if (pl.closed() && v.size() > 1) {
-                batch->add(std::make_unique<lcad::AddEntityCommand>(
-                    m_document,
-                    std::make_unique<lcad::LineEntity>(m_document.reserveEntityId(), e->layer(), v.back(), v.front())));
-            }
+            pl.forEachSegment([&](const lcad::Point2D& a, const lcad::Point2D& b, double bulge) {
+                if (const auto arc = lcad::bulgeToArc(a, b, bulge)) {
+                    // Our ArcEntity always sweeps CCW, so a clockwise bulge
+                    // becomes the same arc traversed from the other end.
+                    const double lo = arc->sweep >= 0 ? arc->startAngle : arc->startAngle + arc->sweep;
+                    batch->add(std::make_unique<lcad::AddEntityCommand>(
+                        m_document,
+                        std::make_unique<lcad::ArcEntity>(m_document.reserveEntityId(), e->layer(), arc->center,
+                                                          arc->radius, lo, lo + std::abs(arc->sweep))));
+                } else {
+                    batch->add(std::make_unique<lcad::AddEntityCommand>(
+                        m_document,
+                        std::make_unique<lcad::LineEntity>(m_document.reserveEntityId(), e->layer(), a, b)));
+                }
+            });
             ++made;
         } else {
             ++skipped;

@@ -59,6 +59,9 @@ void LayerPanel::refresh() {
     for (std::size_t i = 0; i < layers.size(); ++i) {
         const lcad::Layer& layer = layers[i];
         QString text = QString::fromStdString(layer.name);
+        if (layer.linetype != lcad::LineType::Continuous) {
+            text += QStringLiteral(" [%1]").arg(QLatin1String(lcad::lineTypeName(layer.linetype)));
+        }
         if (layer.locked) text += QStringLiteral(" (locked)");
         auto* item = new QListWidgetItem(swatchIcon(layer.color), text);
         item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
@@ -115,9 +118,20 @@ void LayerPanel::onContextMenuRequested(const QPoint& pos) {
 
     QMenu menu(this);
     QAction* toggleLockAction = menu.addAction(layer->locked ? QStringLiteral("Unlock Layer") : QStringLiteral("Lock Layer"));
+    QMenu* linetypeMenu = menu.addMenu(QStringLiteral("Linetype"));
+    for (lcad::LineType type : lcad::allLineTypes()) {
+        QAction* action = linetypeMenu->addAction(QLatin1String(lcad::lineTypeName(type)));
+        action->setCheckable(true);
+        action->setChecked(layer->linetype == type);
+        action->setData(static_cast<int>(type));
+    }
     QAction* chosen = menu.exec(m_list->viewport()->mapToGlobal(pos));
     if (chosen == toggleLockAction) {
         layer->locked = !layer->locked;
+        refresh();
+        emit layersChanged();
+    } else if (chosen && chosen->parent() == linetypeMenu) {
+        layer->linetype = static_cast<lcad::LineType>(chosen->data().toInt());
         refresh();
         emit layersChanged();
     }

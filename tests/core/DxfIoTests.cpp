@@ -7,6 +7,7 @@
 #include "core/geometry/Insert.h"
 #include "core/geometry/Line.h"
 #include "core/geometry/Polyline.h"
+#include "core/geometry/Spline.h"
 #include "core/geometry/Text.h"
 #include "core/io/DxfColors.h"
 #include "core/io/DxfReader.h"
@@ -382,4 +383,126 @@ TEST_CASE("DXF entity color override round-trips", "[dxf][color]") {
     REQUIRE(overridden.colorOverride()->b == 30);
 
     REQUIRE_FALSE(loaded.entities()[1]->colorOverride().has_value());
+}
+
+TEST_CASE("DXF polyline bulges round-trip", "[dxf][bulge]") {
+    TempDxfPath temp;
+
+    lcad::Document doc;
+    std::vector<lcad::Point2D> verts{{0, 0}, {10, 0}, {10, 10}};
+    std::vector<double> bulges{0.5, -1.0, 0.25}; // last one matters because the polyline is closed
+    doc.addEntity(
+        std::make_unique<lcad::PolylineEntity>(doc.reserveEntityId(), doc.currentLayer(), verts, bulges, true));
+
+    REQUIRE(lcad::writeDxf(doc, temp.path.string()));
+    lcad::Document loaded;
+    REQUIRE(lcad::readDxf(loaded, temp.path.string()));
+
+    const auto entities = loaded.entities();
+    REQUIRE(entities.size() == 1);
+    const auto* pl = static_cast<const lcad::PolylineEntity*>(entities[0]);
+    REQUIRE(pl->closed());
+    REQUIRE(pl->vertices().size() == 3);
+    REQUIRE(pl->bulgeAt(0) == Approx(0.5));
+    REQUIRE(pl->bulgeAt(1) == Approx(-1.0));
+    REQUIRE(pl->bulgeAt(2) == Approx(0.25));
+}
+
+TEST_CASE("DXF reader picks up bulges on old-style POLYLINE vertices", "[dxf][bulge][polyline]") {
+    TempDxfPath temp;
+    {
+        std::ofstream out(temp.path);
+        out << "0\nSECTION\n2\nENTITIES\n";
+        out << "0\nPOLYLINE\n8\n0\n66\n1\n70\n0\n";
+        out << "0\nVERTEX\n8\n0\n10\n0\n20\n0\n42\n1.0\n";
+        out << "0\nVERTEX\n8\n0\n10\n5\n20\n0\n";
+        out << "0\nSEQEND\n";
+        out << "0\nENDSEC\n0\nEOF\n";
+    }
+
+    lcad::Document loaded;
+    REQUIRE(lcad::readDxf(loaded, temp.path.string()));
+    const auto entities = loaded.entities();
+    REQUIRE(entities.size() == 1);
+    const auto* pl = static_cast<const lcad::PolylineEntity*>(entities[0]);
+    REQUIRE(pl->vertices().size() == 2);
+    REQUIRE(pl->bulgeAt(0) == Approx(1.0));
+    REQUIRE(pl->bulgeAt(1) == Approx(0.0));
+}
+
+TEST_CASE("DXF linetypes round-trip on layers and entities", "[dxf][linetype]") {
+    TempDxfPath temp;
+
+    lcad::Document doc;
+    doc.setLineTypeScale(2.5);
+    const lcad::LayerId hiddenLayer = doc.addLayer("HiddenStuff", lcad::Color{0, 255, 0});
+    if (lcad::Layer* layer = doc.findLayer(hiddenLayer)) layer->linetype = lcad::LineType::Hidden;
+
+    doc.addEntity(std::make_unique<lcad::LineEntity>(doc.reserveEntityId(), hiddenLayer, lcad::Point2D(0, 0),
+                                                       lcad::Point2D(10, 0)));
+    auto dashed = std::make_unique<lcad::LineEntity>(doc.reserveEntityId(), doc.currentLayer(), lcad::Point2D(0, 5),
+                                                     lcad::Point2D(10, 5));
+    dashed->setLinetypeOverride(lcad::LineType::Dashed);
+    doc.addEntity(std::move(dashed));
+
+    REQUIRE(lcad::writeDxf(doc, temp.path.string()));
+    lcad::Document loaded;
+    REQUIRE(lcad::readDxf(loaded, temp.path.string()));
+
+    REQUIRE(loaded.lineTypeScale() == Approx(2.5));
+
+    const lcad::Layer* layer = nullptr;
+    for (const auto& l : loaded.layers()) {
+        if (l.name == "HiddenStuff") layer = &l;
+    }
+    REQUIRE(layer != nullptr);
+    REQUIRE(layer->linetype == lcad::LineType::Hidden);
+
+    const auto entities = loaded.entities();
+    REQUIRE(entities.size() == 2);
+    REQUIRE_FALSE(entities[0]->linetypeOverride().has_value()); // ByLayer
+    REQUIRE(entities[1]->linetypeOverride().has_value());
+    REQUIRE(*entities[1]->linetypeOverride() == lcad::LineType::Dashed);
+}
+
+TEST_CASE("Linetype names map both ways", "[linetype]") {
+    REQUIRE(std::string(lcad::lineTypeName(lcad::LineType::Dashed)) == "DASHED");
+    REQUIRE(lcad::lineTypeFromName("dashed") == lcad::LineType::Dashed);
+    REQUIRE(lcad::lineTypeFromName("CENTER") == lcad::LineType::Center);
+    REQUIRE_FALSE(lcad::lineTypeFromName("BYLAYER").has_value());
+    REQUIRE_FALSE(lcad::lineTypeFromName("NOSUCH").has_value());
+    REQUIRE_FALSE(lcad::lineTypePattern(lcad::LineType::Continuous).size());
+    REQUIRE(lcad::lineTypePattern(lcad::LineType::DashDot).size() == 4);
+}
+
+TEST_CASE("DXF spline round-trips exactly (control points + knots + fit points)", "[dxf][spline]") {
+    TempDxfPath temp;
+
+    lcad::Document doc;
+    std::vector<lcad::Point2D> fit{{0, 0}, {10, 8}, {20, -3}, {30, 5}};
+    auto spline = lcad::SplineEntity::fromFitPoints(doc.reserveEntityId(), doc.currentLayer(), fit);
+    REQUIRE(spline != nullptr);
+    const auto originalControl = spline->controlPoints();
+    const auto originalKnots = spline->knots();
+    doc.addEntity(std::move(spline));
+
+    REQUIRE(lcad::writeDxf(doc, temp.path.string()));
+    lcad::Document loaded;
+    REQUIRE(lcad::readDxf(loaded, temp.path.string()));
+
+    const auto entities = loaded.entities();
+    REQUIRE(entities.size() == 1);
+    REQUIRE(entities[0]->type() == lcad::EntityType::Spline);
+    const auto* loadedSpline = static_cast<const lcad::SplineEntity*>(entities[0]);
+    REQUIRE(loadedSpline->degree() == 3);
+    REQUIRE(loadedSpline->controlPoints().size() == originalControl.size());
+    for (std::size_t i = 0; i < originalControl.size(); ++i) {
+        REQUIRE(loadedSpline->controlPoints()[i].x == Approx(originalControl[i].x));
+        REQUIRE(loadedSpline->controlPoints()[i].y == Approx(originalControl[i].y));
+    }
+    REQUIRE(loadedSpline->knots().size() == originalKnots.size());
+    for (std::size_t i = 0; i < originalKnots.size(); ++i) {
+        REQUIRE(loadedSpline->knots()[i] == Approx(originalKnots[i]).margin(1e-9));
+    }
+    REQUIRE(loadedSpline->fitPoints().size() == fit.size());
 }

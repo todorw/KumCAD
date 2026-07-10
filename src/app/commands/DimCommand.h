@@ -12,6 +12,7 @@ public:
 
     QString start() override;
     std::optional<QString> onPoint(const lcad::Point2D& pt) override;
+    void onSnapContext(const std::optional<lcad::SnapRef>& ref) override { m_pendingSnap = ref; }
     void onPreviewPoint(const lcad::Point2D& pt) override;
     std::vector<std::pair<lcad::Point2D, lcad::Point2D>> previewSegments() const override;
     std::optional<lcad::Point2D> anchorPoint() const override {
@@ -29,6 +30,11 @@ private:
     Stage m_stage = Stage::FirstPoint;
     lcad::Point2D m_p1;
     lcad::Point2D m_p2;
+    // Osnap references behind each picked origin (set when the user snapped
+    // onto real geometry); stored on the entity to make it associative.
+    std::optional<lcad::SnapRef> m_pendingSnap;
+    std::optional<lcad::SnapRef> m_ref1;
+    std::optional<lcad::SnapRef> m_ref2;
     lcad::Point2D m_previewPoint;
     bool m_hasPreview = false;
     bool m_finished = false;

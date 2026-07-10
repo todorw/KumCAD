@@ -8,11 +8,13 @@
 #include "core/geometry/Insert.h"
 #include "core/geometry/Line.h"
 #include "core/geometry/Polyline.h"
+#include "core/geometry/Spline.h"
 #include "core/geometry/Text.h"
 
 #include <QFont>
 #include <QFontMetricsF>
 #include <QPainter>
+#include <QPainterPath>
 #include <QPolygonF>
 
 #include <algorithm>
@@ -20,9 +22,38 @@
 
 namespace EntityPainter {
 
+namespace {
+
+// Builds the entity pen, translating an AutoCAD .lin pattern (drawing units;
+// positive dash, negative gap, zero dot) into a Qt dash pattern (pen-width
+// units). Falls back to solid when the pattern would be denser than ~4px per
+// period on screen -- matching how a dashed line reads as solid zoomed out.
+QPen makePen(const QColor& color, double penWidth, lcad::LineType linetype, double ltScale, double scale) {
+    QPen pen(color, penWidth);
+    const auto& pattern = lcad::lineTypePattern(linetype);
+    if (pattern.empty()) return pen;
+
+    const double unit = std::max(penWidth, 1.0); // Qt dash values are in pen widths
+    double periodPx = 0.0;
+    for (double element : pattern) periodPx += std::max(std::abs(element) * ltScale * scale, 1.0);
+    if (periodPx < 4.0) return pen;
+
+    QList<qreal> dashes;
+    for (double element : pattern) {
+        const double px = std::abs(element) * ltScale * scale;
+        // Dots and degenerate dashes still need >= about a pen width to show.
+        dashes.append(std::max(px, 1.0) / unit);
+    }
+    pen.setCapStyle(Qt::FlatCap);
+    pen.setDashPattern(dashes);
+    return pen;
+}
+
+} // namespace
+
 void paint(QPainter& painter, const lcad::Entity& entity, const WorldToScreen& toScreen, double scale,
-           const QColor& color, double penWidth) {
-    painter.setPen(QPen(color, penWidth));
+           const QColor& color, double penWidth, lcad::LineType linetype, double ltScale) {
+    painter.setPen(makePen(color, penWidth, linetype, ltScale, scale));
 
     switch (entity.type()) {
     case lcad::EntityType::Line: {
@@ -65,10 +96,24 @@ void paint(QPainter& painter, const lcad::Entity& entity, const WorldToScreen& t
     case lcad::EntityType::Polyline: {
         const auto& pl = static_cast<const lcad::PolylineEntity&>(entity);
         const auto& verts = pl.vertices();
-        for (std::size_t i = 0; i + 1 < verts.size(); ++i) {
-            painter.drawLine(toScreen(verts[i]), toScreen(verts[i + 1]));
-        }
-        if (pl.closed() && verts.size() > 1) painter.drawLine(toScreen(verts.back()), toScreen(verts.front()));
+        if (verts.size() < 2) break;
+        QPainterPath path(toScreen(verts.front()));
+        pl.forEachSegment([&](const lcad::Point2D& a, const lcad::Point2D& b, double bulge) {
+            (void)a;
+            if (const auto arc = lcad::bulgeToArc(a, b, bulge)) {
+                const QPointF c = toScreen(arc->center);
+                const double r = arc->radius * scale;
+                // Same visual-angle convention as the ARC case above: the
+                // world->screen Y flip makes Qt's CCW-positive arc angles line
+                // up with our world angles with no sign change.
+                path.arcTo(QRectF(c.x() - r, c.y() - r, 2 * r, 2 * r), qRadiansToDegrees(arc->startAngle),
+                           qRadiansToDegrees(arc->sweep));
+            } else {
+                path.lineTo(toScreen(b));
+            }
+        });
+        painter.setBrush(Qt::NoBrush);
+        painter.drawPath(path);
         break;
     }
     case lcad::EntityType::Ellipse: {
@@ -80,6 +125,16 @@ void paint(QPainter& painter, const lcad::Entity& entity, const WorldToScreen& t
         painter.rotate(-qRadiansToDegrees(ellipse.rotation()));
         painter.drawEllipse(QPointF(0, 0), ellipse.radiusX() * scale, ellipse.radiusY() * scale);
         painter.restore();
+        break;
+    }
+    case lcad::EntityType::Spline: {
+        const auto& spline = static_cast<const lcad::SplineEntity&>(entity);
+        const auto pts = spline.sample(96);
+        if (pts.size() < 2) break;
+        QPainterPath path(toScreen(pts.front()));
+        for (std::size_t i = 1; i < pts.size(); ++i) path.lineTo(toScreen(pts[i]));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawPath(path);
         break;
     }
     case lcad::EntityType::Dimension: {
@@ -153,7 +208,7 @@ void paint(QPainter& painter, const lcad::Entity& entity, const WorldToScreen& t
         // ByBlock semantics).
         const auto& insert = static_cast<const lcad::InsertEntity&>(entity);
         for (const auto& child : insert.instantiate()) {
-            paint(painter, *child, toScreen, scale, color, penWidth);
+            paint(painter, *child, toScreen, scale, color, penWidth, linetype, ltScale);
         }
         break;
     }

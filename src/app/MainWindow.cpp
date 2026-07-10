@@ -7,6 +7,7 @@
 #include "IconFactory.h"
 #include "LayerPanel.h"
 #include "PropertiesPanel.h"
+#include "core/io/DwgReader.h"
 #include "core/io/DxfReader.h"
 #include "core/io/DxfWriter.h"
 
@@ -215,6 +216,10 @@ void MainWindow::updateModeLabels() {
 }
 
 void MainWindow::markDirty() {
+    // Every mutation path (dispatcher commands, canvas edits, panel changes)
+    // funnels through here, making it the one hook where associative
+    // dimensions get re-resolved before the scheduled repaint runs.
+    m_document.reassociateDimensions();
     if (m_dirty) return;
     m_dirty = true;
     updateWindowTitle();
@@ -253,12 +258,17 @@ void MainWindow::newDocument() {
 void MainWindow::openDocument() {
     if (!confirmDiscardUnsavedChanges()) return;
 
-    const QString path =
-        QFileDialog::getOpenFileName(this, QStringLiteral("Open Drawing"), QString(), QStringLiteral("DXF Files (*.dxf)"));
+    const QString filter = lcad::dwgSupportAvailable()
+                               ? QStringLiteral("Drawings (*.dxf *.dwg);;DXF Files (*.dxf);;DWG Files (*.dwg)")
+                               : QStringLiteral("DXF Files (*.dxf)");
+    const QString path = QFileDialog::getOpenFileName(this, QStringLiteral("Open Drawing"), QString(), filter);
     if (path.isEmpty()) return;
 
+    const bool isDwg = path.endsWith(QStringLiteral(".dwg"), Qt::CaseInsensitive);
     std::string error;
-    if (!lcad::readDxf(m_document, path.toStdString(), &error)) {
+    const bool ok = isDwg ? lcad::readDwg(m_document, path.toStdString(), &error)
+                          : lcad::readDxf(m_document, path.toStdString(), &error);
+    if (!ok) {
         QMessageBox::warning(this, QStringLiteral("Open Failed"), QString::fromStdString(error));
         return;
     }
@@ -266,7 +276,9 @@ void MainWindow::openDocument() {
     m_view->resetViewState();
     m_layerPanel->refresh();
     m_propertiesPanel->refresh();
-    m_currentFilePath = path;
+    // A DWG can only be saved back as DXF, so don't adopt its path as the
+    // save target -- Ctrl+S falls through to Save As.
+    m_currentFilePath = isDwg ? QString() : path;
     m_dirty = false;
     updateWindowTitle();
     statusBar()->showMessage(QStringLiteral("Opened %1").arg(QFileInfo(path).fileName()), 3000);
@@ -351,7 +363,10 @@ void MainWindow::renderDrawing(QPrinter& printer) {
         QColor color(c.r, c.g, c.b);
         if (c.r > 200 && c.g > 200 && c.b > 200) color = Qt::black;
 
-        EntityPainter::paint(painter, *e, toScreen, scale, color, penWidth);
+        lcad::LineType linetype = layer ? layer->linetype : lcad::LineType::Continuous;
+        if (const auto& ltOverride = e->linetypeOverride()) linetype = *ltOverride;
+
+        EntityPainter::paint(painter, *e, toScreen, scale, color, penWidth, linetype, m_document.lineTypeScale());
     }
 }
 

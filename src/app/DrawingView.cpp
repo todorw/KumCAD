@@ -91,21 +91,26 @@ std::optional<std::pair<lcad::EntityId, std::size_t>> DrawingView::hitTestGrip(c
     return std::nullopt;
 }
 
-std::optional<lcad::SnapPoint> DrawingView::findSnapCandidate(const QPointF& screenPos) const {
+std::optional<std::pair<lcad::SnapPoint, lcad::SnapRef>> DrawingView::findSnapCandidate(
+    const QPointF& screenPos) const {
     constexpr double kSnapPickPx = 10.0;
-    std::optional<lcad::SnapPoint> best;
+    std::optional<std::pair<lcad::SnapPoint, lcad::SnapRef>> best;
     double bestDist = kSnapPickPx;
     for (lcad::Entity* e : m_document.entities()) {
         const lcad::Layer* layer = m_document.findLayer(e->layer());
         if (layer && !layer->visible) continue;
+        // Per-kind running index makes the SnapRef durable across edits that
+        // move points without restructuring the entity.
+        int kindCounts[4] = {0, 0, 0, 0};
         for (const lcad::SnapPoint& sp : e->snapCandidates()) {
+            const int kindIndex = kindCounts[static_cast<int>(sp.kind)]++;
             const QPointF s = worldToScreen(sp.point);
             const double dx = s.x() - screenPos.x();
             const double dy = s.y() - screenPos.y();
             const double d = std::sqrt(dx * dx + dy * dy);
             if (d <= bestDist) {
                 bestDist = d;
-                best = sp;
+                best = {sp, lcad::SnapRef{e->id(), sp.kind, kindIndex}};
             }
         }
     }
@@ -135,10 +140,12 @@ lcad::Point2D DrawingView::resolvePoint(const QPointF& screenPos) {
 lcad::Point2D DrawingView::resolvePointWithAnchor(const QPointF& screenPos,
                                                   const std::optional<lcad::Point2D>& orthoAnchor) {
     m_currentSnap.reset();
+    m_currentSnapRef.reset();
     if (m_osnapEnabled) {
         if (auto snap = findSnapCandidate(screenPos)) {
-            m_currentSnap = snap;
-            return snap->point;
+            m_currentSnap = snap->first;
+            m_currentSnapRef = snap->second;
+            return snap->first.point;
         }
     }
 
@@ -252,8 +259,15 @@ void DrawingView::drawGrid(QPainter& painter) {
 }
 
 void DrawingView::drawEntity(QPainter& painter, const lcad::Entity& entity, const QColor& color, double penWidth) {
+    lcad::LineType linetype = lcad::LineType::Continuous;
+    if (const auto& override = entity.linetypeOverride()) {
+        linetype = *override;
+    } else if (const lcad::Layer* layer = m_document.findLayer(entity.layer())) {
+        linetype = layer->linetype;
+    }
     EntityPainter::paint(
-        painter, entity, [this](const lcad::Point2D& p) { return worldToScreen(p); }, m_scale, color, penWidth);
+        painter, entity, [this](const lcad::Point2D& p) { return worldToScreen(p); }, m_scale, color, penWidth,
+        linetype, m_document.lineTypeScale());
 }
 
 void DrawingView::drawGrips(QPainter& painter) {
@@ -411,7 +425,8 @@ void DrawingView::mousePressEvent(QMouseEvent* event) {
 
     if (event->button() == Qt::LeftButton) {
         if (m_dispatcher && m_dispatcher->hasActiveCommand()) {
-            m_dispatcher->handlePointPicked(resolvePoint(event->position()));
+            const lcad::Point2D picked = resolvePoint(event->position());
+            m_dispatcher->handlePointPicked(picked, m_currentSnapRef);
             update();
             return;
         }

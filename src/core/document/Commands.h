@@ -191,6 +191,36 @@ private:
     std::vector<std::pair<EntityId, std::optional<Color>>> m_oldColors;
 };
 
+// Sets or clears (ByLayer) the linetype override of a set of entities, e.g.
+// from the Properties panel. Mirrors SetEntityColorCommand.
+class SetEntityLinetypeCommand : public Command {
+public:
+    SetEntityLinetypeCommand(Document& document, std::vector<EntityId> ids, std::optional<LineType> linetype)
+        : m_document(document), m_ids(std::move(ids)), m_linetype(linetype) {}
+
+    void execute() override {
+        m_oldLinetypes.clear();
+        for (EntityId id : m_ids) {
+            if (Entity* e = m_document.findEntity(id)) {
+                m_oldLinetypes.emplace_back(id, e->linetypeOverride());
+                e->setLinetypeOverride(m_linetype);
+            }
+        }
+    }
+    void undo() override {
+        for (const auto& [id, linetype] : m_oldLinetypes) {
+            if (Entity* e = m_document.findEntity(id)) e->setLinetypeOverride(linetype);
+        }
+    }
+    std::string description() const override { return "Change Linetype"; }
+
+private:
+    Document& m_document;
+    std::vector<EntityId> m_ids;
+    std::optional<LineType> m_linetype;
+    std::vector<std::pair<EntityId, std::optional<LineType>>> m_oldLinetypes;
+};
+
 // Reassigns a set of entities to a different layer, e.g. from the Properties
 // panel. Captures each entity's prior layer on first execute() so undo can
 // restore per-entity origins even if the selection had mixed layers.

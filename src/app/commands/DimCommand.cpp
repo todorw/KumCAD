@@ -11,18 +11,22 @@ QString DimCommand::start() {
 std::optional<QString> DimCommand::onPoint(const lcad::Point2D& pt) {
     if (m_stage == Stage::FirstPoint) {
         m_p1 = pt;
+        m_ref1 = m_pendingSnap;
         m_stage = Stage::SecondPoint;
         return QStringLiteral("Specify second extension line origin:");
     }
     if (m_stage == Stage::SecondPoint) {
         if (pt.distanceTo(m_p1) < 1e-9) return QStringLiteral("Specify second extension line origin:");
         m_p2 = pt;
+        m_ref2 = m_pendingSnap;
         m_stage = Stage::LinePosition;
         return QStringLiteral("Specify dimension line location:");
     }
 
     const auto id = m_document.reserveEntityId();
     auto entity = std::make_unique<lcad::DimensionEntity>(id, m_document.currentLayer(), m_p1, m_p2, pt, m_aligned);
+    entity->setAnchor1(m_ref1);
+    entity->setAnchor2(m_ref2);
     const double value = entity->geometry().value;
     m_document.commandStack().execute(std::make_unique<lcad::AddEntityCommand>(m_document, std::move(entity)));
     m_finished = true;

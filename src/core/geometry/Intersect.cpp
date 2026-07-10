@@ -5,6 +5,7 @@
 #include "core/geometry/Entity.h"
 #include "core/geometry/Line.h"
 #include "core/geometry/Polyline.h"
+#include "core/geometry/Spline.h"
 
 #include <cmath>
 
@@ -52,14 +53,17 @@ void lineCircle(const Point2D& a1, const Point2D& a2, const Point2D& center, dou
     if (root > kEps) accept(t2); // tangency: report the point once
 }
 
-// The finite curves an entity is made of, as segments plus circles (an arc is
-// a circle whose points must additionally pass containsAngle()).
+// The finite curves an entity is made of, as segments plus circles (an arc --
+// standalone or a bulged polyline segment -- is a circle whose points must
+// additionally fall within a CCW angular sweep).
 struct Primitives {
     std::vector<std::pair<Point2D, Point2D>> segments;
     struct Circ {
         Point2D center;
         double radius;
-        const ArcEntity* arc = nullptr; // non-null: restrict to the arc's sweep
+        bool restricted = false; // true: only points within the CCW sweep count
+        double startAngle = 0.0;
+        double endAngle = 0.0;
     };
     std::vector<Circ> circles;
 };
@@ -74,19 +78,32 @@ Primitives primitivesOf(const Entity& e) {
     }
     case EntityType::Polyline: {
         const auto& pl = static_cast<const PolylineEntity&>(e);
-        const auto& v = pl.vertices();
-        for (std::size_t i = 0; i + 1 < v.size(); ++i) prims.segments.emplace_back(v[i], v[i + 1]);
-        if (pl.closed() && v.size() > 1) prims.segments.emplace_back(v.back(), v.front());
+        pl.forEachSegment([&](const Point2D& a, const Point2D& b, double bulge) {
+            if (const auto arc = bulgeToArc(a, b, bulge)) {
+                const double lo = arc->sweep >= 0 ? arc->startAngle : arc->startAngle + arc->sweep;
+                prims.circles.push_back({arc->center, arc->radius, true, lo, lo + std::abs(arc->sweep)});
+            } else {
+                prims.segments.emplace_back(a, b);
+            }
+        });
         break;
     }
     case EntityType::Circle: {
         const auto& c = static_cast<const CircleEntity&>(e);
-        prims.circles.push_back({c.center(), c.radius(), nullptr});
+        prims.circles.push_back({c.center(), c.radius()});
         break;
     }
     case EntityType::Arc: {
         const auto& a = static_cast<const ArcEntity&>(e);
-        prims.circles.push_back({a.center(), a.radius(), &a});
+        prims.circles.push_back({a.center(), a.radius(), true, a.startAngle(), a.endAngle()});
+        break;
+    }
+    case EntityType::Spline: {
+        // Approximated by its sampled polyline -- accurate enough for TRIM,
+        // EXTEND, and OSNAP-intersection use.
+        const auto& spline = static_cast<const SplineEntity&>(e);
+        const auto pts = spline.sample(128);
+        for (std::size_t i = 0; i + 1 < pts.size(); ++i) prims.segments.emplace_back(pts[i], pts[i + 1]);
         break;
     }
     default:
@@ -96,8 +113,14 @@ Primitives primitivesOf(const Entity& e) {
 }
 
 bool onArc(const Primitives::Circ& c, const Point2D& p) {
-    if (!c.arc) return true;
-    return c.arc->containsAngle(std::atan2(p.y - c.center.y, p.x - c.center.x));
+    if (!c.restricted) return true;
+    const double angle = std::atan2(p.y - c.center.y, p.x - c.center.x);
+    double sweep = c.endAngle - c.startAngle;
+    sweep = std::fmod(sweep, 2 * M_PI);
+    if (sweep <= 0) sweep += 2 * M_PI;
+    double rel = std::fmod(angle - c.startAngle, 2 * M_PI);
+    if (rel < 0) rel += 2 * M_PI;
+    return rel <= sweep + 1e-9;
 }
 
 void appendFiltered(const std::vector<Point2D>& pts, const Primitives::Circ* ca, const Primitives::Circ* cb,

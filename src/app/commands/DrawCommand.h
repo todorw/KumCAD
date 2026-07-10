@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/geometry/Entity.h"
 #include "core/geometry/Point2D.h"
 
 #include <QString>
@@ -18,6 +19,11 @@ public:
 
     virtual QString start() = 0;
     virtual std::optional<QString> onPoint(const lcad::Point2D& pt) = 0;
+
+    // Called immediately before onPoint with the object-snap reference the
+    // point came from (nullopt for typed coordinates or free picks). Commands
+    // that create associative entities (DIMLINEAR/DIMALIGNED) record it.
+    virtual void onSnapContext(const std::optional<lcad::SnapRef>& ref) { (void)ref; }
 
     // Bare-number typed input (e.g. a rotation angle in degrees, or a scale
     // factor), for commands that support it as an alternative to picking a

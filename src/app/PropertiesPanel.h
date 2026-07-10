@@ -29,10 +29,12 @@ public slots:
 private slots:
     void onLayerComboChanged(int index);
     void onColorComboChanged(int index);
+    void onLinetypeComboChanged(int index);
 
 private:
     void addRow(const QString& label, const QString& value);
     void populateColorCombo();
+    void populateLinetypeCombo();
     void applyColor(std::optional<lcad::Color> color);
 
     lcad::Document& m_document;
@@ -40,6 +42,7 @@ private:
     QLabel* m_summaryLabel;
     QComboBox* m_layerCombo;
     QComboBox* m_colorCombo;
+    QComboBox* m_linetypeCombo;
     QFormLayout* m_fieldsForm;
     bool m_updating = false;
 };

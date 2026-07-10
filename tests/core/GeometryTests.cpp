@@ -8,6 +8,7 @@
 #include "core/geometry/Intersect.h"
 #include "core/geometry/Line.h"
 #include "core/geometry/Polyline.h"
+#include "core/geometry/Spline.h"
 #include "core/geometry/Text.h"
 
 #include <catch2/catch_approx.hpp>
@@ -496,4 +497,125 @@ TEST_CASE("InsertEntity transforms its block's children", "[geometry][block]") {
     insert.scale(lcad::Point2D(10, 5), 0.5);
     REQUIRE(insert.scaleFactor() == Approx(1.0));
     REQUIRE(insert.boundingBox().max.y == Approx(6.0));
+}
+
+TEST_CASE("bulgeToArc matches the DXF bulge convention", "[geometry][bulge]") {
+    // Values cross-checked against ezdxf's bulge_to_arc.
+    const lcad::Point2D a(0, 0);
+    const lcad::Point2D b(2, 0);
+
+    SECTION("bulge 1 is a semicircle, CCW from start (dipping below the chord)") {
+        const auto arc = lcad::bulgeToArc(a, b, 1.0);
+        REQUIRE(arc.has_value());
+        REQUIRE(arc->center.x == Approx(1.0));
+        REQUIRE(arc->center.y == Approx(0.0).margin(1e-9));
+        REQUIRE(arc->radius == Approx(1.0));
+        REQUIRE(arc->sweep == Approx(M_PI));
+    }
+    SECTION("minor arc, bulge 0.5") {
+        const auto arc = lcad::bulgeToArc(a, b, 0.5);
+        REQUIRE(arc.has_value());
+        REQUIRE(arc->center.x == Approx(1.0));
+        REQUIRE(arc->center.y == Approx(0.75));
+        REQUIRE(arc->radius == Approx(1.25));
+        REQUIRE(arc->startAngle == Approx(-2.4981).margin(1e-4));
+        REQUIRE(arc->startAngle + arc->sweep == Approx(-0.6435).margin(1e-4));
+    }
+    SECTION("negative bulge mirrors across the chord and sweeps clockwise") {
+        const auto arc = lcad::bulgeToArc(a, b, -0.5);
+        REQUIRE(arc.has_value());
+        REQUIRE(arc->center.y == Approx(-0.75));
+        REQUIRE(arc->sweep < 0);
+    }
+    SECTION("major arc, bulge 2") {
+        const auto arc = lcad::bulgeToArc(a, b, 2.0);
+        REQUIRE(arc.has_value());
+        REQUIRE(arc->center.y == Approx(-0.75));
+        REQUIRE(arc->radius == Approx(1.25));
+        REQUIRE(std::abs(arc->sweep) > M_PI);
+    }
+    SECTION("zero bulge and degenerate chords are straight") {
+        REQUIRE_FALSE(lcad::bulgeToArc(a, b, 0.0).has_value());
+        REQUIRE_FALSE(lcad::bulgeToArc(a, a, 1.0).has_value());
+    }
+}
+
+TEST_CASE("PolylineEntity with bulges: distance, bbox, mirror, flatten", "[geometry][bulge]") {
+    // One semicircular segment from (0,0) to (2,0), bulging down through (1,-1).
+    std::vector<lcad::Point2D> verts{{0, 0}, {2, 0}};
+    std::vector<double> bulges{1.0, 0.0};
+    lcad::PolylineEntity pl(1, 0, verts, bulges, false);
+
+    REQUIRE(pl.hasArcs());
+    REQUIRE(pl.distanceTo(lcad::Point2D(1, -1)) == Approx(0.0).margin(1e-9)); // on the arc
+    REQUIRE(pl.distanceTo(lcad::Point2D(1, 0)) == Approx(1.0));               // at the center
+    REQUIRE(pl.distanceTo(lcad::Point2D(1, 1)) == Approx(std::sqrt(2.0)));    // outside the sweep -> endpoint
+
+    const auto box = pl.boundingBox();
+    REQUIRE(box.min.y == Approx(-1.0)); // arc extreme, below both vertices
+    REQUIRE(box.max.y == Approx(0.0).margin(1e-9));
+
+    // Flattening approximates the arc closely.
+    const auto flat = pl.flattenedVertices();
+    REQUIRE(flat.size() > 4);
+    for (const auto& p : flat) {
+        REQUIRE(p.distanceTo(lcad::Point2D(1, 0)) == Approx(1.0).margin(1e-6));
+    }
+
+    // Mirroring reverses arc orientation: the bulge flips sign.
+    pl.mirror(lcad::Point2D(0, 0), lcad::Point2D(1, 0)); // mirror across the X axis
+    REQUIRE(pl.bulgeAt(0) == Approx(-1.0));
+    REQUIRE(pl.distanceTo(lcad::Point2D(1, 1)) == Approx(0.0).margin(1e-9)); // arc now bulges up
+}
+
+TEST_CASE("Bulged polyline segments intersect as true arcs", "[geometry][bulge]") {
+    // Semicircle from (0,0) to (2,0) through (1,-1), crossed by a vertical line at x=1.
+    std::vector<lcad::Point2D> verts{{0, 0}, {2, 0}};
+    std::vector<double> bulges{1.0, 0.0};
+    lcad::PolylineEntity pl(1, 0, verts, bulges, false);
+    lcad::LineEntity cutter(2, 0, lcad::Point2D(1, -5), lcad::Point2D(1, 5));
+
+    const auto pts = lcad::intersectEntities(pl, cutter);
+    REQUIRE(pts.size() == 1);
+    REQUIRE(pts[0].x == Approx(1.0));
+    REQUIRE(pts[0].y == Approx(-1.0));
+}
+
+TEST_CASE("Spline interpolation passes through its fit points", "[geometry][spline]") {
+    std::vector<lcad::Point2D> fit{{0, 0}, {10, 8}, {20, -3}, {30, 5}, {40, 0}};
+    auto spline = lcad::SplineEntity::fromFitPoints(1, 0, fit);
+    REQUIRE(spline != nullptr);
+    REQUIRE(spline->degree() == 3);
+    REQUIRE(spline->controlPoints().size() == fit.size());
+
+    // The interpolating curve must pass through every fit point.
+    for (const auto& q : fit) {
+        REQUIRE(spline->distanceTo(q) == Approx(0.0).margin(1e-2));
+    }
+    // Curve endpoints coincide with the first/last fit points exactly.
+    const auto pts = spline->sample(16);
+    REQUIRE(pts.front().distanceTo(fit.front()) == Approx(0.0).margin(1e-9));
+    REQUIRE(pts.back().distanceTo(fit.back()) == Approx(0.0).margin(1e-9));
+
+    // Two points degenerate to a straight (degree-1) spline.
+    auto straight = lcad::SplineEntity::fromFitPoints(2, 0, {{0, 0}, {10, 0}});
+    REQUIRE(straight != nullptr);
+    REQUIRE(straight->distanceTo(lcad::Point2D(5, 0)) == Approx(0.0).margin(1e-9));
+
+    // Degenerate input refuses politely.
+    REQUIRE(lcad::SplineEntity::fromFitPoints(3, 0, {{1, 1}}) == nullptr);
+    REQUIRE(lcad::SplineEntity::fromFitPoints(4, 0, {{1, 1}, {1, 1}}) == nullptr);
+}
+
+TEST_CASE("Spline transforms move fit and control points together", "[geometry][spline]") {
+    std::vector<lcad::Point2D> fit{{0, 0}, {5, 5}, {10, 0}};
+    auto spline = lcad::SplineEntity::fromFitPoints(1, 0, fit);
+    REQUIRE(spline != nullptr);
+
+    spline->translate(lcad::Point2D(100, 0));
+    REQUIRE(spline->distanceTo(lcad::Point2D(105, 5)) == Approx(0.0).margin(1e-2));
+
+    // Grip-editing a fit point re-fits the curve through the new point.
+    spline->moveGripPoint(1, lcad::Point2D(105, 10));
+    REQUIRE(spline->distanceTo(lcad::Point2D(105, 10)) == Approx(0.0).margin(1e-2));
 }

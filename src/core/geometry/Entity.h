@@ -2,6 +2,7 @@
 
 #include "core/Color.h"
 #include "core/Ids.h"
+#include "core/document/LineType.h"
 #include "core/geometry/BoundingBox.h"
 #include "core/geometry/Point2D.h"
 
@@ -18,6 +19,7 @@ enum class EntityType {
     Arc,
     Polyline,
     Ellipse,
+    Spline,
     Text,
     Dimension,
     Hatch,
@@ -37,6 +39,17 @@ struct SnapPoint {
     SnapKind kind;
 };
 
+// A durable reference to one of an entity's snap points: "the index-th
+// candidate of this kind". Associative dimensions store these so their
+// definition points can follow the referenced entity when it is edited.
+struct SnapRef {
+    EntityId entityId = 0;
+    SnapKind kind = SnapKind::Endpoint;
+    int index = 0; // among the entity's snapCandidates() of this kind
+
+    bool operator==(const SnapRef&) const = default;
+};
+
 class Entity {
 public:
     Entity(EntityId id, LayerId layer) : m_id(id), m_layer(layer) {}
@@ -50,6 +63,10 @@ public:
     // Explicit color, overriding the layer's ("ByLayer" when unset).
     const std::optional<Color>& colorOverride() const { return m_colorOverride; }
     void setColorOverride(std::optional<Color> color) { m_colorOverride = color; }
+
+    // Explicit linetype, overriding the layer's ("ByLayer" when unset).
+    const std::optional<LineType>& linetypeOverride() const { return m_linetypeOverride; }
+    void setLinetypeOverride(std::optional<LineType> linetype) { m_linetypeOverride = linetype; }
 
     virtual EntityType type() const = 0;
     virtual BoundingBox boundingBox() const = 0;
@@ -87,6 +104,7 @@ private:
     EntityId m_id;
     LayerId m_layer;
     std::optional<Color> m_colorOverride;
+    std::optional<LineType> m_linetypeOverride;
 };
 
 } // namespace lcad

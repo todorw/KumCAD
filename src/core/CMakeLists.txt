@@ -14,6 +14,8 @@ add_library(lcad_core STATIC
     geometry/Polyline.cpp
     geometry/Ellipse.h
     geometry/Ellipse.cpp
+    geometry/Spline.h
+    geometry/Spline.cpp
     geometry/Text.h
     geometry/Text.cpp
     geometry/Dimension.h
@@ -25,6 +27,8 @@ add_library(lcad_core STATIC
     geometry/Intersect.h
     geometry/Intersect.cpp
     document/Layer.h
+    document/LineType.h
+    document/LineType.cpp
     document/Block.h
     document/Command.h
     document/Command.cpp
@@ -37,7 +41,26 @@ add_library(lcad_core STATIC
     io/DxfWriter.cpp
     io/DxfReader.h
     io/DxfReader.cpp
+    io/DwgReader.h
+    io/DwgReader.cpp
 )
 
 target_include_directories(lcad_core PUBLIC ${CMAKE_SOURCE_DIR}/src)
 target_compile_features(lcad_core PUBLIC cxx_std_20)
+
+# Optional DWG import via LibreDWG (https://www.gnu.org/software/libredwg/).
+# Looked up in the usual prefixes plus ~/.local, where a from-source
+# `./configure --prefix=$HOME/.local && make install` lands it.
+option(LCAD_ENABLE_DWG "Enable DWG import via LibreDWG if available" ON)
+if(LCAD_ENABLE_DWG)
+    find_path(LIBREDWG_INCLUDE_DIR dwg_api.h HINTS $ENV{HOME}/.local/include)
+    find_library(LIBREDWG_LIBRARY redwg HINTS $ENV{HOME}/.local/lib)
+    if(LIBREDWG_INCLUDE_DIR AND LIBREDWG_LIBRARY)
+        target_include_directories(lcad_core PRIVATE ${LIBREDWG_INCLUDE_DIR})
+        target_link_libraries(lcad_core PUBLIC ${LIBREDWG_LIBRARY})
+        target_compile_definitions(lcad_core PRIVATE LCAD_HAS_DWG)
+        message(STATUS "DWG import enabled (LibreDWG: ${LIBREDWG_LIBRARY})")
+    else()
+        message(STATUS "LibreDWG not found; building without DWG import")
+    endif()
+endif()
