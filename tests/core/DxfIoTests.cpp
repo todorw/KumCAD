@@ -887,8 +887,17 @@ TEST_CASE("Xref attach, DXF round-trip of the cached snapshot, and reload", "[dx
     REQUIRE(block);
     REQUIRE(block->isXref());
     REQUIRE(block->entities.size() == 1);
-    // Source layer's color baked into the snapshot.
-    REQUIRE(block->entities[0]->colorOverride().has_value());
+    // Source layer preserved as an xref-bound layer ("<xrefName>|Red") in the
+    // host document, not flattened to layer 0 with a baked color override.
+    REQUIRE_FALSE(block->entities[0]->colorOverride().has_value());
+    const lcad::LayerId xrefLayerId = block->entities[0]->layer();
+    REQUIRE(xrefLayerId != 0);
+    const lcad::Layer* xrefLayer = doc.findLayer(xrefLayerId);
+    REQUIRE(xrefLayer);
+    REQUIRE(xrefLayer->name == block->name + "|Red");
+    REQUIRE(xrefLayer->color.r == 255);
+    REQUIRE(xrefLayer->color.g == 0);
+    REQUIRE(xrefLayer->color.b == 0);
 
     doc.addEntity(std::make_unique<lcad::InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), block,
                                                        lcad::Point2D(100, 100)));
@@ -914,6 +923,13 @@ TEST_CASE("Xref attach, DXF round-trip of the cached snapshot, and reload", "[dx
     }
     REQUIRE(lcad::reloadXref(loaded, block->name, &error));
     REQUIRE(loaded.findBlock(block->name)->entities.size() == 2);
+
+    // Reload reuses the xref-bound layer by name instead of duplicating it.
+    int redLayerCount = 0;
+    for (const lcad::Layer& l : loaded.layers()) {
+        if (l.name == block->name + "|Red") ++redLayerCount;
+    }
+    REQUIRE(redLayerCount == 1);
 
     // reloadAllXrefs also refreshes (and reports) reachable references.
     REQUIRE(lcad::reloadAllXrefs(loaded, "") == 1);

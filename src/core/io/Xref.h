@@ -13,8 +13,11 @@ namespace lcad {
 
 // Loads the file into a block definition named after the file stem (creating
 // or refreshing it) and returns the definition, or nullptr with an error.
-// The snapshot's layers are flattened: entities keep their look via color
-// overrides baked from their source layer.
+// The snapshot's entities land on xref-bound layers in the host document
+// ("<xrefName>|<sourceLayerName>", matching AutoCAD's own naming), each
+// carrying the source layer's color/linetype/lineweight, so the host can
+// toggle individual xref layers instead of the reference always being one
+// flat block.
 const BlockDefinition* attachXref(Document& document, const std::string& path, std::string* errorOut = nullptr);
 
 // Re-reads an attached xref's file into its definition (in place, so

@@ -4,15 +4,39 @@
 #include "core/io/DxfReader.h"
 
 #include <filesystem>
+#include <unordered_map>
 
 namespace lcad {
 
 namespace {
 
+std::string xrefNameFor(const std::string& path) {
+    return std::filesystem::path(path).stem().string();
+}
+
+// Finds (or creates) the target document's layer standing in for one of the
+// xref's own layers, named "<xrefName>|<sourceLayerName>" like AutoCAD's own
+// xref-bound layers, carrying the source layer's color/linetype/lineweight.
+// Reused by name across attach/reload, so repeated reloads don't pile up
+// duplicate layers. Visibility/lock start at the default (on, unlocked) so
+// the host drawing controls them independently of the source file.
+LayerId ensureXrefLayer(Document& target, const std::string& xrefName, const Layer& sourceLayer) {
+    const std::string name = xrefName + "|" + sourceLayer.name;
+    for (const Layer& l : target.layers()) {
+        if (l.name == name) return l.id;
+    }
+    const LayerId id = target.addLayer(name, sourceLayer.color);
+    if (Layer* layer = target.findLayer(id)) {
+        layer->linetype = sourceLayer.linetype;
+        layer->lineweight = sourceLayer.lineweight;
+    }
+    return id;
+}
+
 // Reads path into a scratch document and lifts its model-space entities into
 // a flat list usable as block geometry: ids come from the target document,
-// layers flatten to 0 with the source layer's color baked in as an override
-// so the reference keeps its look.
+// and each entity keeps its own layer's look via an xref-bound layer in the
+// target document (see ensureXrefLayer) instead of flattening to layer 0.
 bool loadSnapshot(Document& target, const std::string& path, std::vector<std::unique_ptr<Entity>>& out,
                   std::string* errorOut) {
     Document external;
@@ -24,20 +48,27 @@ bool loadSnapshot(Document& target, const std::string& path, std::vector<std::un
     }
     if (!ok) return false;
 
+    const std::string xrefName = xrefNameFor(path);
+    std::unordered_map<LayerId, LayerId> layerMap; // source layer id -> target layer id
     for (Entity* e : external.entities()) {
         const Layer* layer = external.findLayer(e->layer());
         if (layer && !layer->visible) continue;
         std::unique_ptr<Entity> copy = e->clone();
         copy->setId(target.reserveEntityId());
-        if (!copy->colorOverride() && layer) copy->setColorOverride(layer->color);
-        copy->setLayer(0);
+        LayerId targetLayer = 0;
+        if (layer) {
+            auto it = layerMap.find(layer->id);
+            if (it == layerMap.end()) {
+                targetLayer = ensureXrefLayer(target, xrefName, *layer);
+                layerMap.emplace(layer->id, targetLayer);
+            } else {
+                targetLayer = it->second;
+            }
+        }
+        copy->setLayer(targetLayer);
         out.push_back(std::move(copy));
     }
     return true;
-}
-
-std::string xrefNameFor(const std::string& path) {
-    return std::filesystem::path(path).stem().string();
 }
 
 } // namespace
