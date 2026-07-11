@@ -2,10 +2,12 @@
 
 #include "CommandLine.h"
 #include "DrawingView.h"
+#include "commands/AlignCommand.h"
 #include "commands/ArcCommand.h"
 #include "commands/AreaCommand.h"
 #include "commands/ArrayCommand.h"
 #include "commands/BlockCommand.h"
+#include "commands/BreakCommand.h"
 #include "commands/CircleCommand.h"
 #include "commands/CopyCommand.h"
 #include "commands/DimAngularCommand.h"
@@ -19,8 +21,11 @@
 #include "commands/HatchCommand.h"
 #include "commands/InsertCommand.h"
 #include "commands/LeaderCommand.h"
+#include "commands/LengthenCommand.h"
 #include "commands/LineCommand.h"
 #include "commands/LtScaleCommand.h"
+#include "commands/OsnapCommand.h"
+#include "commands/PolarAngCommand.h"
 #include "commands/MTextCommand.h"
 #include "commands/MirrorCommand.h"
 #include "commands/MviewCommand.h"
@@ -32,6 +37,7 @@
 #include "commands/RotateCommand.h"
 #include "commands/ScaleCommand.h"
 #include "commands/SplineCommand.h"
+#include "commands/StretchCommand.h"
 #include "commands/TextCommand.h"
 #include "commands/TrimCommand.h"
 #include "commands/VpScaleCommand.h"
@@ -164,6 +170,19 @@ void CommandDispatcher::handleCommandText(const QString& text) {
     } else if (cmd == QLatin1String("PEDIT") || cmd == QLatin1String("PE")) {
         const std::vector<lcad::EntityId> ids = selectionForModify();
         if (!ids.empty()) startCommand(std::make_unique<PeditCommand>(m_document, ids), QStringLiteral("PEDIT"));
+    } else if (cmd == QLatin1String("STRETCH") || cmd == QLatin1String("S")) {
+        startCommand(std::make_unique<StretchCommand>(m_document), QStringLiteral("STRETCH"));
+    } else if (cmd == QLatin1String("LENGTHEN") || cmd == QLatin1String("LEN")) {
+        startCommand(std::make_unique<LengthenCommand>(m_document, pickTolerance()), QStringLiteral("LENGTHEN"));
+    } else if (cmd == QLatin1String("BREAK") || cmd == QLatin1String("BR")) {
+        startCommand(std::make_unique<BreakCommand>(m_document, pickTolerance()), QStringLiteral("BREAK"));
+    } else if (cmd == QLatin1String("ALIGN") || cmd == QLatin1String("AL")) {
+        const std::vector<lcad::EntityId> ids = selectionForModify();
+        if (!ids.empty()) startCommand(std::make_unique<AlignCommand>(m_document, ids), QStringLiteral("ALIGN"));
+    } else if (cmd == QLatin1String("OSNAP") || cmd == QLatin1String("OS")) {
+        if (m_view) startCommand(std::make_unique<OsnapCommand>(*m_view), QStringLiteral("OSNAP"));
+    } else if (cmd == QLatin1String("POLARANG")) {
+        if (m_view) startCommand(std::make_unique<PolarAngCommand>(*m_view), QStringLiteral("POLARANG"));
     } else if (cmd == QLatin1String("TRIM") || cmd == QLatin1String("TR")) {
         // Empty selection = every entity is a cutting edge (quick-trim style).
         const std::vector<lcad::EntityId> ids = m_view ? m_view->selectedIds() : std::vector<lcad::EntityId>{};

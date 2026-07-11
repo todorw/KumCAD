@@ -59,6 +59,8 @@ private:
     QLabel* m_osnapLabel = nullptr;
     QLabel* m_orthoLabel = nullptr;
     QLabel* m_gridLabel = nullptr;
+    QLabel* m_polarLabel = nullptr;
+    QLabel* m_otrackLabel = nullptr;
 
     QString m_currentFilePath;
     bool m_dirty = false;

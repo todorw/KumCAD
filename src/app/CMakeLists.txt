@@ -47,6 +47,17 @@ add_executable(kumcad
     commands/VpScaleCommand.h
     commands/MoveCommand.h
     commands/MoveCommand.cpp
+    commands/StretchCommand.h
+    commands/StretchCommand.cpp
+    commands/LengthenCommand.h
+    commands/LengthenCommand.cpp
+    commands/BreakCommand.h
+    commands/BreakCommand.cpp
+    commands/AlignCommand.h
+    commands/AlignCommand.cpp
+    commands/OsnapCommand.h
+    commands/OsnapCommand.cpp
+    commands/PolarAngCommand.h
     commands/CopyCommand.h
     commands/CopyCommand.cpp
     commands/RotateCommand.h

@@ -7,6 +7,7 @@
 #include <QOpenGLWidget>
 #include <QPointF>
 
+#include <array>
 #include <optional>
 #include <unordered_set>
 #include <utility>
@@ -58,13 +59,29 @@ public:
     // current zoom; commands that pick entities themselves (TRIM/EXTEND) use it.
     double pickToleranceWorld() const { return 6.0 / m_scale; }
 
-    // Drafting aid toggles (F3/F8/F9), mirroring AutoCAD's OSNAP/ORTHO/SNAP.
+    // Drafting aid toggles (F3/F8/F9/F10/F11), mirroring AutoCAD's
+    // OSNAP/ORTHO/SNAP/POLAR/OTRACK. Ortho and polar are mutually exclusive:
+    // turning one on turns the other off.
     bool osnapEnabled() const { return m_osnapEnabled; }
     bool orthoEnabled() const { return m_orthoEnabled; }
     bool gridSnapEnabled() const { return m_gridSnapEnabled; }
+    bool polarEnabled() const { return m_polarEnabled; }
+    bool otrackEnabled() const { return m_otrackEnabled; }
     void setOsnapEnabled(bool on);
     void setOrthoEnabled(bool on);
     void setGridSnapEnabled(bool on);
+    void setPolarEnabled(bool on);
+    void setOtrackEnabled(bool on);
+
+    // Polar tracking increment angle (AutoCAD's POLARANG), degrees.
+    double polarIncrementDeg() const { return m_polarIncrementDeg; }
+    void setPolarIncrementDeg(double deg) {
+        if (deg > 0.5 && deg <= 90.0) m_polarIncrementDeg = deg;
+    }
+
+    // Per-kind object snap enablement (the OSNAP command's checklist).
+    bool snapModeEnabled(lcad::SnapKind kind) const { return m_snapModes[static_cast<int>(kind)]; }
+    void setSnapModeEnabled(lcad::SnapKind kind, bool on) { m_snapModes[static_cast<int>(kind)] = on; }
 
 signals:
     void mouseWorldMoved(const lcad::Point2D& pt);
@@ -112,9 +129,16 @@ private:
     // on-screen marker as a side effect.
     lcad::Point2D resolvePoint(const QPointF& screenPos);
     lcad::Point2D resolvePointWithAnchor(const QPointF& screenPos, const std::optional<lcad::Point2D>& orthoAnchor);
-    std::optional<std::pair<lcad::SnapPoint, lcad::SnapRef>> findSnapCandidate(const QPointF& screenPos) const;
+    std::optional<std::pair<lcad::SnapPoint, std::optional<lcad::SnapRef>>>
+    findSnapCandidate(const QPointF& screenPos) const;
     lcad::Point2D applyOrtho(const lcad::Point2D& anchor, const lcad::Point2D& pt) const;
     lcad::Point2D snapToGrid(const lcad::Point2D& pt) const;
+
+    // Polar/object-snap tracking: snaps pt onto a ray from origin at the
+    // nearest polar increment when the cursor is within tolerance of it.
+    std::optional<lcad::Point2D> snapToPolarRay(const lcad::Point2D& origin, const lcad::Point2D& pt,
+                                                double tolWorld) const;
+    void drawTrackingGuides(QPainter& painter);
 
     lcad::Document& m_document;
     CommandDispatcher* m_dispatcher = nullptr;
@@ -142,10 +166,22 @@ private:
     bool m_osnapEnabled = true;
     bool m_orthoEnabled = false;
     bool m_gridSnapEnabled = false;
+    bool m_polarEnabled = false;
+    bool m_otrackEnabled = false;
+    double m_polarIncrementDeg = 45.0;
+    // Endpoint..Quadrant + Node + Intersection + Perpendicular + Tangent on by
+    // default; Nearest off (it would swallow every free pick on an entity).
+    std::array<bool, lcad::kSnapKindCount> m_snapModes{true, true, true, true, true, true, true, true, false};
     std::optional<lcad::SnapPoint> m_currentSnap;
     // Which entity snap point the last resolvePoint() osnap hit came from,
-    // handed to the dispatcher so commands can record associativity.
+    // handed to the dispatcher so commands can record associativity. Dynamic
+    // snap kinds (intersection/perpendicular/tangent/nearest) never carry one.
     std::optional<lcad::SnapRef> m_currentSnapRef;
+    // Object-snap tracking state: the last osnap point hovered while a
+    // command was active (the "acquired" point) and the guide rays drawn.
+    std::optional<lcad::Point2D> m_trackPoint;
+    std::optional<std::pair<lcad::Point2D, lcad::Point2D>> m_polarGuide;
+    std::optional<std::pair<lcad::Point2D, lcad::Point2D>> m_trackGuide;
 
     int m_layoutIndex = -1;      // -1 = model space
     int m_selectedViewport = -1; // selected viewport in the active layout

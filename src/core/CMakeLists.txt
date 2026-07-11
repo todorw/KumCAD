@@ -32,6 +32,10 @@ add_library(lcad_core STATIC
     geometry/Insert.cpp
     geometry/PolylineOps.h
     geometry/PolylineOps.cpp
+    geometry/ModifyOps.h
+    geometry/ModifyOps.cpp
+    geometry/SnapGeometry.h
+    geometry/SnapGeometry.cpp
     geometry/Intersect.h
     geometry/Intersect.cpp
     document/Layer.h

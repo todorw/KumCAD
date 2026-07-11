@@ -7,8 +7,10 @@
 #include "core/geometry/Circle.h"
 #include "core/geometry/Dimension.h"
 #include "core/geometry/Ellipse.h"
+#include "core/geometry/Intersect.h"
 #include "core/geometry/Line.h"
 #include "core/geometry/Polyline.h"
+#include "core/geometry/SnapGeometry.h"
 #include "core/geometry/Text.h"
 
 #include <QFont>
@@ -91,26 +93,79 @@ std::optional<std::pair<lcad::EntityId, std::size_t>> DrawingView::hitTestGrip(c
     return std::nullopt;
 }
 
-std::optional<std::pair<lcad::SnapPoint, lcad::SnapRef>> DrawingView::findSnapCandidate(
+std::optional<std::pair<lcad::SnapPoint, std::optional<lcad::SnapRef>>> DrawingView::findSnapCandidate(
     const QPointF& screenPos) const {
     constexpr double kSnapPickPx = 10.0;
-    std::optional<std::pair<lcad::SnapPoint, lcad::SnapRef>> best;
+    std::optional<std::pair<lcad::SnapPoint, std::optional<lcad::SnapRef>>> best;
     double bestDist = kSnapPickPx;
+
+    const auto consider = [&](const lcad::SnapPoint& sp, const std::optional<lcad::SnapRef>& ref) {
+        const QPointF s = worldToScreen(sp.point);
+        const double dx = s.x() - screenPos.x();
+        const double dy = s.y() - screenPos.y();
+        const double d = std::sqrt(dx * dx + dy * dy);
+        if (d <= bestDist) {
+            bestDist = d;
+            best = {sp, ref};
+        }
+    };
+
+    // Entities close enough to the cursor to matter for the cursor-dependent
+    // snap kinds (intersection/perpendicular/tangent/nearest).
+    const lcad::Point2D cursor = screenToWorld(screenPos);
+    const double tolWorld = kSnapPickPx / m_scale;
+    std::vector<lcad::Entity*> nearby;
+
     for (lcad::Entity* e : m_document.entities()) {
         const lcad::Layer* layer = m_document.findLayer(e->layer());
         if (layer && !layer->visible) continue;
+        if (e->distanceTo(cursor) <= tolWorld * 1.5) nearby.push_back(e);
         // Per-kind running index makes the SnapRef durable across edits that
         // move points without restructuring the entity.
-        int kindCounts[4] = {0, 0, 0, 0};
+        int kindCounts[lcad::kSnapKindCount] = {};
         for (const lcad::SnapPoint& sp : e->snapCandidates()) {
             const int kindIndex = kindCounts[static_cast<int>(sp.kind)]++;
-            const QPointF s = worldToScreen(sp.point);
-            const double dx = s.x() - screenPos.x();
-            const double dy = s.y() - screenPos.y();
-            const double d = std::sqrt(dx * dx + dy * dy);
-            if (d <= bestDist) {
-                bestDist = d;
-                best = {sp, lcad::SnapRef{e->id(), sp.kind, kindIndex}};
+            if (!snapModeEnabled(sp.kind)) continue;
+            consider(sp, lcad::SnapRef{e->id(), sp.kind, kindIndex});
+        }
+    }
+
+    if (snapModeEnabled(lcad::SnapKind::Intersection)) {
+        for (std::size_t i = 0; i < nearby.size(); ++i) {
+            for (std::size_t j = i + 1; j < nearby.size(); ++j) {
+                for (const lcad::Point2D& p : lcad::intersectEntities(*nearby[i], *nearby[j])) {
+                    consider({p, lcad::SnapKind::Intersection}, std::nullopt);
+                }
+            }
+        }
+    }
+
+    // Perpendicular and tangent are measured from the active command's
+    // reference point (e.g. LINE's previous vertex).
+    std::optional<lcad::Point2D> anchor;
+    if (m_dispatcher && m_dispatcher->hasActiveCommand()) {
+        anchor = m_dispatcher->activeDrawCommand()->anchorPoint();
+    }
+    if (anchor) {
+        for (lcad::Entity* e : nearby) {
+            if (snapModeEnabled(lcad::SnapKind::Perpendicular)) {
+                for (const lcad::Point2D& p : lcad::perpendicularPoints(*e, *anchor)) {
+                    consider({p, lcad::SnapKind::Perpendicular}, std::nullopt);
+                }
+            }
+            if (snapModeEnabled(lcad::SnapKind::Tangent)) {
+                for (const lcad::Point2D& p : lcad::tangentPoints(*e, *anchor)) {
+                    consider({p, lcad::SnapKind::Tangent}, std::nullopt);
+                }
+            }
+        }
+    }
+
+    // Nearest is the fallback: only when nothing more specific hit.
+    if (!best && snapModeEnabled(lcad::SnapKind::Nearest)) {
+        for (lcad::Entity* e : nearby) {
+            if (const auto p = lcad::nearestPointOnEntity(*e, cursor)) {
+                consider({*p, lcad::SnapKind::Nearest}, std::nullopt);
             }
         }
     }
@@ -137,22 +192,78 @@ lcad::Point2D DrawingView::resolvePoint(const QPointF& screenPos) {
     return resolvePointWithAnchor(screenPos, anchor);
 }
 
+std::optional<lcad::Point2D> DrawingView::snapToPolarRay(const lcad::Point2D& origin, const lcad::Point2D& pt,
+                                                         double tolWorld) const {
+    const lcad::Point2D d = pt - origin;
+    const double dist = d.length();
+    if (dist < 1e-9) return std::nullopt;
+    const double increment = m_polarIncrementDeg * M_PI / 180.0;
+    const double angle = std::atan2(d.y, d.x);
+    const double snapped = std::round(angle / increment) * increment;
+    const lcad::Point2D dir(std::cos(snapped), std::sin(snapped));
+    const double along = d.dot(dir);
+    if (along <= 1e-9) return std::nullopt;
+    const lcad::Point2D projected = origin + dir * along;
+    if (projected.distanceTo(pt) > tolWorld) return std::nullopt;
+    return projected;
+}
+
 lcad::Point2D DrawingView::resolvePointWithAnchor(const QPointF& screenPos,
                                                   const std::optional<lcad::Point2D>& orthoAnchor) {
     m_currentSnap.reset();
     m_currentSnapRef.reset();
+    m_polarGuide.reset();
+    m_trackGuide.reset();
     // Model-entity snap points are meaningless in paper coordinates.
     if (m_osnapEnabled && !inLayoutMode()) {
         if (auto snap = findSnapCandidate(screenPos)) {
             m_currentSnap = snap->first;
             m_currentSnapRef = snap->second;
+            // Hovering an osnap point "acquires" it for object snap tracking.
+            if (m_otrackEnabled) m_trackPoint = snap->first.point;
             return snap->first.point;
         }
     }
 
     lcad::Point2D working = screenToWorld(screenPos);
+    const double tolWorld = 10.0 / m_scale;
 
-    if (m_orthoEnabled && orthoAnchor) working = applyOrtho(*orthoAnchor, working);
+    if (m_orthoEnabled && orthoAnchor) {
+        working = applyOrtho(*orthoAnchor, working);
+    } else {
+        // Polar tracking off the command's anchor, object snap tracking off
+        // the last acquired osnap point. When both rays apply, their
+        // intersection wins (the classic "line up with both" case).
+        std::optional<lcad::Point2D> polarHit;
+        std::optional<lcad::Point2D> trackHit;
+        if (m_polarEnabled && orthoAnchor) polarHit = snapToPolarRay(*orthoAnchor, working, tolWorld);
+        if (m_otrackEnabled && m_trackPoint && (!orthoAnchor || m_trackPoint->distanceTo(*orthoAnchor) > 1e-9)) {
+            trackHit = snapToPolarRay(*m_trackPoint, working, tolWorld);
+        }
+        if (polarHit && trackHit && orthoAnchor) {
+            const lcad::Point2D dirA = *polarHit - *orthoAnchor;
+            const lcad::Point2D dirB = *trackHit - *m_trackPoint;
+            const double cross = dirA.x * dirB.y - dirA.y * dirB.x;
+            if (std::abs(cross) > 1e-9) {
+                const lcad::Point2D ab = *m_trackPoint - *orthoAnchor;
+                const double t = (ab.x * dirB.y - ab.y * dirB.x) / cross;
+                const lcad::Point2D crossing = *orthoAnchor + dirA * t;
+                if (crossing.distanceTo(working) <= tolWorld * 2.0) {
+                    m_polarGuide = {{*orthoAnchor, crossing}};
+                    m_trackGuide = {{*m_trackPoint, crossing}};
+                    return crossing;
+                }
+            }
+        }
+        if (polarHit) {
+            m_polarGuide = {{*orthoAnchor, *polarHit}};
+            working = *polarHit;
+        } else if (trackHit) {
+            m_trackGuide = {{*m_trackPoint, *trackHit}};
+            working = *trackHit;
+        }
+        if (polarHit || trackHit) return working;
+    }
 
     if (m_gridSnapEnabled) working = snapToGrid(working);
 
@@ -167,12 +278,34 @@ void DrawingView::setOsnapEnabled(bool on) {
 
 void DrawingView::setOrthoEnabled(bool on) {
     m_orthoEnabled = on;
+    if (on) {
+        m_polarEnabled = false; // AutoCAD: ortho and polar are exclusive
+        m_polarGuide.reset();
+    }
     emit modesChanged();
     update();
 }
 
 void DrawingView::setGridSnapEnabled(bool on) {
     m_gridSnapEnabled = on;
+    emit modesChanged();
+    update();
+}
+
+void DrawingView::setPolarEnabled(bool on) {
+    m_polarEnabled = on;
+    if (on) m_orthoEnabled = false; // AutoCAD: polar and ortho are exclusive
+    if (!on) m_polarGuide.reset();
+    emit modesChanged();
+    update();
+}
+
+void DrawingView::setOtrackEnabled(bool on) {
+    m_otrackEnabled = on;
+    if (!on) {
+        m_trackPoint.reset();
+        m_trackGuide.reset();
+    }
     emit modesChanged();
     update();
 }
@@ -303,6 +436,7 @@ void DrawingView::paintEvent(QPaintEvent*) {
     drawGrips(painter);
     drawPreview(painter);
     drawSelectionBox(painter);
+    drawTrackingGuides(painter);
     drawSnapMarker(painter);
 
     if (m_lastMouseWorld) {
@@ -413,6 +547,23 @@ void DrawingView::drawSelectionBox(QPainter& painter) {
     painter.drawRect(QRectF(m_dragStartScreen, m_dragCurrentScreen).normalized());
 }
 
+void DrawingView::drawTrackingGuides(QPainter& painter) {
+    if (!m_polarGuide && !m_trackGuide) return;
+    painter.setPen(QPen(QColor(0, 255, 120, 140), 1, Qt::DashLine));
+    const auto drawGuide = [&](const std::pair<lcad::Point2D, lcad::Point2D>& guide) {
+        const QPointF a = worldToScreen(guide.first);
+        const QPointF b = worldToScreen(guide.second);
+        // Extend past the snapped point so the ray reads as infinite.
+        const QPointF d = b - a;
+        const double len = std::sqrt(d.x() * d.x() + d.y() * d.y());
+        const QPointF ext = len > 1e-9 ? b + d * (60.0 / len) : b;
+        painter.drawLine(a, ext);
+        painter.drawEllipse(a, 3.0, 3.0); // small ring at the tracked origin
+    };
+    if (m_polarGuide) drawGuide(*m_polarGuide);
+    if (m_trackGuide) drawGuide(*m_trackGuide);
+}
+
 void DrawingView::drawSnapMarker(QPainter& painter) {
     if (!m_currentSnap) return;
     const QPointF s = worldToScreen(m_currentSnap->point);
@@ -438,6 +589,34 @@ void DrawingView::drawSnapMarker(QPainter& painter) {
         diamond << QPointF(s.x(), s.y() - kHalf) << QPointF(s.x() + kHalf, s.y()) << QPointF(s.x(), s.y() + kHalf)
                 << QPointF(s.x() - kHalf, s.y());
         painter.drawPolygon(diamond);
+        break;
+    }
+    case lcad::SnapKind::Node:
+        painter.drawEllipse(s, kHalf * 0.7, kHalf * 0.7);
+        painter.drawLine(QPointF(s.x() - kHalf, s.y() - kHalf), QPointF(s.x() + kHalf, s.y() + kHalf));
+        painter.drawLine(QPointF(s.x() - kHalf, s.y() + kHalf), QPointF(s.x() + kHalf, s.y() - kHalf));
+        break;
+    case lcad::SnapKind::Intersection:
+        painter.drawLine(QPointF(s.x() - kHalf, s.y() - kHalf), QPointF(s.x() + kHalf, s.y() + kHalf));
+        painter.drawLine(QPointF(s.x() - kHalf, s.y() + kHalf), QPointF(s.x() + kHalf, s.y() - kHalf));
+        break;
+    case lcad::SnapKind::Perpendicular:
+        // Right-angle glyph.
+        painter.drawLine(QPointF(s.x() - kHalf, s.y() - kHalf), QPointF(s.x() - kHalf, s.y() + kHalf));
+        painter.drawLine(QPointF(s.x() - kHalf, s.y() + kHalf), QPointF(s.x() + kHalf, s.y() + kHalf));
+        painter.drawLine(QPointF(s.x() - kHalf, s.y()), QPointF(s.x(), s.y()));
+        painter.drawLine(QPointF(s.x(), s.y()), QPointF(s.x(), s.y() + kHalf));
+        break;
+    case lcad::SnapKind::Tangent:
+        painter.drawEllipse(s, kHalf * 0.8, kHalf * 0.8);
+        painter.drawLine(QPointF(s.x() - kHalf, s.y() - kHalf * 0.8), QPointF(s.x() + kHalf, s.y() - kHalf * 0.8));
+        break;
+    case lcad::SnapKind::Nearest: {
+        // Bowtie.
+        QPolygonF bow;
+        bow << QPointF(s.x() - kHalf, s.y() - kHalf) << QPointF(s.x() + kHalf, s.y() + kHalf)
+            << QPointF(s.x() + kHalf, s.y() - kHalf) << QPointF(s.x() - kHalf, s.y() + kHalf);
+        painter.drawPolygon(bow);
         break;
     }
     }

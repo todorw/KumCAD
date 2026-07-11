@@ -28,13 +28,22 @@ enum class EntityType {
     Insert,
 };
 
-// Object-snap candidate kinds, mirroring AutoCAD's OSNAP markers.
+// Object-snap candidate kinds, mirroring AutoCAD's OSNAP markers. The first
+// four are static per-entity points (Entity::snapCandidates()); the rest are
+// computed against the cursor or the active command's anchor by the snap
+// engine and never appear in a SnapRef.
 enum class SnapKind {
     Endpoint,
     Midpoint,
     Center,
     Quadrant,
+    Node,          // point entities
+    Intersection,  // curve-curve crossing near the cursor
+    Perpendicular, // foot of perpendicular from the command's anchor
+    Tangent,       // tangent touch point from the command's anchor
+    Nearest,       // closest point on the entity under the cursor
 };
+constexpr int kSnapKindCount = 9;
 
 struct SnapPoint {
     Point2D point;

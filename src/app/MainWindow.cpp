@@ -77,14 +77,19 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_coordLabel = new QLabel(QStringLiteral("0.000, 0.000"), this);
     m_gridLabel = new QLabel(QStringLiteral("GRID"), this);
     m_orthoLabel = new QLabel(QStringLiteral("ORTHO"), this);
+    m_polarLabel = new QLabel(QStringLiteral("POLAR"), this);
     m_osnapLabel = new QLabel(QStringLiteral("OSNAP"), this);
-    for (QLabel* label : {m_gridLabel, m_orthoLabel, m_osnapLabel}) {
-        label->setToolTip(QStringLiteral("F9 Grid Snap / F8 Ortho / F3 Object Snap"));
+    m_otrackLabel = new QLabel(QStringLiteral("OTRACK"), this);
+    for (QLabel* label : {m_gridLabel, m_orthoLabel, m_polarLabel, m_osnapLabel, m_otrackLabel}) {
+        label->setToolTip(
+            QStringLiteral("F9 Grid Snap / F8 Ortho / F10 Polar / F3 Object Snap / F11 Snap Tracking"));
     }
     statusBar()->addPermanentWidget(m_coordLabel);
     statusBar()->addPermanentWidget(m_gridLabel);
     statusBar()->addPermanentWidget(m_orthoLabel);
+    statusBar()->addPermanentWidget(m_polarLabel);
     statusBar()->addPermanentWidget(m_osnapLabel);
+    statusBar()->addPermanentWidget(m_otrackLabel);
     statusBar()->showMessage(QStringLiteral("Ready"));
     updateModeLabels();
 
@@ -172,14 +177,26 @@ void MainWindow::setupMenusAndToolbar() {
     auto* gridSnapAction = viewMenu->addAction(QStringLiteral("&Grid Snap"), QKeySequence(Qt::Key_F9), this,
                                                 [this]() { m_view->setGridSnapEnabled(!m_view->gridSnapEnabled()); });
     gridSnapAction->setCheckable(true);
-    connect(m_view, &DrawingView::modesChanged, this, [this, osnapAction, orthoAction, gridSnapAction]() {
-        osnapAction->setChecked(m_view->osnapEnabled());
-        orthoAction->setChecked(m_view->orthoEnabled());
-        gridSnapAction->setChecked(m_view->gridSnapEnabled());
-    });
+    auto* polarAction = viewMenu->addAction(QStringLiteral("&Polar Tracking"), QKeySequence(Qt::Key_F10), this,
+                                             [this]() { m_view->setPolarEnabled(!m_view->polarEnabled()); });
+    polarAction->setCheckable(true);
+    auto* otrackAction =
+        viewMenu->addAction(QStringLiteral("Object Snap &Tracking"), QKeySequence(Qt::Key_F11), this,
+                            [this]() { m_view->setOtrackEnabled(!m_view->otrackEnabled()); });
+    otrackAction->setCheckable(true);
+    connect(m_view, &DrawingView::modesChanged, this,
+            [this, osnapAction, orthoAction, gridSnapAction, polarAction, otrackAction]() {
+                osnapAction->setChecked(m_view->osnapEnabled());
+                orthoAction->setChecked(m_view->orthoEnabled());
+                gridSnapAction->setChecked(m_view->gridSnapEnabled());
+                polarAction->setChecked(m_view->polarEnabled());
+                otrackAction->setChecked(m_view->otrackEnabled());
+            });
     osnapAction->setChecked(m_view->osnapEnabled());
     orthoAction->setChecked(m_view->orthoEnabled());
     gridSnapAction->setChecked(m_view->gridSnapEnabled());
+    polarAction->setChecked(m_view->polarEnabled());
+    otrackAction->setChecked(m_view->otrackEnabled());
 
     QToolBar* toolbar = addToolBar(QStringLiteral("Draw"));
     toolbar->setIconSize(QSize(22, 22));
@@ -229,13 +246,15 @@ void MainWindow::updateCoordLabel(const lcad::Point2D& pt) {
 }
 
 void MainWindow::updateModeLabels() {
-    if (!m_osnapLabel || !m_orthoLabel || !m_gridLabel) return;
+    if (!m_osnapLabel || !m_orthoLabel || !m_gridLabel || !m_polarLabel || !m_otrackLabel) return;
     auto style = [](bool on) {
         return on ? QStringLiteral("color: #7CFC9A; font-weight: bold;") : QStringLiteral("color: #888;");
     };
     m_osnapLabel->setStyleSheet(style(m_view->osnapEnabled()));
     m_orthoLabel->setStyleSheet(style(m_view->orthoEnabled()));
     m_gridLabel->setStyleSheet(style(m_view->gridSnapEnabled()));
+    m_polarLabel->setStyleSheet(style(m_view->polarEnabled()));
+    m_otrackLabel->setStyleSheet(style(m_view->otrackEnabled()));
 }
 
 void MainWindow::markDirty() {
