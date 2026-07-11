@@ -191,11 +191,14 @@ private:
     // handed to the dispatcher so commands can record associativity. Dynamic
     // snap kinds (intersection/perpendicular/tangent/nearest) never carry one.
     std::optional<lcad::SnapRef> m_currentSnapRef;
-    // Object-snap tracking state: the last osnap point hovered while a
-    // command was active (the "acquired" point) and the guide rays drawn.
-    std::optional<lcad::Point2D> m_trackPoint;
+    // Object-snap tracking state: the osnap points hovered ("acquired")
+    // while a command is active, most-recent last, capped at two (AutoCAD
+    // allows more, but two covers the common "line up with both" case and
+    // keeps the guides from cluttering up over a long command). Points drop
+    // off the front once a third is acquired.
+    std::vector<lcad::Point2D> m_trackPoints;
     std::optional<std::pair<lcad::Point2D, lcad::Point2D>> m_polarGuide;
-    std::optional<std::pair<lcad::Point2D, lcad::Point2D>> m_trackGuide;
+    std::vector<std::pair<lcad::Point2D, lcad::Point2D>> m_trackGuides;
 
     int m_layoutIndex = -1;      // -1 = model space
     int m_selectedViewport = -1; // selected viewport in the active layout

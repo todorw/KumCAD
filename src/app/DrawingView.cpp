@@ -218,13 +218,20 @@ lcad::Point2D DrawingView::resolvePointWithAnchor(const QPointF& screenPos,
     m_currentSnap.reset();
     m_currentSnapRef.reset();
     m_polarGuide.reset();
-    m_trackGuide.reset();
+    m_trackGuides.clear();
     if (m_osnapEnabled) {
         if (auto snap = findSnapCandidate(screenPos)) {
             m_currentSnap = snap->first;
             m_currentSnapRef = snap->second;
-            // Hovering an osnap point "acquires" it for object snap tracking.
-            if (m_otrackEnabled) m_trackPoint = snap->first.point;
+            // Hovering an osnap point "acquires" it for object snap
+            // tracking, unless it's already the most recently acquired one.
+            if (m_otrackEnabled) {
+                const lcad::Point2D& p = snap->first.point;
+                if (m_trackPoints.empty() || m_trackPoints.back().distanceTo(p) > 1e-9) {
+                    m_trackPoints.push_back(p);
+                    if (m_trackPoints.size() > 2) m_trackPoints.erase(m_trackPoints.begin());
+                }
+            }
             return snap->first.point;
         }
     }
@@ -236,37 +243,50 @@ lcad::Point2D DrawingView::resolvePointWithAnchor(const QPointF& screenPos,
         working = applyOrtho(*orthoAnchor, working);
     } else {
         // Polar tracking off the command's anchor, object snap tracking off
-        // the last acquired osnap point. When both rays apply, their
-        // intersection wins (the classic "line up with both" case).
-        std::optional<lcad::Point2D> polarHit;
-        std::optional<lcad::Point2D> trackHit;
-        if (m_polarEnabled && orthoAnchor) polarHit = snapToPolarRay(*orthoAnchor, working, tolWorld);
-        if (m_otrackEnabled && m_trackPoint && (!orthoAnchor || m_trackPoint->distanceTo(*orthoAnchor) > 1e-9)) {
-            trackHit = snapToPolarRay(*m_trackPoint, working, tolWorld);
+        // each acquired osnap point. When two or more rays apply at once,
+        // the intersection of the first two (polar first, then tracking
+        // points in acquisition order) wins -- the classic "line up with
+        // both" case, now generalized past a single tracked point.
+        std::optional<std::pair<lcad::Point2D, lcad::Point2D>> polarRay;
+        if (m_polarEnabled && orthoAnchor) {
+            if (auto hit = snapToPolarRay(*orthoAnchor, working, tolWorld)) polarRay = {{*orthoAnchor, *hit}};
         }
-        if (polarHit && trackHit && orthoAnchor) {
-            const lcad::Point2D dirA = *polarHit - *orthoAnchor;
-            const lcad::Point2D dirB = *trackHit - *m_trackPoint;
+        std::vector<std::pair<lcad::Point2D, lcad::Point2D>> rays;
+        if (polarRay) rays.push_back(*polarRay);
+        if (m_otrackEnabled) {
+            for (const lcad::Point2D& origin : m_trackPoints) {
+                if (orthoAnchor && origin.distanceTo(*orthoAnchor) <= 1e-9) continue;
+                if (auto hit = snapToPolarRay(origin, working, tolWorld)) rays.emplace_back(origin, *hit);
+            }
+        }
+
+        if (rays.size() >= 2) {
+            const auto& rayA = rays[0];
+            const auto& rayB = rays[1];
+            const lcad::Point2D dirA = rayA.second - rayA.first;
+            const lcad::Point2D dirB = rayB.second - rayB.first;
             const double cross = dirA.x * dirB.y - dirA.y * dirB.x;
             if (std::abs(cross) > 1e-9) {
-                const lcad::Point2D ab = *m_trackPoint - *orthoAnchor;
+                const lcad::Point2D ab = rayB.first - rayA.first;
                 const double t = (ab.x * dirB.y - ab.y * dirB.x) / cross;
-                const lcad::Point2D crossing = *orthoAnchor + dirA * t;
+                const lcad::Point2D crossing = rayA.first + dirA * t;
                 if (crossing.distanceTo(working) <= tolWorld * 2.0) {
-                    m_polarGuide = {{*orthoAnchor, crossing}};
-                    m_trackGuide = {{*m_trackPoint, crossing}};
+                    std::size_t idx = 0;
+                    if (polarRay) {
+                        m_polarGuide = {{rayA.first, crossing}};
+                        idx = 1;
+                    }
+                    for (; idx < 2 && idx < rays.size(); ++idx) m_trackGuides.push_back({rays[idx].first, crossing});
                     return crossing;
                 }
             }
         }
-        if (polarHit) {
-            m_polarGuide = {{*orthoAnchor, *polarHit}};
-            working = *polarHit;
-        } else if (trackHit) {
-            m_trackGuide = {{*m_trackPoint, *trackHit}};
-            working = *trackHit;
+        if (!rays.empty()) {
+            working = rays[0].second;
+            if (polarRay) m_polarGuide = *polarRay;
+            else m_trackGuides.push_back(rays[0]);
+            return working;
         }
-        if (polarHit || trackHit) return working;
     }
 
     if (m_gridSnapEnabled) working = snapToGrid(working);
@@ -307,8 +327,8 @@ void DrawingView::setPolarEnabled(bool on) {
 void DrawingView::setOtrackEnabled(bool on) {
     m_otrackEnabled = on;
     if (!on) {
-        m_trackPoint.reset();
-        m_trackGuide.reset();
+        m_trackPoints.clear();
+        m_trackGuides.clear();
     }
     emit modesChanged();
     update();
@@ -592,7 +612,7 @@ void DrawingView::drawSelectionBox(QPainter& painter) {
 }
 
 void DrawingView::drawTrackingGuides(QPainter& painter) {
-    if (!m_polarGuide && !m_trackGuide) return;
+    if (!m_polarGuide && m_trackGuides.empty()) return;
     painter.setPen(QPen(QColor(0, 255, 120, 140), 1, Qt::DashLine));
     const auto drawGuide = [&](const std::pair<lcad::Point2D, lcad::Point2D>& guide) {
         const QPointF a = worldToScreen(guide.first);
@@ -605,7 +625,7 @@ void DrawingView::drawTrackingGuides(QPainter& painter) {
         painter.drawEllipse(a, 3.0, 3.0); // small ring at the tracked origin
     };
     if (m_polarGuide) drawGuide(*m_polarGuide);
-    if (m_trackGuide) drawGuide(*m_trackGuide);
+    for (const auto& guide : m_trackGuides) drawGuide(guide);
 }
 
 void DrawingView::drawSnapMarker(QPainter& painter) {
