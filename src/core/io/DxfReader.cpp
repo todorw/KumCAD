@@ -92,10 +92,42 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
     std::unordered_map<std::string, LayerId> layerByName;
     layerByName["0"] = 0;
 
-    enum class Section { None, Header, Tables, Blocks, Entities } section = Section::None;
+    enum class Section { None, Header, Tables, Blocks, Entities, Objects } section = Section::None;
     bool inLayerTable = false;
+    bool inStyleTable = false;
+    bool inDimStyleTable = false;
 
     std::string curHeaderVar;
+    // Current-style names from the header, applied after the tables exist.
+    std::string pendingTextStyle;
+    std::string pendingDimStyle;
+
+    // STYLE table entry being accumulated.
+    TextStyle curTextStyle;
+    bool haveTextStyle = false;
+    auto flushTextStyle = [&]() {
+        if (!haveTextStyle) return;
+        if (!curTextStyle.name.empty() && curTextStyle.name[0] != '*') {
+            fresh.addOrUpdateTextStyle(curTextStyle);
+        }
+        curTextStyle = TextStyle{};
+        haveTextStyle = false;
+    };
+
+    // DIMSTYLE table entry being accumulated.
+    NamedDimStyle curDimStyle;
+    bool haveDimStyle = false;
+    auto flushDimStyle = [&]() {
+        if (!haveDimStyle) return;
+        if (!curDimStyle.name.empty()) fresh.addOrUpdateDimStyle(curDimStyle.name, curDimStyle.style);
+        curDimStyle = NamedDimStyle{};
+        haveDimStyle = false;
+    };
+
+    // LAYOUT objects (OBJECTS section) apply to layouts in order; AutoCAD
+    // also writes one for Model, recognized by its name and skipped.
+    int layoutObjectIndex = 0;
+    bool inLayoutObject = false;
 
     std::string curLayerName;
     Color curLayerColor{255, 255, 255};
@@ -131,8 +163,24 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
     std::string curBlockName;
     Point2D curBlockBase;
     std::vector<std::unique_ptr<Entity>> curBlockEntities;
+    int curPaperIndex = -1; // >= 0 while inside a *Paper_Space block
+
+    // "*Paper_Space" is the first layout, "*Paper_SpaceN" the (N+2)-th.
+    auto paperIndexOf = [](const std::string& name) -> int {
+        const std::string prefix = "*Paper_Space";
+        if (name.rfind(prefix, 0) != 0) return -1;
+        const std::string suffix = name.substr(prefix.size());
+        if (suffix.empty()) return 0;
+        try {
+            return std::stoi(suffix) + 1;
+        } catch (...) {
+            return -1;
+        }
+    };
 
     auto finalizeBlock = [&]() {
+        curPaperIndex = -1;
+        fresh.setActiveSpace(-1);
         // Pseudo-blocks (*Model_Space, *Paper_Space, anonymous) aren't user
         // block definitions; their contents were already routed elsewhere.
         if (curBlockName.empty() || curBlockName[0] == '*') {
@@ -193,6 +241,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
     bool entityHasTrueColor = false;
     Color entityTrueColor{255, 255, 255};
     std::string entityLinetypeName; // per-entity linetype override, empty = ByLayer
+    std::string entityTextStyle;    // TEXT/MTEXT style reference (group 7)
 
     auto flushEntity = [&]() {
         if (curEntityType.empty()) return;
@@ -231,8 +280,10 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             }
             made = std::make_unique<EllipseEntity>(id, layerId, p10, rx, ry, rotation);
         } else if (curEntityType == "TEXT" && !textContent.empty()) {
-            made = std::make_unique<TextEntity>(id, layerId, p10, textContent, textHeight,
-                                                textRotationDeg * M_PI / 180.0);
+            auto text = std::make_unique<TextEntity>(id, layerId, p10, textContent, textHeight,
+                                                     textRotationDeg * M_PI / 180.0);
+            if (!entityTextStyle.empty()) text->setStyleName(entityTextStyle);
+            made = std::move(text);
         } else if (curEntityType == "MTEXT") {
             const std::string content = decodeMTextContent(mtextChunks + textContent);
             if (!content.empty() && textHeight > 1e-12) {
@@ -248,6 +299,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
                     const Point2D shift(-w * col / 2.0, h * row / 2.0);
                     mtext->translate(rotateAround(shift, Point2D(), mtext->rotation()));
                 }
+                if (!entityTextStyle.empty()) mtext->setStyleName(entityTextStyle);
                 made = std::move(mtext);
             }
         } else if (curEntityType == "DIMENSION") {
@@ -286,11 +338,12 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             made = std::make_unique<HatchEntity>(id, layerId, polyVerts, pattern, hatchScale,
                                                  hatchAngleDeg * M_PI / 180.0);
         } else if (curEntityType == "VIEWPORT") {
-            // Only paper-space viewports (from *Paper_Space) become layout
-            // viewports; the model-space VIEWPORT some writers emit is skipped.
-            if (inBlockBody && !curBlockName.empty() && curBlockName[0] == '*' && vpWidth > 1e-9 &&
-                vpHeight > 1e-9 && vpViewHeight > 1e-9 && !fresh.layouts().empty()) {
-                fresh.layouts().front().viewports.push_back(
+            // Only paper-space viewports (from *Paper_Space blocks) become
+            // layout viewports; the model-space VIEWPORT some writers emit is
+            // skipped.
+            if (inBlockBody && curPaperIndex >= 0 && vpWidth > 1e-9 && vpHeight > 1e-9 && vpViewHeight > 1e-9 &&
+                curPaperIndex < static_cast<int>(fresh.layouts().size())) {
+                fresh.layouts()[curPaperIndex].viewports.push_back(
                     Viewport{p10, vpWidth, vpHeight, vpViewCenter, vpHeight / vpViewHeight});
             }
         } else if (curEntityType == "LEADER" && polyVerts.size() >= 2) {
@@ -322,9 +375,11 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             if (const auto linetype = lineTypeFromName(entityLinetypeName)) {
                 made->setLinetypeOverride(*linetype);
             }
-            if (inBlockBody) {
+            if (inBlockBody && curPaperIndex < 0) {
                 curBlockEntities.push_back(std::move(made));
             } else {
+                // Model space, or directly into the paper block's layout via
+                // the document's active space.
                 fresh.addEntity(std::move(made));
             }
         }
@@ -371,6 +426,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
         entityAci = 0;
         entityHasTrueColor = false;
         entityLinetypeName.clear();
+        entityTextStyle.clear();
     };
 
     for (const Group& g : groups) {
@@ -378,6 +434,18 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
 
         if (g.code == 0) {
             if (section == Section::Tables && inLayerTable) flushLayer();
+            if (section == Section::Tables && inStyleTable) flushTextStyle();
+            if (section == Section::Tables && inDimStyleTable) flushDimStyle();
+            if (section == Section::Objects) {
+                if (g.value == "ENDSEC") {
+                    section = Section::None;
+                    inLayoutObject = false;
+                    continue;
+                }
+                inLayoutObject = g.value == "LAYOUT";
+                if (inLayoutObject) ++layoutObjectIndex;
+                continue;
+            }
             // Old-style POLYLINE carries its points as VERTEX sub-entities
             // terminated by SEQEND, so those two must not flush the pending
             // polyline the way a new top-level entity would.
@@ -394,13 +462,26 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
                 if (section == Section::Blocks) finalizeBlock();
                 section = Section::None;
                 inLayerTable = false;
+                inStyleTable = false;
+                inDimStyleTable = false;
+                inLayoutObject = false;
                 inBlockHeader = false;
                 inBlockBody = false;
             } else if (g.value == "ENDTAB") {
                 inLayerTable = false;
+                inStyleTable = false;
+                inDimStyleTable = false;
             } else if (g.value == "LAYER" && section == Section::Tables) {
                 inLayerTable = true;
                 haveLayerName = false;
+            } else if (g.value == "STYLE" && section == Section::Tables) {
+                inStyleTable = true;
+                inLayerTable = false;
+                inDimStyleTable = false;
+            } else if (g.value == "DIMSTYLE" && section == Section::Tables) {
+                inDimStyleTable = true;
+                inLayerTable = false;
+                inStyleTable = false;
             } else if (section == Section::Blocks) {
                 if (g.value == "BLOCK") {
                     finalizeBlock(); // tolerate a missing ENDBLK
@@ -427,11 +508,33 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
                 else if (g.value == "TABLES") section = Section::Tables;
                 else if (g.value == "BLOCKS") section = Section::Blocks;
                 else if (g.value == "ENTITIES") section = Section::Entities;
+                else if (g.value == "OBJECTS") section = Section::Objects;
+            } else if (section == Section::Header) {
+                if (curHeaderVar == "$DIMSTYLE") pendingDimStyle = g.value;
             } else if (section == Section::Tables && inLayerTable) {
                 curLayerName = g.value;
                 haveLayerName = true;
+            } else if (section == Section::Tables && inStyleTable) {
+                curTextStyle = TextStyle{};
+                curTextStyle.name = g.value;
+                haveTextStyle = true;
+            } else if (section == Section::Tables && inDimStyleTable) {
+                curDimStyle = NamedDimStyle{};
+                curDimStyle.name = g.value;
+                haveDimStyle = true;
             } else if (section == Section::Blocks && inBlockHeader) {
                 curBlockName = g.value;
+                curPaperIndex = paperIndexOf(curBlockName);
+                if (curPaperIndex >= 0) {
+                    while (static_cast<int>(fresh.layouts().size()) <= curPaperIndex) {
+                        Layout layout;
+                        layout.name = "Layout" + std::to_string(fresh.layouts().size() + 1);
+                        fresh.layouts().push_back(layout);
+                    }
+                    fresh.setActiveSpace(curPaperIndex);
+                } else {
+                    fresh.setActiveSpace(-1);
+                }
             } else if (entityContext && curEntityType == "INSERT") {
                 insertName = g.value;
             } else if (entityContext && curEntityType == "HATCH") {
@@ -440,9 +543,41 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             continue;
         }
 
+        if (section == Section::Objects) {
+            if (inLayoutObject) {
+                // AutoCAD also emits a LAYOUT for Model; ours are written in
+                // layouts() order. Apply by name when it matches, else by
+                // order, skipping the Model entry.
+                if (g.code == 1) {
+                    if (g.value == "Model") {
+                        inLayoutObject = false;
+                        --layoutObjectIndex;
+                    } else {
+                        const int idx = layoutObjectIndex - 1;
+                        while (static_cast<int>(fresh.layouts().size()) <= idx) {
+                            fresh.layouts().push_back(Layout{});
+                        }
+                        fresh.layouts()[idx].name = g.value;
+                    }
+                } else if (g.code == 44 || g.code == 45) {
+                    const int idx = layoutObjectIndex - 1;
+                    if (idx >= 0 && idx < static_cast<int>(fresh.layouts().size())) {
+                        const double v = toDouble(g.value);
+                        if (v > 1.0) {
+                            if (g.code == 44) fresh.layouts()[idx].paperWidth = v;
+                            else fresh.layouts()[idx].paperHeight = v;
+                        }
+                    }
+                }
+            }
+            continue;
+        }
+
         if (section == Section::Header) {
             if (g.code == 9) {
                 curHeaderVar = g.value;
+            } else if (g.code == 7 && curHeaderVar == "$TEXTSTYLE") {
+                pendingTextStyle = g.value;
             } else if (g.code == 40 && curHeaderVar == "$LTSCALE") {
                 fresh.setLineTypeScale(toDouble(g.value, 1.0));
             } else if (g.code == 40 && curHeaderVar == "$DIMTXT") {
@@ -453,6 +588,27 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
                 if (v > 1e-9) fresh.dimStyle().arrowSize = v;
             } else if (g.code == 70 && curHeaderVar == "$DIMDEC") {
                 fresh.dimStyle().decimals = std::clamp(toInt(g.value, 2), 0, 8);
+            }
+            continue;
+        }
+
+        if (section == Section::Tables && inStyleTable) {
+            if (g.code == 3) curTextStyle.font = g.value;
+            else if (g.code == 40) curTextStyle.fixedHeight = std::max(0.0, toDouble(g.value));
+            else if (g.code == 41) curTextStyle.widthFactor = std::clamp(toDouble(g.value, 1.0), 0.1, 10.0);
+            else if (g.code == 50) curTextStyle.obliqueDeg = toDouble(g.value);
+            continue;
+        }
+
+        if (section == Section::Tables && inDimStyleTable) {
+            if (g.code == 140) {
+                const double v = toDouble(g.value);
+                if (v > 1e-9) curDimStyle.style.textHeight = v;
+            } else if (g.code == 41) {
+                const double v = toDouble(g.value);
+                if (v > 1e-9) curDimStyle.style.arrowSize = v;
+            } else if (g.code == 271) {
+                curDimStyle.style.decimals = std::clamp(toInt(g.value, 2), 0, 8);
             }
             continue;
         }
@@ -486,6 +642,9 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
         switch (g.code) {
         case 6:
             entityLinetypeName = g.value;
+            break;
+        case 7:
+            if (curEntityType == "TEXT" || curEntityType == "MTEXT") entityTextStyle = g.value;
             break;
         case 8:
             curLayerRef = g.value;
@@ -635,8 +794,14 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
 
     // Tolerate a file missing its final ENDSEC/EOF by flushing whatever's pending.
     if (inLayerTable) flushLayer();
+    if (inStyleTable) flushTextStyle();
+    if (inDimStyleTable) flushDimStyle();
     flushEntity();
     finalizeBlock();
+    fresh.setActiveSpace(-1);
+
+    if (!pendingTextStyle.empty()) fresh.setCurrentTextStyle(pendingTextStyle);
+    if (!pendingDimStyle.empty()) fresh.setCurrentDimStyle(pendingDimStyle);
 
     document = std::move(fresh);
     return true;

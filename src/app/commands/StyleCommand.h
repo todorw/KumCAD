@@ -3,34 +3,30 @@
 #include "commands/DrawCommand.h"
 #include "core/document/Document.h"
 
-// DIMSTYLE with named styles: prompts for a style name first (Enter keeps the
-// current style, an existing name restores it, a new name creates one seeded
-// from the current values), then walks the style's values (text height, arrow
-// size, decimal places). The edited style becomes current; new dimensions
-// snapshot it at creation.
-class DimStyleCommand : public DrawCommand {
+// AutoCAD-style STYLE (text styles): prompts for a style name (Enter keeps
+// the current one, a new name creates a style), then walks font family,
+// fixed height (0 = prompt per TEXT), width factor, and oblique angle. The
+// edited style becomes current; existing entities using it re-render with
+// the new look.
+class StyleCommand : public DrawCommand {
 public:
-    explicit DimStyleCommand(lcad::Document& document) : m_document(document) {}
+    explicit StyleCommand(lcad::Document& document) : m_document(document) {}
 
     QString start() override;
-
     std::optional<QString> onPoint(const lcad::Point2D& pt) override {
         (void)pt;
         return std::nullopt;
     }
-
     bool wantsTextInput() const override { return true; }
     std::optional<QString> onText(const QString& text) override;
-
     bool isFinished() const override { return m_finished; }
     void cancel() override { m_finished = true; }
 
 private:
-    enum class Stage { Name, TextHeight, ArrowSize, Decimals };
+    enum class Stage { Name, Font, Height, WidthFactor, Oblique };
 
     lcad::Document& m_document;
     Stage m_stage = Stage::Name;
-    std::string m_styleName;
-    lcad::DimStyle m_style;
+    lcad::TextStyle m_style;
     bool m_finished = false;
 };

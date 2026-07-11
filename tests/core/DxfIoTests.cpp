@@ -642,3 +642,103 @@ TEST_CASE("DXF layout viewports round-trip via *Paper_Space", "[dxf][layout]") {
     REQUIRE(viewports[0].modelCenter.x == Approx(50.0));
     REQUIRE(viewports[0].viewScale == Approx(0.5));
 }
+
+TEST_CASE("DXF text and dim styles round-trip", "[dxf][style]") {
+    TempDxfPath temp;
+
+    lcad::Document doc;
+    lcad::TextStyle title;
+    title.name = "Title";
+    title.font = "DejaVu Serif";
+    title.fixedHeight = 5.0;
+    title.widthFactor = 0.8;
+    title.obliqueDeg = 15.0;
+    doc.addOrUpdateTextStyle(title);
+    doc.setCurrentTextStyle("Title");
+
+    lcad::DimStyle arch;
+    arch.textHeight = 3.5;
+    arch.arrowSize = 2.0;
+    arch.decimals = 1;
+    doc.addOrUpdateDimStyle("Arch", arch);
+    doc.setCurrentDimStyle("Arch");
+
+    auto text = std::make_unique<lcad::TextEntity>(doc.reserveEntityId(), doc.currentLayer(), lcad::Point2D(0, 0),
+                                                   "styled", 5.0);
+    text->setStyleName("Title");
+    doc.addEntity(std::move(text));
+
+    REQUIRE(lcad::writeDxf(doc, temp.path.string()));
+    lcad::Document loaded;
+    REQUIRE(lcad::readDxf(loaded, temp.path.string()));
+
+    REQUIRE(loaded.currentTextStyleName() == "Title");
+    const lcad::TextStyle* style = loaded.findTextStyle("Title");
+    REQUIRE(style);
+    REQUIRE(style->font == "DejaVu Serif");
+    REQUIRE(style->fixedHeight == Approx(5.0));
+    REQUIRE(style->widthFactor == Approx(0.8));
+    REQUIRE(style->obliqueDeg == Approx(15.0));
+
+    REQUIRE(loaded.currentDimStyleName() == "Arch");
+    REQUIRE(loaded.dimStyle().textHeight == Approx(3.5));
+    REQUIRE(loaded.dimStyle().arrowSize == Approx(2.0));
+    REQUIRE(loaded.dimStyle().decimals == 1);
+
+    const auto entities = loaded.entities();
+    REQUIRE(entities.size() == 1);
+    REQUIRE(static_cast<const lcad::TextEntity*>(entities[0])->styleName() == "Title");
+}
+
+TEST_CASE("DXF multiple layouts with paper entities round-trip", "[dxf][layout]") {
+    TempDxfPath temp;
+
+    lcad::Document doc;
+    doc.addEntity(std::make_unique<lcad::LineEntity>(doc.reserveEntityId(), doc.currentLayer(), lcad::Point2D(0, 0),
+                                                     lcad::Point2D(50, 0)));
+
+    doc.layouts()[0].name = "Sheet A";
+    doc.layouts()[0].paperWidth = 420.0;
+    doc.layouts()[0].paperHeight = 297.0;
+    doc.layouts()[0].viewports.push_back(
+        lcad::Viewport{lcad::Point2D(150, 100), 120.0, 90.0, lcad::Point2D(25, 0), 2.0});
+
+    lcad::Layout second;
+    second.name = "Sheet B";
+    second.paperWidth = 210.0;
+    second.paperHeight = 297.0;
+    doc.layouts().push_back(second);
+
+    // Title-block line on layout 0, a note on layout 1.
+    doc.setActiveSpace(0);
+    doc.addEntity(std::make_unique<lcad::LineEntity>(doc.reserveEntityId(), doc.currentLayer(), lcad::Point2D(10, 10),
+                                                     lcad::Point2D(410, 10)));
+    doc.setActiveSpace(1);
+    doc.addEntity(std::make_unique<lcad::TextEntity>(doc.reserveEntityId(), doc.currentLayer(),
+                                                     lcad::Point2D(20, 250), "Sheet note", 5.0));
+    doc.setActiveSpace(-1);
+
+    REQUIRE(lcad::writeDxf(doc, temp.path.string()));
+    lcad::Document loaded;
+    REQUIRE(lcad::readDxf(loaded, temp.path.string()));
+
+    REQUIRE(loaded.layouts().size() == 2);
+    REQUIRE(loaded.layouts()[0].name == "Sheet A");
+    REQUIRE(loaded.layouts()[0].paperWidth == Approx(420.0));
+    REQUIRE(loaded.layouts()[0].paperHeight == Approx(297.0));
+    REQUIRE(loaded.layouts()[0].viewports.size() == 1);
+    REQUIRE(loaded.layouts()[0].viewports[0].viewScale == Approx(2.0));
+    REQUIRE(loaded.layouts()[1].name == "Sheet B");
+    REQUIRE(loaded.layouts()[1].paperWidth == Approx(210.0));
+
+    // Model space still has exactly the one model line.
+    REQUIRE(loaded.entities().size() == 1);
+
+    const auto paper0 = loaded.paperEntities(0);
+    REQUIRE(paper0.size() == 1);
+    REQUIRE(paper0[0]->type() == lcad::EntityType::Line);
+    const auto paper1 = loaded.paperEntities(1);
+    REQUIRE(paper1.size() == 1);
+    REQUIRE(paper1[0]->type() == lcad::EntityType::Text);
+    REQUIRE(static_cast<const lcad::TextEntity*>(paper1[0])->text() == "Sheet note");
+}

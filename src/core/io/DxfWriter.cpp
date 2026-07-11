@@ -218,6 +218,7 @@ void writeEntity(std::ofstream& out, const Document& document, const Entity& e) 
         writeGroup(out, 40, text.height());
         writeGroup(out, 1, text.text());
         writeGroup(out, 50, text.rotation() * 180.0 / M_PI);
+        writeGroup(out, 7, text.styleName());
         break;
     }
     case EntityType::Leader: {
@@ -256,6 +257,7 @@ void writeEntity(std::ofstream& out, const Document& document, const Entity& e) 
         }
         writeGroup(out, 1, encoded.substr(pos));
         writeGroup(out, 50, mtext.rotation() * 180.0 / M_PI);
+        writeGroup(out, 7, mtext.styleName());
         break;
     }
     case EntityType::Hatch: {
@@ -336,6 +338,10 @@ bool writeDxf(const Document& document, const std::string& path, std::string* er
     writeGroup(out, 1, "AC1015");
     writeGroup(out, 9, "$LTSCALE");
     writeGroup(out, 40, document.lineTypeScale());
+    writeGroup(out, 9, "$TEXTSTYLE");
+    writeGroup(out, 7, document.currentTextStyleName());
+    writeGroup(out, 9, "$DIMSTYLE");
+    writeGroup(out, 2, document.currentDimStyleName());
     writeGroup(out, 9, "$DIMTXT");
     writeGroup(out, 40, document.dimStyle().textHeight);
     writeGroup(out, 9, "$DIMASZ");
@@ -382,12 +388,42 @@ bool writeDxf(const Document& document, const std::string& path, std::string* er
         writeGroup(out, 6, lineTypeName(layer.linetype));
     }
     writeGroup(out, 0, "ENDTAB");
+    writeGroup(out, 0, "TABLE");
+    writeGroup(out, 2, "STYLE");
+    writeGroup(out, 70, static_cast<int>(document.textStyles().size()));
+    for (const TextStyle& style : document.textStyles()) {
+        writeGroup(out, 0, "STYLE");
+        writeGroup(out, 2, style.name);
+        writeGroup(out, 70, 0);
+        writeGroup(out, 40, style.fixedHeight);
+        writeGroup(out, 41, style.widthFactor);
+        writeGroup(out, 50, style.obliqueDeg);
+        writeGroup(out, 71, 0);
+        writeGroup(out, 42, 2.5); // last-used height, required by the spec
+        writeGroup(out, 3, style.font);
+        writeGroup(out, 4, "");
+    }
+    writeGroup(out, 0, "ENDTAB");
+    writeGroup(out, 0, "TABLE");
+    writeGroup(out, 2, "DIMSTYLE");
+    writeGroup(out, 70, static_cast<int>(document.dimStyles().size()));
+    for (const NamedDimStyle& style : document.dimStyles()) {
+        writeGroup(out, 0, "DIMSTYLE");
+        writeGroup(out, 2, style.name);
+        writeGroup(out, 70, 0);
+        writeGroup(out, 140, style.style.textHeight);  // DIMTXT
+        writeGroup(out, 41, style.style.arrowSize);    // DIMASZ
+        writeGroup(out, 271, style.style.decimals);    // DIMDEC
+    }
+    writeGroup(out, 0, "ENDTAB");
     writeGroup(out, 0, "ENDSEC");
 
-    bool anyViewports = false;
-    for (const Layout& layout : document.layouts()) anyViewports = anyViewports || !layout.viewports.empty();
+    bool anyPaperContent = document.layouts().size() > 1;
+    for (const Layout& layout : document.layouts()) {
+        anyPaperContent = anyPaperContent || !layout.viewports.empty() || !layout.entityIds.empty();
+    }
 
-    if (!document.blocks().empty() || anyViewports) {
+    if (!document.blocks().empty() || anyPaperContent) {
         writeGroup(out, 0, "SECTION");
         writeGroup(out, 2, "BLOCKS");
         for (const auto& block : document.blocks()) {
@@ -403,19 +439,24 @@ bool writeDxf(const Document& document, const std::string& path, std::string* er
             writeGroup(out, 0, "ENDBLK");
             writeGroup(out, 8, "0");
         }
-        if (anyViewports) {
-            // Layout viewports live in the *Paper_Space block, as VIEWPORT
-            // entities: sheet placement in 10/20 + 40/41, the model view in
-            // 12/22 (center) + 45 (view height in model units).
-            writeGroup(out, 0, "BLOCK");
-            writeGroup(out, 8, "0");
-            writeGroup(out, 2, "*Paper_Space");
-            writeGroup(out, 70, 0);
-            writeGroup(out, 10, 0.0);
-            writeGroup(out, 20, 0.0);
-            writeGroup(out, 30, 0.0);
-            writeGroup(out, 3, "*Paper_Space");
-            for (const Layout& layout : document.layouts()) {
+        if (anyPaperContent) {
+            // One paper-space block per layout ("*Paper_Space", then
+            // "*Paper_Space0", "*Paper_Space1", ...), holding the layout's
+            // VIEWPORT entities (sheet placement in 10/20 + 40/41, the model
+            // view in 12/22 + 45) followed by the entities drawn directly on
+            // the sheet.
+            for (std::size_t li = 0; li < document.layouts().size(); ++li) {
+                const Layout& layout = document.layouts()[li];
+                const std::string blockName =
+                    li == 0 ? "*Paper_Space" : "*Paper_Space" + std::to_string(li - 1);
+                writeGroup(out, 0, "BLOCK");
+                writeGroup(out, 8, "0");
+                writeGroup(out, 2, blockName);
+                writeGroup(out, 70, 0);
+                writeGroup(out, 10, 0.0);
+                writeGroup(out, 20, 0.0);
+                writeGroup(out, 30, 0.0);
+                writeGroup(out, 3, blockName);
                 for (const Viewport& vp : layout.viewports) {
                     if (vp.viewScale < 1e-12) continue;
                     writeGroup(out, 0, "VIEWPORT");
@@ -430,9 +471,12 @@ bool writeDxf(const Document& document, const std::string& path, std::string* er
                     writeGroup(out, 22, vp.modelCenter.y);
                     writeGroup(out, 45, vp.paperHeight / vp.viewScale); // view height, model units
                 }
+                for (const Entity* e : document.paperEntities(static_cast<int>(li))) {
+                    writeEntity(out, document, *e);
+                }
+                writeGroup(out, 0, "ENDBLK");
+                writeGroup(out, 8, "0");
             }
-            writeGroup(out, 0, "ENDBLK");
-            writeGroup(out, 8, "0");
         }
         writeGroup(out, 0, "ENDSEC");
     }
@@ -440,6 +484,18 @@ bool writeDxf(const Document& document, const std::string& path, std::string* er
     writeGroup(out, 0, "SECTION");
     writeGroup(out, 2, "ENTITIES");
     for (const Entity* e : document.entities()) writeEntity(out, document, *e);
+    writeGroup(out, 0, "ENDSEC");
+
+    // Minimal LAYOUT objects carrying each layout's tab name and sheet size,
+    // in layouts() order (paired with the paper-space blocks by position).
+    writeGroup(out, 0, "SECTION");
+    writeGroup(out, 2, "OBJECTS");
+    for (const Layout& layout : document.layouts()) {
+        writeGroup(out, 0, "LAYOUT");
+        writeGroup(out, 1, layout.name);
+        writeGroup(out, 44, layout.paperWidth);
+        writeGroup(out, 45, layout.paperHeight);
+    }
     writeGroup(out, 0, "ENDSEC");
     writeGroup(out, 0, "EOF");
 

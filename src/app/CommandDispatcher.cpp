@@ -20,11 +20,13 @@
 #include "commands/FilletCommand.h"
 #include "commands/HatchCommand.h"
 #include "commands/InsertCommand.h"
+#include "commands/LayoutCommand.h"
 #include "commands/LeaderCommand.h"
 #include "commands/LengthenCommand.h"
 #include "commands/LineCommand.h"
 #include "commands/LtScaleCommand.h"
 #include "commands/OsnapCommand.h"
+#include "commands/PageSetupCommand.h"
 #include "commands/PolarAngCommand.h"
 #include "commands/MTextCommand.h"
 #include "commands/MirrorCommand.h"
@@ -38,6 +40,7 @@
 #include "commands/ScaleCommand.h"
 #include "commands/SplineCommand.h"
 #include "commands/StretchCommand.h"
+#include "commands/StyleCommand.h"
 #include "commands/TextCommand.h"
 #include "commands/TrimCommand.h"
 #include "commands/VpScaleCommand.h"
@@ -217,6 +220,18 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         startCommand(std::make_unique<DimAngularCommand>(m_document), QStringLiteral("DIMANGULAR"));
     } else if (cmd == QLatin1String("DIMSTYLE") || cmd == QLatin1String("D")) {
         startCommand(std::make_unique<DimStyleCommand>(m_document), QStringLiteral("DIMSTYLE"));
+    } else if (cmd == QLatin1String("STYLE") || cmd == QLatin1String("ST")) {
+        startCommand(std::make_unique<StyleCommand>(m_document), QStringLiteral("STYLE"));
+    } else if (cmd == QLatin1String("LAYOUT") || cmd == QLatin1String("LO")) {
+        const int active = m_view ? m_view->activeLayoutIndex() : -1;
+        startCommand(std::make_unique<LayoutCommand>(m_document, active), QStringLiteral("LAYOUT"));
+    } else if (cmd == QLatin1String("PAGESETUP")) {
+        if (m_view && m_view->inLayoutMode()) {
+            startCommand(std::make_unique<PageSetupCommand>(m_document, m_view->activeLayoutIndex()),
+                         QStringLiteral("PAGESETUP"));
+        } else {
+            m_commandLine.appendLine(QStringLiteral("*PAGESETUP works on a layout tab*"));
+        }
     } else if (cmd == QLatin1String("LEADER") || cmd == QLatin1String("LEAD") || cmd == QLatin1String("LE")) {
         startCommand(std::make_unique<LeaderCommand>(m_document), QStringLiteral("LEADER"));
     } else if (cmd == QLatin1String("HATCH") || cmd == QLatin1String("H")) {

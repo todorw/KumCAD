@@ -118,6 +118,11 @@ private:
     void drawSnapMarker(QPainter& painter);
     void updateSelectionFromBox(const QRectF& screenBox, bool crossing);
 
+    // Entities of the space being edited: model space, or the active
+    // layout's paper entities in layout mode. Selection, hit-testing,
+    // snapping, and drawing commands all operate on this set.
+    std::vector<lcad::Entity*> spaceEntities() const;
+
     lcad::Entity* hitTestEntity(const lcad::Point2D& worldPt) const;
     std::optional<std::pair<lcad::EntityId, std::size_t>> hitTestGrip(const QPointF& screenPt) const;
     double gridSpacing() const;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/Ids.h"
 #include "core/geometry/Point2D.h"
 
 #include <string>
@@ -18,13 +19,16 @@ struct Viewport {
     double viewScale = 1.0;
 };
 
-// A paper-space layout (AutoCAD's Layout tabs): a sheet with viewports.
-// Paper dimensions are in mm; the default is A4 landscape.
+// A paper-space layout (AutoCAD's Layout tabs): a sheet with viewports plus
+// entities drawn directly on the sheet (title blocks, sheet notes), in paper
+// coordinates. Paper dimensions are in mm; the default is A4 landscape.
+// entityIds is the layout's draw-order list; the Document owns the entities.
 struct Layout {
     std::string name = "Layout1";
     double paperWidth = 297.0;
     double paperHeight = 210.0;
     std::vector<Viewport> viewports;
+    std::vector<EntityId> entityIds;
 };
 
 } // namespace lcad

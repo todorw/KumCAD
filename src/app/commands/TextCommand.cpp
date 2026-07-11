@@ -10,6 +10,13 @@ QString TextCommand::start() {
 std::optional<QString> TextCommand::onPoint(const lcad::Point2D& pt) {
     if (m_stage == Stage::InsertionPoint) {
         m_position = pt;
+        // A style with a fixed height skips the height prompt, like AutoCAD.
+        const lcad::TextStyle* style = m_document.findTextStyle(m_document.currentTextStyleName());
+        if (style && style->fixedHeight > 1e-9) {
+            m_height = style->fixedHeight;
+            m_stage = Stage::Content;
+            return QStringLiteral("Enter text:");
+        }
         m_stage = Stage::Height;
         return QStringLiteral("Specify height:");
     }
@@ -46,6 +53,7 @@ std::optional<QString> TextCommand::onText(const QString& text) {
         const auto id = m_document.reserveEntityId();
         auto entity =
             std::make_unique<lcad::TextEntity>(id, m_document.currentLayer(), m_position, trimmed.toStdString(), m_height);
+        entity->setStyleName(m_document.currentTextStyleName());
         m_document.commandStack().execute(std::make_unique<lcad::AddEntityCommand>(m_document, std::move(entity)));
     }
     m_finished = true;

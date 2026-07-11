@@ -61,11 +61,15 @@ void DrawingView::zoomExtents() {
     update();
 }
 
+std::vector<lcad::Entity*> DrawingView::spaceEntities() const {
+    return inLayoutMode() ? m_document.paperEntities(m_layoutIndex) : m_document.entities();
+}
+
 lcad::Entity* DrawingView::hitTestEntity(const lcad::Point2D& worldPt) const {
     const double tol = pickToleranceWorld();
     lcad::Entity* best = nullptr;
     double bestDist = tol;
-    for (lcad::Entity* e : m_document.entities()) {
+    for (lcad::Entity* e : spaceEntities()) {
         const lcad::Layer* layer = m_document.findLayer(e->layer());
         if (layer && (!layer->visible || layer->locked)) continue;
         const double d = e->distanceTo(worldPt);
@@ -116,7 +120,7 @@ std::optional<std::pair<lcad::SnapPoint, std::optional<lcad::SnapRef>>> DrawingV
     const double tolWorld = kSnapPickPx / m_scale;
     std::vector<lcad::Entity*> nearby;
 
-    for (lcad::Entity* e : m_document.entities()) {
+    for (lcad::Entity* e : spaceEntities()) {
         const lcad::Layer* layer = m_document.findLayer(e->layer());
         if (layer && !layer->visible) continue;
         if (e->distanceTo(cursor) <= tolWorld * 1.5) nearby.push_back(e);
@@ -214,8 +218,7 @@ lcad::Point2D DrawingView::resolvePointWithAnchor(const QPointF& screenPos,
     m_currentSnapRef.reset();
     m_polarGuide.reset();
     m_trackGuide.reset();
-    // Model-entity snap points are meaningless in paper coordinates.
-    if (m_osnapEnabled && !inLayoutMode()) {
+    if (m_osnapEnabled) {
         if (auto snap = findSnapCandidate(screenPos)) {
             m_currentSnap = snap->first;
             m_currentSnapRef = snap->second;
@@ -376,7 +379,7 @@ void DrawingView::drawLayoutMode(QPainter& painter) {
             lcad::LineType linetype = layer ? layer->linetype : lcad::LineType::Continuous;
             if (const auto& lt = e->linetypeOverride()) linetype = *lt;
             EntityPainter::paint(painter, *e, toScreen, effScale, color, 1.0, linetype,
-                                 m_document.lineTypeScale());
+                                 m_document.lineTypeScale(), &m_document);
         }
         painter.restore();
 
@@ -384,6 +387,31 @@ void DrawingView::drawLayoutMode(QPainter& painter) {
         painter.setPen(QPen(selected ? QColor(80, 160, 255) : QColor(90, 90, 90), selected ? 2.0 : 1.0));
         painter.setBrush(Qt::NoBrush);
         painter.drawRect(rect);
+    }
+
+    // Entities drawn directly on the sheet (title blocks, notes), in paper
+    // coordinates, with the same selection/hover treatment as model space.
+    for (lcad::Entity* e : m_document.paperEntities(m_layoutIndex)) {
+        const lcad::Layer* layer = m_document.findLayer(e->layer());
+        if (layer && !layer->visible) continue;
+        const bool selected = m_selection.count(e->id()) > 0;
+        const bool isDragGhostSource = (m_dragMode == DragMode::MoveSelection && selected) ||
+                                        (m_dragMode == DragMode::Grip && e->id() == m_gripEntityId);
+        if (isDragGhostSource) continue;
+        const bool hovered = m_hoverEntityId && *m_hoverEntityId == e->id();
+        lcad::Color c = layer ? layer->color : lcad::Color{255, 255, 255};
+        if (const auto& override = e->colorOverride()) c = *override;
+        QColor color(c.r, c.g, c.b);
+        if (c.r > 200 && c.g > 200 && c.b > 200) color = Qt::black; // light colors vanish on paper
+        double width = 1.0;
+        if (selected) {
+            color = kSelectedColor;
+            width = 2.0;
+        } else if (hovered) {
+            color = kHoverColor;
+            width = 2.0;
+        }
+        drawEntity(painter, *e, color, width);
     }
 }
 
@@ -394,7 +422,12 @@ void DrawingView::paintEvent(QPaintEvent*) {
 
     if (m_layoutIndex >= 0 && m_layoutIndex < static_cast<int>(m_document.layouts().size())) {
         drawLayoutMode(painter);
+        drawDragPreview(painter);
+        drawGrips(painter);
         drawPreview(painter); // e.g. MVIEW's rubber-band rectangle
+        drawSelectionBox(painter);
+        drawTrackingGuides(painter);
+        drawSnapMarker(painter);
         if (m_lastMouseWorld) {
             const QPointF c = worldToScreen(*m_lastMouseWorld);
             painter.setPen(QPen(QColor(120, 120, 120), 1));
@@ -491,7 +524,7 @@ void DrawingView::drawEntity(QPainter& painter, const lcad::Entity& entity, cons
     }
     EntityPainter::paint(
         painter, entity, [this](const lcad::Point2D& p) { return worldToScreen(p); }, m_scale, color, penWidth,
-        linetype, m_document.lineTypeScale());
+        linetype, m_document.lineTypeScale(), &m_document);
 }
 
 void DrawingView::drawGrips(QPainter& painter) {
@@ -626,7 +659,7 @@ void DrawingView::updateSelectionFromBox(const QRectF& screenBox, bool crossing)
     lcad::BoundingBox worldBox;
     worldBox.expand(screenToWorld(screenBox.topLeft()));
     worldBox.expand(screenToWorld(screenBox.bottomRight()));
-    for (lcad::Entity* e : m_document.entities()) {
+    for (lcad::Entity* e : spaceEntities()) {
         const lcad::Layer* layer = m_document.findLayer(e->layer());
         if (layer && (!layer->visible || layer->locked)) continue; // locked layers can't be selected, same as click-select
         const lcad::BoundingBox eb = e->boundingBox();
@@ -649,7 +682,7 @@ void DrawingView::eraseSelection() {
 
 void DrawingView::selectAll() {
     m_selection.clear();
-    for (lcad::Entity* e : m_document.entities()) {
+    for (lcad::Entity* e : spaceEntities()) {
         const lcad::Layer* layer = m_document.findLayer(e->layer());
         if (layer && (!layer->visible || layer->locked)) continue;
         m_selection.insert(e->id());
@@ -701,18 +734,24 @@ void DrawingView::mousePressEvent(QMouseEvent* event) {
         }
 
         if (inLayoutMode()) {
-            // Layout mode: click selects a viewport and starts dragging it.
-            const int hitViewport = viewportAt(event->position());
-            m_selectedViewport = hitViewport;
-            if (hitViewport >= 0) {
-                const lcad::Viewport& vp = m_document.layouts()[m_layoutIndex].viewports[hitViewport];
-                m_dragMode = DragMode::MoveViewport;
-                m_dragStartScreen = event->position();
-                m_dragCurrentScreen = event->position();
-                m_viewportDragOffset = vp.paperCenter - worldPt;
+            // Layout mode: paper entities (grips, then bodies) take priority;
+            // a click on empty sheet falls through to viewport select/drag,
+            // then box select.
+            if (!hitTestGrip(event->position()) && !hitTestEntity(worldPt)) {
+                const int hitViewport = viewportAt(event->position());
+                m_selectedViewport = hitViewport;
+                if (hitViewport >= 0) {
+                    const lcad::Viewport& vp = m_document.layouts()[m_layoutIndex].viewports[hitViewport];
+                    m_dragMode = DragMode::MoveViewport;
+                    m_dragStartScreen = event->position();
+                    m_dragCurrentScreen = event->position();
+                    m_viewportDragOffset = vp.paperCenter - worldPt;
+                    update();
+                    return;
+                }
+            } else {
+                m_selectedViewport = -1;
             }
-            update();
-            return;
         }
 
         if (auto grip = hitTestGrip(event->position())) {
@@ -818,10 +857,6 @@ void DrawingView::mouseMoveEvent(QMouseEvent* event) {
     }
 
     m_currentSnap.reset(); // no active command: no snap marker while idle/hovering
-    if (inLayoutMode()) {
-        update();
-        return;
-    }
     lcad::Entity* hit = hitTestEntity(worldPt);
     m_hoverEntityId = hit ? std::optional<lcad::EntityId>(hit->id()) : std::nullopt;
     update();

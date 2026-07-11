@@ -51,9 +51,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     }
     connect(m_spaceTabs, &QTabBar::currentChanged, this, [this](int index) {
         m_view->setActiveLayoutIndex(index - 1);
+        m_document.setActiveSpace(index - 1); // new entities go to this space
         statusBar()->showMessage(index == 0 ? QStringLiteral("Model space")
-                                            : QStringLiteral("Paper space — MVIEW places a viewport, VPSCALE sets "
-                                                             "its scale, click+drag moves it, Del removes it"),
+                                            : QStringLiteral("Paper space — draw directly on the sheet; MVIEW places "
+                                                             "a viewport, VPSCALE sets its scale, PAGESETUP sizes "
+                                                             "the sheet"),
                                  5000);
     });
     centralLayout->addWidget(m_spaceTabs);
@@ -67,6 +69,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(m_dispatcher, &CommandDispatcher::documentChanged, m_view, QOverload<>::of(&QWidget::update));
     connect(m_dispatcher, &CommandDispatcher::previewChanged, m_view, QOverload<>::of(&QWidget::update));
     connect(m_dispatcher, &CommandDispatcher::documentChanged, this, &MainWindow::markDirty);
+    connect(m_dispatcher, &CommandDispatcher::documentChanged, this, &MainWindow::syncSpaceTabs);
     connect(m_view, &DrawingView::documentEdited, this, &MainWindow::markDirty);
     connect(m_view, &DrawingView::mouseWorldMoved, this, &MainWindow::updateCoordLabel);
     connect(m_view, &DrawingView::modesChanged, this, &MainWindow::updateModeLabels);
@@ -257,6 +260,32 @@ void MainWindow::updateModeLabels() {
     m_otrackLabel->setStyleSheet(style(m_view->otrackEnabled()));
 }
 
+void MainWindow::syncSpaceTabs() {
+    const auto& layouts = m_document.layouts();
+    bool matches = m_spaceTabs->count() == static_cast<int>(layouts.size()) + 1;
+    if (matches) {
+        for (std::size_t i = 0; i < layouts.size(); ++i) {
+            if (m_spaceTabs->tabText(static_cast<int>(i) + 1) != QString::fromStdString(layouts[i].name)) {
+                matches = false;
+                break;
+            }
+        }
+    }
+    if (matches) return;
+
+    const QSignalBlocker blocker(m_spaceTabs);
+    while (m_spaceTabs->count() > 1) m_spaceTabs->removeTab(m_spaceTabs->count() - 1);
+    for (const lcad::Layout& layout : layouts) {
+        m_spaceTabs->addTab(QString::fromStdString(layout.name));
+    }
+    // The previously active layout may be gone; fall back to Model.
+    int index = m_spaceTabs->currentIndex();
+    if (index > static_cast<int>(layouts.size())) index = 0;
+    m_spaceTabs->setCurrentIndex(index);
+    m_view->setActiveLayoutIndex(index - 1);
+    m_document.setActiveSpace(index - 1);
+}
+
 void MainWindow::markDirty() {
     // Every mutation path (dispatcher commands, canvas edits, panel changes)
     // funnels through here, making it the one hook where associative
@@ -291,6 +320,7 @@ void MainWindow::newDocument() {
     m_view->resetViewState();
     m_layerPanel->refresh();
     m_propertiesPanel->refresh();
+    syncSpaceTabs();
     m_currentFilePath.clear();
     m_dirty = false;
     updateWindowTitle();
@@ -318,6 +348,7 @@ void MainWindow::openDocument() {
     m_view->resetViewState();
     m_layerPanel->refresh();
     m_propertiesPanel->refresh();
+    syncSpaceTabs();
     // A DWG can only be saved back as DXF, so don't adopt its path as the
     // save target -- Ctrl+S falls through to Save As.
     m_currentFilePath = isDwg ? QString() : path;
@@ -401,9 +432,24 @@ void MainWindow::renderLayout(QPrinter& printer, const lcad::Layout& layout) {
             lcad::LineType linetype = layer ? layer->linetype : lcad::LineType::Continuous;
             if (const auto& lt = e->linetypeOverride()) linetype = *lt;
             EntityPainter::paint(painter, *e, toScreen, effScale, color, penWidth, linetype,
-                                 m_document.lineTypeScale());
+                                 m_document.lineTypeScale(), &m_document);
         }
         painter.restore();
+    }
+
+    // Entities drawn directly on the sheet (title blocks, notes).
+    const int layoutIndex = static_cast<int>(&layout - m_document.layouts().data());
+    for (const lcad::Entity* e : m_document.paperEntities(layoutIndex)) {
+        const lcad::Layer* layer = m_document.findLayer(e->layer());
+        if (layer && !layer->visible) continue;
+        lcad::Color c = layer ? layer->color : lcad::Color{255, 255, 255};
+        if (const auto& override = e->colorOverride()) c = *override;
+        QColor color(c.r, c.g, c.b);
+        if (c.r > 200 && c.g > 200 && c.b > 200) color = Qt::black;
+        lcad::LineType linetype = layer ? layer->linetype : lcad::LineType::Continuous;
+        if (const auto& lt = e->linetypeOverride()) linetype = *lt;
+        EntityPainter::paint(painter, *e, paperToPage, scale, color, penWidth, linetype,
+                             m_document.lineTypeScale(), &m_document);
     }
 }
 
@@ -461,7 +507,8 @@ void MainWindow::renderDrawing(QPrinter& printer) {
         lcad::LineType linetype = layer ? layer->linetype : lcad::LineType::Continuous;
         if (const auto& ltOverride = e->linetypeOverride()) linetype = *ltOverride;
 
-        EntityPainter::paint(painter, *e, toScreen, scale, color, penWidth, linetype, m_document.lineTypeScale());
+        EntityPainter::paint(painter, *e, toScreen, scale, color, penWidth, linetype, m_document.lineTypeScale(),
+                             &m_document);
     }
 }
 

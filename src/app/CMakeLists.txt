@@ -58,6 +58,12 @@ add_executable(kumcad
     commands/OsnapCommand.h
     commands/OsnapCommand.cpp
     commands/PolarAngCommand.h
+    commands/StyleCommand.h
+    commands/StyleCommand.cpp
+    commands/LayoutCommand.h
+    commands/LayoutCommand.cpp
+    commands/PageSetupCommand.h
+    commands/PageSetupCommand.cpp
     commands/CopyCommand.h
     commands/CopyCommand.cpp
     commands/RotateCommand.h

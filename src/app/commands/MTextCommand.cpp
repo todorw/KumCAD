@@ -73,5 +73,6 @@ void MTextCommand::commit() {
     auto entity = std::make_unique<lcad::MTextEntity>(id, m_document.currentLayer(), m_topLeft,
                                                       m_lines.join(QLatin1Char('\n')).toStdString(), m_height,
                                                       m_width);
+    entity->setStyleName(m_document.currentTextStyleName());
     m_document.commandStack().execute(std::make_unique<lcad::AddEntityCommand>(m_document, std::move(entity)));
 }

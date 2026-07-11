@@ -24,6 +24,11 @@ public:
     double height() const { return m_height; }
     double rotation() const { return m_rotation; }
 
+    // Named text style (STYLE table) resolved at render time; unknown names
+    // fall back to the default face.
+    const std::string& styleName() const { return m_styleName; }
+    void setStyleName(std::string name) { m_styleName = std::move(name); }
+
     double approximateWidth() const;
 
     EntityType type() const override { return EntityType::Text; }
@@ -43,6 +48,7 @@ private:
     std::string m_text;
     double m_height;
     double m_rotation;
+    std::string m_styleName = "Standard";
 };
 
 } // namespace lcad

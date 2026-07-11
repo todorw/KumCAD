@@ -12,6 +12,7 @@
 #include "core/geometry/Polyline.h"
 #include "core/geometry/Spline.h"
 #include "core/geometry/Text.h"
+#include "core/document/Document.h"
 
 #include <QFont>
 #include <QFontMetricsF>
@@ -51,10 +52,26 @@ QPen makePen(const QColor& color, double penWidth, lcad::LineType linetype, doub
     return pen;
 }
 
+// Font for a TEXT/MTEXT entity: pixel height plus the entity's named text
+// style (family, width factor, oblique) when the document is available.
+QFont styledFont(const QPainter& painter, const lcad::Document* document, const std::string& styleName,
+                 double pixelHeight) {
+    QFont font = painter.font();
+    font.setPixelSize(std::max(1, static_cast<int>(std::round(pixelHeight))));
+    const lcad::TextStyle* style = document ? document->findTextStyle(styleName) : nullptr;
+    if (style) {
+        if (!style->font.empty()) font.setFamily(QString::fromStdString(style->font));
+        font.setStretch(std::clamp(static_cast<int>(std::round(style->widthFactor * 100.0)), 12, 400));
+        if (std::abs(style->obliqueDeg) > 0.1) font.setItalic(true);
+    }
+    return font;
+}
+
 } // namespace
 
 void paint(QPainter& painter, const lcad::Entity& entity, const WorldToScreen& toScreen, double scale,
-           const QColor& color, double penWidth, lcad::LineType linetype, double ltScale) {
+           const QColor& color, double penWidth, lcad::LineType linetype, double ltScale,
+           const lcad::Document* document) {
     painter.setPen(makePen(color, penWidth, linetype, ltScale, scale));
 
     switch (entity.type()) {
@@ -198,8 +215,7 @@ void paint(QPainter& painter, const lcad::Entity& entity, const WorldToScreen& t
     }
     case lcad::EntityType::Text: {
         const auto& text = static_cast<const lcad::TextEntity&>(entity);
-        QFont font = painter.font();
-        font.setPixelSize(std::max(1, static_cast<int>(std::round(text.height() * scale))));
+        const QFont font = styledFont(painter, document, text.styleName(), text.height() * scale);
         painter.save();
         painter.setFont(font);
         painter.translate(toScreen(text.position()));
@@ -237,8 +253,7 @@ void paint(QPainter& painter, const lcad::Entity& entity, const WorldToScreen& t
     }
     case lcad::EntityType::MText: {
         const auto& mtext = static_cast<const lcad::MTextEntity&>(entity);
-        QFont font = painter.font();
-        font.setPixelSize(std::max(1, static_cast<int>(std::round(mtext.height() * scale))));
+        const QFont font = styledFont(painter, document, mtext.styleName(), mtext.height() * scale);
         painter.save();
         painter.setFont(font);
         painter.translate(toScreen(mtext.position()));

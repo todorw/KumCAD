@@ -71,3 +71,69 @@ TEST_CASE("Associative dimensions follow the entities they measure", "[document]
     REQUIRE_FALSE(dimE->anchor2().has_value());
     REQUIRE(dimE->point2().x == Approx(20.0));
 }
+
+TEST_CASE("Active space routes new entities to layouts and back", "[document][layout]") {
+    lcad::Document doc;
+    doc.addEntity(std::make_unique<lcad::LineEntity>(doc.reserveEntityId(), doc.currentLayer(), lcad::Point2D(0, 0),
+                                                     lcad::Point2D(1, 0)));
+    REQUIRE(doc.entities().size() == 1);
+    REQUIRE(doc.paperEntities(0).empty());
+
+    doc.setActiveSpace(0);
+    const lcad::EntityId paperId = doc.reserveEntityId();
+    doc.addEntity(std::make_unique<lcad::LineEntity>(paperId, doc.currentLayer(), lcad::Point2D(5, 5),
+                                                     lcad::Point2D(6, 5)));
+    REQUIRE(doc.entities().size() == 1);      // model space untouched
+    REQUIRE(doc.paperEntities(0).size() == 1);
+
+    // Remove-then-re-add (the undo pattern) keeps the entity in its space.
+    auto removed = doc.removeEntity(paperId);
+    REQUIRE(removed);
+    REQUIRE(doc.paperEntities(0).empty());
+    doc.setActiveSpace(-1); // active space changed in between...
+    doc.setActiveSpace(0);  // ...but re-adding in layout 0 restores it there
+    doc.addEntity(std::move(removed));
+    REQUIRE(doc.paperEntities(0).size() == 1);
+    REQUIRE(doc.entities().size() == 1);
+    doc.setActiveSpace(-1);
+}
+
+TEST_CASE("Named dim and text styles create, restore, and guard deletion", "[document][style]") {
+    lcad::Document doc;
+    REQUIRE(doc.currentDimStyleName() == "Standard");
+
+    lcad::DimStyle big;
+    big.textHeight = 10.0;
+    doc.addOrUpdateDimStyle("Big", big);
+    REQUIRE(doc.setCurrentDimStyle("Big"));
+    REQUIRE(doc.dimStyle().textHeight == Catch::Approx(10.0));
+    REQUIRE_FALSE(doc.setCurrentDimStyle("Missing"));
+    REQUIRE(doc.setCurrentDimStyle("Standard"));
+    REQUIRE(doc.dimStyle().textHeight == Catch::Approx(2.5));
+
+    lcad::TextStyle narrow;
+    narrow.name = "Narrow";
+    narrow.widthFactor = 0.5;
+    doc.addOrUpdateTextStyle(narrow);
+    REQUIRE(doc.setCurrentTextStyle("Narrow"));
+    REQUIRE(doc.findTextStyle("Narrow")->widthFactor == Catch::Approx(0.5));
+    REQUIRE_FALSE(doc.setCurrentTextStyle("Missing"));
+}
+
+TEST_CASE("removeLayout drops paper entities and refuses the last layout", "[document][layout]") {
+    lcad::Document doc;
+    lcad::Layout extra;
+    extra.name = "Extra";
+    doc.layouts().push_back(extra);
+
+    doc.setActiveSpace(1);
+    const lcad::EntityId id = doc.reserveEntityId();
+    doc.addEntity(std::make_unique<lcad::LineEntity>(id, doc.currentLayer(), lcad::Point2D(0, 0),
+                                                     lcad::Point2D(1, 1)));
+    doc.setActiveSpace(-1);
+
+    REQUIRE(doc.removeLayout(1));
+    REQUIRE(doc.findEntity(id) == nullptr); // its paper entities went with it
+    REQUIRE(doc.layouts().size() == 1);
+    REQUIRE_FALSE(doc.removeLayout(0)); // never delete the last layout
+}

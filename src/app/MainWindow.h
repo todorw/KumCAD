@@ -32,6 +32,10 @@ private:
     void markDirty();
     void updateWindowTitle();
 
+    // Rebuilds the Model/layout tabs when the document's layouts changed
+    // (LAYOUT command, Open/New). Keeps the active tab when it survives.
+    void syncSpaceTabs();
+
     // Returns false if the user cancelled (caller should abort New/Open/close).
     bool confirmDiscardUnsavedChanges();
 

@@ -32,6 +32,10 @@ public:
     double rotation() const { return m_rotation; }
     void setText(std::string text) { m_text = std::move(text); }
 
+    // Named text style (STYLE table) resolved at render time.
+    const std::string& styleName() const { return m_styleName; }
+    void setStyleName(std::string name) { m_styleName = std::move(name); }
+
     double lineAdvance() const { return 1.6 * m_height; }
 
     // Content split on newlines and word-wrapped to width() using the
@@ -61,6 +65,7 @@ private:
     double m_height;
     double m_width;
     double m_rotation;
+    std::string m_styleName = "Standard";
 };
 
 } // namespace lcad
