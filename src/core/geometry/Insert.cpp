@@ -1,16 +1,48 @@
 #include "core/geometry/Insert.h"
 
+#include "core/geometry/AttDef.h"
+#include "core/geometry/Text.h"
+
 #include <algorithm>
 #include <cmath>
 
 namespace lcad {
+
+void InsertEntity::setAttribute(const std::string& tag, const std::string& value) {
+    for (auto& [existingTag, existingValue] : m_attributes) {
+        if (existingTag == tag) {
+            existingValue = value;
+            return;
+        }
+    }
+    m_attributes.emplace_back(tag, value);
+}
+
+const std::string* InsertEntity::attributeValue(const std::string& tag) const {
+    for (const auto& [existingTag, value] : m_attributes) {
+        if (existingTag == tag) return &value;
+    }
+    return nullptr;
+}
 
 std::vector<std::unique_ptr<Entity>> InsertEntity::instantiate() const {
     std::vector<std::unique_ptr<Entity>> result;
     if (!m_block) return result;
     result.reserve(m_block->entities.size());
     for (const auto& child : m_block->entities) {
-        std::unique_ptr<Entity> copy = child->clone();
+        std::unique_ptr<Entity> copy;
+        if (child->type() == EntityType::AttDef) {
+            // Attribute definitions become the insert's value (or the
+            // default) as plain text, like a resolved ATTRIB.
+            const auto& attdef = static_cast<const AttDefEntity&>(*child);
+            const std::string* value = attributeValue(attdef.tag());
+            const std::string& shown = value ? *value : attdef.defaultValue();
+            if (shown.empty()) continue;
+            copy = std::make_unique<TextEntity>(child->id(), child->layer(), attdef.position(), shown,
+                                                attdef.height(), attdef.rotation());
+        } else {
+            copy = child->clone();
+        }
         copy->scale(Point2D(0, 0), m_scale);
         copy->rotate(Point2D(0, 0), m_rotation);
         copy->translate(m_position);

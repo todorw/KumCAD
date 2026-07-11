@@ -244,6 +244,85 @@ private:
     std::vector<std::pair<EntityId, std::optional<LineType>>> m_oldLinetypes;
 };
 
+// Sets or clears (ByLayer) the lineweight override of a set of entities
+// (LWEIGHT command). Mirrors SetEntityColorCommand.
+class SetEntityLineweightCommand : public Command {
+public:
+    SetEntityLineweightCommand(Document& document, std::vector<EntityId> ids, std::optional<double> weight)
+        : m_document(document), m_ids(std::move(ids)), m_weight(weight) {}
+
+    void execute() override {
+        m_oldWeights.clear();
+        for (EntityId id : m_ids) {
+            if (Entity* e = m_document.findEntity(id)) {
+                m_oldWeights.emplace_back(id, e->lineweightOverride());
+                e->setLineweightOverride(m_weight);
+            }
+        }
+    }
+    void undo() override {
+        for (const auto& [id, weight] : m_oldWeights) {
+            if (Entity* e = m_document.findEntity(id)) e->setLineweightOverride(weight);
+        }
+    }
+    std::string description() const override { return "Change Lineweight"; }
+
+private:
+    Document& m_document;
+    std::vector<EntityId> m_ids;
+    std::optional<double> m_weight;
+    std::vector<std::pair<EntityId, std::optional<double>>> m_oldWeights;
+};
+
+// Copies display properties (layer, color/linetype/lineweight overrides)
+// from a source entity onto targets (MATCHPROP). Snapshots targets' prior
+// values on execute for undo.
+class MatchPropertiesCommand : public Command {
+public:
+    MatchPropertiesCommand(Document& document, EntityId sourceId, std::vector<EntityId> targetIds)
+        : m_document(document), m_sourceId(sourceId), m_targets(std::move(targetIds)) {}
+
+    void execute() override {
+        const Entity* source = m_document.findEntity(m_sourceId);
+        if (!source) return;
+        m_old.clear();
+        for (EntityId id : m_targets) {
+            if (Entity* e = m_document.findEntity(id)) {
+                m_old.push_back({id, e->layer(), e->colorOverride(), e->linetypeOverride(), e->lineweightOverride()});
+                e->setLayer(source->layer());
+                e->setColorOverride(source->colorOverride());
+                e->setLinetypeOverride(source->linetypeOverride());
+                e->setLineweightOverride(source->lineweightOverride());
+            }
+        }
+    }
+    void undo() override {
+        for (const auto& snap : m_old) {
+            if (Entity* e = m_document.findEntity(snap.id)) {
+                e->setLayer(snap.layer);
+                e->setColorOverride(snap.color);
+                e->setLinetypeOverride(snap.linetype);
+                e->setLineweightOverride(snap.lineweight);
+            }
+        }
+    }
+    std::string description() const override { return "Match Properties"; }
+
+private:
+    struct Snapshot {
+        EntityId id;
+        LayerId layer;
+        std::optional<Color> color;
+        std::optional<LineType> linetype;
+        std::optional<double> lineweight;
+    };
+
+    Document& m_document;
+    EntityId m_sourceId;
+    std::vector<EntityId> m_targets;
+    std::vector<Snapshot> m_old;
+};
+
 // Reassigns a set of entities to a different layer, e.g. from the Properties
 // panel. Captures each entity's prior layer on first execute() so undo can
 // restore per-entity origins even if the selection had mixed layers.

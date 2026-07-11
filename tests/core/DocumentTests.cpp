@@ -137,3 +137,31 @@ TEST_CASE("removeLayout drops paper entities and refuses the last layout", "[doc
     REQUIRE(doc.layouts().size() == 1);
     REQUIRE_FALSE(doc.removeLayout(0)); // never delete the last layout
 }
+
+TEST_CASE("Groups select together and purge drops unused blocks and layers", "[document][group][purge]") {
+    lcad::Document doc;
+    const lcad::EntityId a = doc.reserveEntityId();
+    const lcad::EntityId b = doc.reserveEntityId();
+    doc.addEntity(std::make_unique<lcad::LineEntity>(a, doc.currentLayer(), lcad::Point2D(0, 0), lcad::Point2D(1, 0)));
+    doc.addEntity(std::make_unique<lcad::LineEntity>(b, doc.currentLayer(), lcad::Point2D(0, 1), lcad::Point2D(1, 1)));
+
+    doc.setGroup("pair", {a, b});
+    const auto* members = doc.groupOf(a);
+    REQUIRE(members);
+    REQUIRE(members->size() == 2);
+    REQUIRE(doc.removeGroup("pair"));
+    REQUIRE(doc.groupOf(a) == nullptr);
+
+    // An unused block and an empty layer purge away; used ones stay.
+    std::vector<std::unique_ptr<lcad::Entity>> blockEnts;
+    blockEnts.push_back(std::make_unique<lcad::LineEntity>(doc.reserveEntityId(), 0, lcad::Point2D(0, 0),
+                                                           lcad::Point2D(1, 1)));
+    doc.addBlock("unused", std::move(blockEnts));
+    const lcad::LayerId emptyLayer = doc.addLayer("Empty", lcad::Color{1, 2, 3});
+    (void)emptyLayer;
+
+    const auto purged = doc.purge();
+    REQUIRE(purged.blocks == 1);
+    REQUIRE(purged.layers == 1);
+    REQUIRE(doc.findBlock("unused") == nullptr);
+}

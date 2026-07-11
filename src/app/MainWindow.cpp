@@ -99,10 +99,14 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     updateModeLabels();
 
     m_commandLine->appendLine(QStringLiteral(
-        "KumCAD — type a command (LINE, CIRCLE, ARC, PLINE, RECTANG, ELLIPSE, TEXT, DIMLINEAR, DIMALIGNED, HATCH, "
-        "BLOCK, INSERT, EXPLODE, MOVE, COPY, ROTATE, SCALE, MIRROR, OFFSET, TRIM, EXTEND, FILLET, ERASE, DIST, AREA, "
-        "ZOOM, UNDO, REDO) and press Enter."));
-    m_commandLine->appendLine(QStringLiteral("F3 Object Snap / F8 Ortho / F9 Grid Snap toggle the drafting aids below."));
+        "KumCAD — type a command and press Enter. Draw: LINE, CIRCLE, ARC, PLINE, SPLINE, ELLIPSE, RECTANG, POINT, "
+        "XLINE, RAY, TEXT, MTEXT, HATCH, LEADER. Modify: MOVE, COPY, ROTATE, SCALE, MIRROR, OFFSET, TRIM, EXTEND, "
+        "FILLET, STRETCH, LENGTHEN, BREAK, ALIGN, PEDIT, ARRAY, EXPLODE, ERASE, MATCHPROP."));
+    m_commandLine->appendLine(QStringLiteral(
+        "More: DIMLINEAR/ALIGNED/RADIUS/DIAMETER/ANGULAR, DIMSTYLE, STYLE, BLOCK, INSERT, ATTDEF, XREF, GROUP, "
+        "DIVIDE, MEASURE, LAYOUT, PAGESETUP, MVIEW, LWEIGHT, LWDISPLAY, PURGE, OSNAP, POLARANG, DIST, AREA, ID."));
+    m_commandLine->appendLine(QStringLiteral(
+        "F3 Object Snap / F8 Ortho / F9 Grid Snap / F10 Polar / F11 Snap Tracking toggle the drafting aids below."));
     m_commandLine->appendLine(QStringLiteral("Command:"));
     m_commandLine->input()->setFocus();
 

@@ -3,6 +3,7 @@
 #include "CommandLine.h"
 #include "DrawingView.h"
 #include "commands/AlignCommand.h"
+#include "commands/AttDefCommand.h"
 #include "commands/ArcCommand.h"
 #include "commands/AreaCommand.h"
 #include "commands/ArrayCommand.h"
@@ -18,6 +19,8 @@
 #include "commands/EllipseCommand.h"
 #include "commands/ExtendCommand.h"
 #include "commands/FilletCommand.h"
+#include "commands/GroupCommand.h"
+#include "commands/IdCommand.h"
 #include "commands/HatchCommand.h"
 #include "commands/InsertCommand.h"
 #include "commands/LayoutCommand.h"
@@ -25,9 +28,12 @@
 #include "commands/LengthenCommand.h"
 #include "commands/LineCommand.h"
 #include "commands/LtScaleCommand.h"
+#include "commands/LweightCommand.h"
+#include "commands/MatchPropCommand.h"
 #include "commands/OsnapCommand.h"
 #include "commands/PageSetupCommand.h"
 #include "commands/PolarAngCommand.h"
+#include "commands/PointCommands.h"
 #include "commands/MTextCommand.h"
 #include "commands/MirrorCommand.h"
 #include "commands/MviewCommand.h"
@@ -43,6 +49,7 @@
 #include "commands/StyleCommand.h"
 #include "commands/TextCommand.h"
 #include "commands/TrimCommand.h"
+#include "commands/XlineCommand.h"
 #include "commands/XrefCommand.h"
 #include "commands/VpScaleCommand.h"
 #include "core/document/Commands.h"
@@ -246,6 +253,48 @@ void CommandDispatcher::handleCommandText(const QString& text) {
     } else if (cmd == QLatin1String("ARRAY") || cmd == QLatin1String("AR")) {
         const std::vector<lcad::EntityId> ids = selectionForModify();
         if (!ids.empty()) startCommand(std::make_unique<ArrayCommand>(m_document, ids), QStringLiteral("ARRAY"));
+    } else if (cmd == QLatin1String("POINT") || cmd == QLatin1String("PO")) {
+        startCommand(std::make_unique<PointCommand>(m_document), QStringLiteral("POINT"));
+    } else if (cmd == QLatin1String("PDMODE") || cmd == QLatin1String("PTYPE")) {
+        startCommand(std::make_unique<PdModeCommand>(m_document), QStringLiteral("PDMODE"));
+    } else if (cmd == QLatin1String("DIVIDE") || cmd == QLatin1String("DIV")) {
+        startCommand(std::make_unique<DivideCommand>(m_document, pickTolerance(), false), QStringLiteral("DIVIDE"));
+    } else if (cmd == QLatin1String("MEASURE") || cmd == QLatin1String("ME")) {
+        startCommand(std::make_unique<DivideCommand>(m_document, pickTolerance(), true), QStringLiteral("MEASURE"));
+    } else if (cmd == QLatin1String("XLINE") || cmd == QLatin1String("XL")) {
+        startCommand(std::make_unique<XlineCommand>(m_document, false), QStringLiteral("XLINE"));
+    } else if (cmd == QLatin1String("RAY")) {
+        startCommand(std::make_unique<XlineCommand>(m_document, true), QStringLiteral("RAY"));
+    } else if (cmd == QLatin1String("GROUP") || cmd == QLatin1String("G")) {
+        const std::vector<lcad::EntityId> ids = selectionForModify();
+        if (!ids.empty()) startCommand(std::make_unique<GroupCommand>(m_document, ids, false), QStringLiteral("GROUP"));
+    } else if (cmd == QLatin1String("UNGROUP")) {
+        startCommand(std::make_unique<GroupCommand>(m_document, std::vector<lcad::EntityId>{}, true),
+                     QStringLiteral("UNGROUP"));
+    } else if (cmd == QLatin1String("MATCHPROP") || cmd == QLatin1String("MA")) {
+        startCommand(std::make_unique<MatchPropCommand>(m_document, pickTolerance()), QStringLiteral("MATCHPROP"));
+    } else if (cmd == QLatin1String("LWEIGHT") || cmd == QLatin1String("LW")) {
+        const std::vector<lcad::EntityId> ids = selectionForModify();
+        if (!ids.empty()) startCommand(std::make_unique<LweightCommand>(m_document, ids), QStringLiteral("LWEIGHT"));
+    } else if (cmd == QLatin1String("LWDISPLAY")) {
+        if (m_view) {
+            m_view->setLineweightDisplay(!m_view->lineweightDisplay());
+            m_commandLine.appendLine(m_view->lineweightDisplay() ? QStringLiteral("*Lineweight display on*")
+                                                                 : QStringLiteral("*Lineweight display off*"));
+        }
+    } else if (cmd == QLatin1String("ATTDEF") || cmd == QLatin1String("ATT")) {
+        startCommand(std::make_unique<AttDefCommand>(m_document), QStringLiteral("ATTDEF"));
+    } else if (cmd == QLatin1String("ID")) {
+        startCommand(std::make_unique<IdCommand>(), QStringLiteral("ID"));
+    } else if (cmd == QLatin1String("PURGE") || cmd == QLatin1String("PU")) {
+        const lcad::Document::PurgeResult purged = m_document.purge();
+        m_commandLine.appendLine(QStringLiteral("*Purged %1 block(s) and %2 layer(s)*")
+                                     .arg(purged.blocks)
+                                     .arg(purged.layers));
+        emit documentChanged();
+    } else if (cmd == QLatin1String("REGEN") || cmd == QLatin1String("RE")) {
+        emit documentChanged();
+        m_commandLine.appendLine(QStringLiteral("*Regenerated*"));
     } else if (cmd == QLatin1String("XREF") || cmd == QLatin1String("XR")) {
         startCommand(std::make_unique<XrefCommand>(m_document), QStringLiteral("XREF"));
     } else if (cmd == QLatin1String("EXPLODE") || cmd == QLatin1String("X")) {

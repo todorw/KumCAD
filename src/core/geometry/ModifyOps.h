@@ -45,4 +45,18 @@ struct BreakResult {
 BreakResult breakEntity(const Entity& e, const Point2D& a, const Point2D& b,
                         const std::function<EntityId()>& makeId);
 
+// The point at arc-length s from the start of the entity's curve (lines,
+// arcs, circles from angle 0, polylines including bulges). nullopt when
+// unsupported or s is outside the curve.
+std::optional<Point2D> pointAtDistance(const Entity& e, double s);
+
+// DIVIDE: the n-1 interior division points splitting the curve into n equal
+// arc-length parts (n points around a circle, matching AutoCAD). Empty when
+// the entity can't be divided or n < 2.
+std::vector<Point2D> divideEntity(const Entity& e, int n);
+
+// MEASURE: points every step along the curve from its start (excluding the
+// start itself). Empty when unsupported or step is not positive.
+std::vector<Point2D> measureEntity(const Entity& e, double step);
+
 } // namespace lcad

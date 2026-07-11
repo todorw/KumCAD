@@ -452,6 +452,11 @@ void DrawingView::paintEvent(QPaintEvent*) {
         const bool hovered = m_hoverEntityId && *m_hoverEntityId == e->id();
         QColor color;
         double width = 1.0;
+        if (m_lineweightDisplay) {
+            double lw = layer ? layer->lineweight : 0.25;
+            if (const auto& lwOverride = e->lineweightOverride()) lw = *lwOverride;
+            width = std::clamp(lw / 0.25, 1.0, 12.0); // 0.25 mm ~ one pixel
+        }
         if (selected) {
             color = kSelectedColor;
             width = 2.0;
@@ -788,6 +793,12 @@ void DrawingView::mousePressEvent(QMouseEvent* event) {
             if (!alreadySelected) {
                 if (!shift) m_selection.clear();
                 m_selection.insert(hit->id());
+                // Selecting a group member selects the whole group.
+                if (const auto* members = m_document.groupOf(hit->id())) {
+                    for (lcad::EntityId member : *members) {
+                        if (m_document.findEntity(member)) m_selection.insert(member);
+                    }
+                }
                 emit selectionChanged();
             }
             m_dragMode = DragMode::MoveSelection;

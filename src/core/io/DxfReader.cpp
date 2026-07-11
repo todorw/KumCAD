@@ -1,7 +1,9 @@
 #include "core/io/DxfReader.h"
 
 #include "core/geometry/Arc.h"
+#include "core/geometry/AttDef.h"
 #include "core/geometry/Circle.h"
+#include "core/geometry/ConstructionLine.h"
 #include "core/geometry/Dimension.h"
 #include "core/geometry/Ellipse.h"
 #include "core/geometry/Hatch.h"
@@ -9,6 +11,7 @@
 #include "core/geometry/Leader.h"
 #include "core/geometry/Line.h"
 #include "core/geometry/MText.h"
+#include "core/geometry/PointEnt.h"
 #include "core/geometry/Polyline.h"
 #include "core/geometry/Spline.h"
 #include "core/geometry/Text.h"
@@ -135,18 +138,26 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
     bool curLayerVisible = true;
     bool curLayerLocked = false;
     LineType curLayerLinetype = LineType::Continuous;
+    double curLayerLineweight = 0.25;
     bool haveLayerName = false;
 
     auto flushLayer = [&]() {
         if (!haveLayerName) return;
-        if (layerByName.find(curLayerName) == layerByName.end()) {
-            const LayerId id = fresh.addLayer(curLayerName, curLayerColor);
+        const auto existing = layerByName.find(curLayerName);
+        LayerId id;
+        if (existing == layerByName.end()) {
+            id = fresh.addLayer(curLayerName, curLayerColor);
             layerByName[curLayerName] = id;
-            if (Layer* layer = fresh.findLayer(id)) {
-                layer->visible = curLayerVisible;
-                layer->locked = curLayerLocked;
-                layer->linetype = curLayerLinetype;
-            }
+        } else {
+            // Pre-created layer (layer "0"): adopt the file's properties.
+            id = existing->second;
+        }
+        if (Layer* layer = fresh.findLayer(id)) {
+            layer->color = curLayerColor;
+            layer->visible = curLayerVisible;
+            layer->locked = curLayerLocked;
+            layer->linetype = curLayerLinetype;
+            layer->lineweight = curLayerLineweight;
         }
         haveLayerName = false;
         curLayerColor = Color{255, 255, 255};
@@ -154,6 +165,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
         curLayerVisible = true;
         curLayerLocked = false;
         curLayerLinetype = LineType::Continuous;
+        curLayerLineweight = 0.25;
     };
 
     // Block-definition state: while a BLOCK ... ENDBLK is open, flushed
@@ -251,6 +263,12 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
     Color entityTrueColor{255, 255, 255};
     std::string entityLinetypeName; // per-entity linetype override, empty = ByLayer
     std::string entityTextStyle;    // TEXT/MTEXT style reference (group 7)
+    int entityLineweight = 0;       // per-entity 370 override, 0 = none seen
+    std::string attTag;             // ATTDEF/ATTRIB group 2
+    std::string attPrompt;          // ATTDEF group 3
+    // The INSERT most recently flushed, so following ATTRIB records can
+    // attach their values to it. Cleared by any non-ATTRIB entity.
+    InsertEntity* lastInsert = nullptr;
 
     auto flushEntity = [&]() {
         if (curEntityType.empty()) return;
@@ -372,8 +390,23 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
                 made = std::make_unique<InsertEntity>(id, layerId, block, p10, insertScale,
                                                       startAngleDeg * M_PI / 180.0);
             }
+        } else if (curEntityType == "POINT") {
+            made = std::make_unique<PointEntity>(id, layerId, p10);
+        } else if (curEntityType == "XLINE" || curEntityType == "RAY") {
+            if (p11.distanceTo(Point2D()) > 1e-12) {
+                made = std::make_unique<ConstructionLineEntity>(id, layerId, p10, p11, curEntityType == "RAY");
+            }
+        } else if (curEntityType == "ATTDEF" && !attTag.empty()) {
+            made = std::make_unique<AttDefEntity>(id, layerId, p10, attTag, attPrompt, textContent,
+                                                  textHeight > 1e-9 ? textHeight : 2.5,
+                                                  textRotationDeg * M_PI / 180.0);
+        } else if (curEntityType == "ATTRIB") {
+            // Attribute value for the preceding INSERT; position/height are
+            // derived from the block's ATTDEF, so only tag+value matter.
+            if (lastInsert && !attTag.empty()) lastInsert->setAttribute(attTag, textContent);
         }
 
+        const bool madeSomething = made != nullptr;
         if (made) {
             if (entityHasTrueColor) {
                 made->setColorOverride(entityTrueColor);
@@ -384,6 +417,8 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             if (const auto linetype = lineTypeFromName(entityLinetypeName)) {
                 made->setLinetypeOverride(*linetype);
             }
+            if (entityLineweight > 0) made->setLineweightOverride(entityLineweight / 100.0);
+            lastInsert = curEntityType == "INSERT" ? static_cast<InsertEntity*>(made.get()) : nullptr;
             if (inBlockBody && curPaperIndex < 0) {
                 curBlockEntities.push_back(std::move(made));
             } else {
@@ -392,6 +427,10 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
                 fresh.addEntity(std::move(made));
             }
         }
+
+        // Anything that isn't an ATTRIB (or its SEQEND) ends the "ATTRIBs
+        // attach to the previous INSERT" window.
+        if (!madeSomething && curEntityType != "ATTRIB" && curEntityType != "SEQEND") lastInsert = nullptr;
 
         curEntityType.clear();
         curLayerRef = "0";
@@ -436,6 +475,9 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
         entityHasTrueColor = false;
         entityLinetypeName.clear();
         entityTextStyle.clear();
+        entityLineweight = 0;
+        attTag.clear();
+        attPrompt.clear();
     };
 
     for (const Group& g : groups) {
@@ -548,6 +590,8 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
                 insertName = g.value;
             } else if (entityContext && curEntityType == "HATCH") {
                 hatchPatternNameStr = g.value;
+            } else if (entityContext && (curEntityType == "ATTDEF" || curEntityType == "ATTRIB")) {
+                attTag = g.value;
             }
             continue;
         }
@@ -597,6 +641,11 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
                 if (v > 1e-9) fresh.dimStyle().arrowSize = v;
             } else if (g.code == 70 && curHeaderVar == "$DIMDEC") {
                 fresh.dimStyle().decimals = std::clamp(toInt(g.value, 2), 0, 8);
+            } else if (g.code == 70 && curHeaderVar == "$PDMODE") {
+                fresh.setPointMode(toInt(g.value, 3));
+            } else if (g.code == 40 && curHeaderVar == "$PDSIZE") {
+                const double v = toDouble(g.value);
+                if (v > 1e-9) fresh.setPointSize(v);
             }
             continue;
         }
@@ -636,6 +685,9 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
                 if (!curLayerHasTrueColor) curLayerColor = aciToColor(std::abs(aci));
             } else if (g.code == 70) {
                 curLayerLocked = (toInt(g.value) & 4) != 0; // bit 2 = locked/frozen
+            } else if (g.code == 370) {
+                const int hundredths = toInt(g.value, 25);
+                if (hundredths > 0) curLayerLineweight = hundredths / 100.0;
             }
             continue;
         }
@@ -723,7 +775,8 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             break;
         case 40:
             if (curEntityType == "ELLIPSE") ellipseRatio = toDouble(g.value, 1.0);
-            else if (curEntityType == "TEXT" || curEntityType == "MTEXT") textHeight = toDouble(g.value);
+            else if (curEntityType == "TEXT" || curEntityType == "MTEXT" || curEntityType == "ATTDEF" ||
+                     curEntityType == "ATTRIB") textHeight = toDouble(g.value);
             else if (curEntityType == "SPLINE") splineKnots.push_back(toDouble(g.value));
             else if (curEntityType == "VIEWPORT") vpWidth = toDouble(g.value);
             else radius = toDouble(g.value);
@@ -751,7 +804,8 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             }
             break;
         case 50:
-            if (curEntityType == "TEXT" || curEntityType == "MTEXT") textRotationDeg = toDouble(g.value);
+            if (curEntityType == "TEXT" || curEntityType == "MTEXT" || curEntityType == "ATTDEF" ||
+                curEntityType == "ATTRIB") textRotationDeg = toDouble(g.value);
             else startAngleDeg = toDouble(g.value);
             break;
         case 51:
@@ -762,6 +816,9 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             break;
         case 62:
             entityAci = std::abs(toInt(g.value));
+            break;
+        case 370:
+            entityLineweight = toInt(g.value);
             break;
         case 420:
             entityTrueColor = colorFromTrueColor(toInt(g.value));
@@ -792,10 +849,12 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             if (curEntityType == "DIMENSION") dimTextHeight = toDouble(g.value, 2.5);
             break;
         case 1:
-            if (curEntityType == "TEXT" || curEntityType == "MTEXT") textContent = g.value;
+            if (curEntityType == "TEXT" || curEntityType == "MTEXT" || curEntityType == "ATTDEF" ||
+                curEntityType == "ATTRIB") textContent = g.value;
             break;
         case 3:
             if (curEntityType == "MTEXT") mtextChunks += g.value;
+            else if (curEntityType == "ATTDEF") attPrompt = g.value;
             break;
         default:
             break;

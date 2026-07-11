@@ -2,6 +2,7 @@
 
 #include "core/geometry/Arc.h"
 #include "core/geometry/Circle.h"
+#include "core/geometry/ConstructionLine.h"
 #include "core/geometry/Entity.h"
 #include "core/geometry/Line.h"
 #include "core/geometry/Polyline.h"
@@ -104,6 +105,15 @@ Primitives primitivesOf(const Entity& e) {
         const auto& spline = static_cast<const SplineEntity&>(e);
         const auto pts = spline.sample(128);
         for (std::size_t i = 0; i + 1 < pts.size(); ++i) prims.segments.emplace_back(pts[i], pts[i + 1]);
+        break;
+    }
+    case EntityType::ConstructionLine: {
+        // Infinite (or half-infinite) extent approximated by a very long
+        // segment -- plenty for TRIM edges and intersection snaps.
+        const auto& cl = static_cast<const ConstructionLineEntity&>(e);
+        Point2D a, b;
+        cl.asSegment(a, b);
+        prims.segments.emplace_back(a, b);
         break;
     }
     default:

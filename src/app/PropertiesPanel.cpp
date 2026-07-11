@@ -11,6 +11,9 @@
 #include "core/geometry/Leader.h"
 #include "core/geometry/Line.h"
 #include "core/geometry/MText.h"
+#include "core/geometry/AttDef.h"
+#include "core/geometry/ConstructionLine.h"
+#include "core/geometry/PointEnt.h"
 #include "core/geometry/Polyline.h"
 #include "core/geometry/Spline.h"
 #include "core/geometry/Text.h"
@@ -354,6 +357,29 @@ void PropertiesPanel::refresh() {
         addRow(QStringLiteral("Height:"), formatNumber(text->height()));
         addRow(QStringLiteral("Rotation:"), formatDegrees(text->rotation()));
         addRow(QStringLiteral("Content:"), QString::fromStdString(text->text()));
+        break;
+    }
+    case lcad::EntityType::Point: {
+        const auto* point = static_cast<const lcad::PointEntity*>(e);
+        m_summaryLabel->setText(QStringLiteral("Point"));
+        addRow(QStringLiteral("X:"), formatNumber(point->position().x));
+        addRow(QStringLiteral("Y:"), formatNumber(point->position().y));
+        break;
+    }
+    case lcad::EntityType::ConstructionLine: {
+        const auto* cl = static_cast<const lcad::ConstructionLineEntity*>(e);
+        m_summaryLabel->setText(cl->isRay() ? QStringLiteral("Ray") : QStringLiteral("Construction Line"));
+        addRow(QStringLiteral("Base X:"), formatNumber(cl->basePoint().x));
+        addRow(QStringLiteral("Base Y:"), formatNumber(cl->basePoint().y));
+        addRow(QStringLiteral("Angle:"), formatDegrees(std::atan2(cl->direction().y, cl->direction().x)));
+        break;
+    }
+    case lcad::EntityType::AttDef: {
+        const auto* attdef = static_cast<const lcad::AttDefEntity*>(e);
+        m_summaryLabel->setText(QStringLiteral("Attribute Definition"));
+        addRow(QStringLiteral("Tag:"), QString::fromStdString(attdef->tag()));
+        addRow(QStringLiteral("Prompt:"), QString::fromStdString(attdef->prompt()));
+        addRow(QStringLiteral("Default:"), QString::fromStdString(attdef->defaultValue()));
         break;
     }
     }

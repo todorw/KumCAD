@@ -1,6 +1,7 @@
 #include "core/document/Document.h"
 
 #include "core/geometry/Dimension.h"
+#include "core/geometry/Insert.h"
 
 #include <algorithm>
 
@@ -200,6 +201,89 @@ void Document::reassociateDimensions() {
             else dim->setAnchor2(std::nullopt);
         }
     }
+}
+
+void Document::setGroup(const std::string& name, std::vector<EntityId> ids) {
+    for (auto& [groupName, members] : m_groups) {
+        if (groupName == name) {
+            members = std::move(ids);
+            return;
+        }
+    }
+    m_groups.emplace_back(name, std::move(ids));
+}
+
+bool Document::removeGroup(const std::string& name) {
+    for (auto it = m_groups.begin(); it != m_groups.end(); ++it) {
+        if (it->first == name) {
+            m_groups.erase(it);
+            return true;
+        }
+    }
+    return false;
+}
+
+const std::vector<EntityId>* Document::groupOf(EntityId id) const {
+    for (const auto& [name, members] : m_groups) {
+        for (EntityId member : members) {
+            if (member == id) return &members;
+        }
+    }
+    return nullptr;
+}
+
+Document::PurgeResult Document::purge() {
+    PurgeResult result;
+
+    // Blocks: referenced by an insert anywhere (any space, or nested inside
+    // another block definition) stay; xrefs stay too — detach handles those.
+    const auto blockReferenced = [this](const BlockDefinition* candidate) {
+        const auto usesCandidate = [candidate](const Entity& e) {
+            return e.type() == EntityType::Insert &&
+                   static_cast<const InsertEntity&>(e).block() == candidate;
+        };
+        for (const auto& [id, entity] : m_entityMap) {
+            if (usesCandidate(*entity)) return true;
+        }
+        for (const auto& other : m_blocks) {
+            if (other.get() == candidate) continue;
+            for (const auto& child : other->entities) {
+                if (usesCandidate(*child)) return true;
+            }
+        }
+        return false;
+    };
+    for (auto it = m_blocks.begin(); it != m_blocks.end();) {
+        if (!(*it)->isXref() && !blockReferenced(it->get())) {
+            it = m_blocks.erase(it);
+            ++result.blocks;
+        } else {
+            ++it;
+        }
+    }
+
+    // Layers: no entity anywhere on them (including block children), not
+    // layer 0, not current.
+    const auto layerUsed = [this](LayerId id) {
+        for (const auto& [entityId, entity] : m_entityMap) {
+            if (entity->layer() == id) return true;
+        }
+        for (const auto& block : m_blocks) {
+            for (const auto& child : block->entities) {
+                if (child->layer() == id) return true;
+            }
+        }
+        return false;
+    };
+    for (auto it = m_layers.begin(); it != m_layers.end();) {
+        if (it->id != 0 && it->id != m_currentLayer && !layerUsed(it->id)) {
+            it = m_layers.erase(it);
+            ++result.layers;
+        } else {
+            ++it;
+        }
+    }
+    return result;
 }
 
 const BlockDefinition* Document::findBlock(const std::string& name) const {

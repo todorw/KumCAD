@@ -73,6 +73,14 @@ public:
     void setPolarEnabled(bool on);
     void setOtrackEnabled(bool on);
 
+    // LWDISPLAY: when on, entities render at their resolved lineweight
+    // (override or layer) instead of a hairline.
+    bool lineweightDisplay() const { return m_lineweightDisplay; }
+    void setLineweightDisplay(bool on) {
+        m_lineweightDisplay = on;
+        update();
+    }
+
     // Polar tracking increment angle (AutoCAD's POLARANG), degrees.
     double polarIncrementDeg() const { return m_polarIncrementDeg; }
     void setPolarIncrementDeg(double deg) {
@@ -171,6 +179,7 @@ private:
     bool m_osnapEnabled = true;
     bool m_orthoEnabled = false;
     bool m_gridSnapEnabled = false;
+    bool m_lineweightDisplay = false;
     bool m_polarEnabled = false;
     bool m_otrackEnabled = false;
     double m_polarIncrementDeg = 45.0;

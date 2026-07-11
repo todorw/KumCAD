@@ -1,7 +1,9 @@
 #include "core/io/DxfWriter.h"
 
 #include "core/geometry/Arc.h"
+#include "core/geometry/AttDef.h"
 #include "core/geometry/Circle.h"
+#include "core/geometry/ConstructionLine.h"
 #include "core/geometry/Dimension.h"
 #include "core/geometry/Ellipse.h"
 #include "core/geometry/Hatch.h"
@@ -9,6 +11,7 @@
 #include "core/geometry/Leader.h"
 #include "core/geometry/Line.h"
 #include "core/geometry/MText.h"
+#include "core/geometry/PointEnt.h"
 #include "core/geometry/Polyline.h"
 #include "core/geometry/Spline.h"
 #include "core/geometry/Text.h"
@@ -52,6 +55,9 @@ void writeCommon(std::ofstream& out, const Document& doc, const Entity& e) {
     if (const auto& color = e.colorOverride()) {
         writeGroup(out, 62, colorToAci(*color));
         writeGroup(out, 420, trueColor(*color));
+    }
+    if (const auto& weight = e.lineweightOverride()) {
+        writeGroup(out, 370, static_cast<int>(std::lround(*weight * 100.0)));
     }
 }
 
@@ -308,6 +314,7 @@ void writeEntity(std::ofstream& out, const Document& document, const Entity& e) 
         const auto& insert = static_cast<const InsertEntity&>(e);
         writeGroup(out, 0, "INSERT");
         writeCommon(out, document, e);
+        if (!insert.attributes().empty()) writeGroup(out, 66, 1); // ATTRIBs follow
         writeGroup(out, 2, insert.blockName());
         writeGroup(out, 10, insert.position().x);
         writeGroup(out, 20, insert.position().y);
@@ -316,6 +323,77 @@ void writeEntity(std::ofstream& out, const Document& document, const Entity& e) 
         writeGroup(out, 42, insert.scaleFactor());
         writeGroup(out, 43, insert.scaleFactor());
         writeGroup(out, 50, insert.rotation() * 180.0 / M_PI);
+        if (!insert.attributes().empty()) {
+            // Resolved attribute values, placed like the block's ATTDEFs
+            // transformed by the insert.
+            for (const auto& [tag, value] : insert.attributes()) {
+                const AttDefEntity* def = nullptr;
+                for (const auto& child : insert.block()->entities) {
+                    if (child->type() == EntityType::AttDef &&
+                        static_cast<const AttDefEntity&>(*child).tag() == tag) {
+                        def = static_cast<const AttDefEntity*>(child.get());
+                        break;
+                    }
+                }
+                Point2D pos = insert.position();
+                double height = 2.5;
+                double rotation = insert.rotation();
+                if (def) {
+                    pos = insert.position() +
+                          rotateAround(def->position() * insert.scaleFactor(), Point2D(), insert.rotation());
+                    height = def->height() * insert.scaleFactor();
+                    rotation = def->rotation() + insert.rotation();
+                }
+                writeGroup(out, 0, "ATTRIB");
+                writeGroup(out, 8, layerName(document, e.layer()));
+                writeGroup(out, 10, pos.x);
+                writeGroup(out, 20, pos.y);
+                writeGroup(out, 30, 0.0);
+                writeGroup(out, 40, height);
+                writeGroup(out, 1, value);
+                writeGroup(out, 50, rotation * 180.0 / M_PI);
+                writeGroup(out, 2, tag);
+                writeGroup(out, 70, 0);
+            }
+            writeGroup(out, 0, "SEQEND");
+            writeGroup(out, 8, layerName(document, e.layer()));
+        }
+        break;
+    }
+    case EntityType::Point: {
+        const auto& point = static_cast<const PointEntity&>(e);
+        writeGroup(out, 0, "POINT");
+        writeCommon(out, document, e);
+        writeGroup(out, 10, point.position().x);
+        writeGroup(out, 20, point.position().y);
+        writeGroup(out, 30, 0.0);
+        break;
+    }
+    case EntityType::ConstructionLine: {
+        const auto& cl = static_cast<const ConstructionLineEntity&>(e);
+        writeGroup(out, 0, cl.isRay() ? "RAY" : "XLINE");
+        writeCommon(out, document, e);
+        writeGroup(out, 10, cl.basePoint().x);
+        writeGroup(out, 20, cl.basePoint().y);
+        writeGroup(out, 30, 0.0);
+        writeGroup(out, 11, cl.direction().x); // unit direction vector
+        writeGroup(out, 21, cl.direction().y);
+        writeGroup(out, 31, 0.0);
+        break;
+    }
+    case EntityType::AttDef: {
+        const auto& attdef = static_cast<const AttDefEntity&>(e);
+        writeGroup(out, 0, "ATTDEF");
+        writeCommon(out, document, e);
+        writeGroup(out, 10, attdef.position().x);
+        writeGroup(out, 20, attdef.position().y);
+        writeGroup(out, 30, 0.0);
+        writeGroup(out, 40, attdef.height());
+        writeGroup(out, 1, attdef.defaultValue());
+        writeGroup(out, 50, attdef.rotation() * 180.0 / M_PI);
+        writeGroup(out, 3, attdef.prompt());
+        writeGroup(out, 2, attdef.tag());
+        writeGroup(out, 70, 0);
         break;
     }
     }
@@ -348,6 +426,10 @@ bool writeDxf(const Document& document, const std::string& path, std::string* er
     writeGroup(out, 40, document.dimStyle().arrowSize);
     writeGroup(out, 9, "$DIMDEC");
     writeGroup(out, 70, document.dimStyle().decimals);
+    writeGroup(out, 9, "$PDMODE");
+    writeGroup(out, 70, document.pointMode());
+    writeGroup(out, 9, "$PDSIZE");
+    writeGroup(out, 40, document.pointSize());
     writeGroup(out, 0, "ENDSEC");
 
     writeGroup(out, 0, "SECTION");
@@ -386,6 +468,7 @@ bool writeDxf(const Document& document, const std::string& path, std::string* er
         writeGroup(out, 62, layer.visible ? aci : -aci);
         writeGroup(out, 420, trueColor(layer.color));
         writeGroup(out, 6, lineTypeName(layer.linetype));
+        writeGroup(out, 370, static_cast<int>(std::lround(layer.lineweight * 100.0)));
     }
     writeGroup(out, 0, "ENDTAB");
     writeGroup(out, 0, "TABLE");

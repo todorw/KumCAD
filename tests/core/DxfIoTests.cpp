@@ -1,5 +1,8 @@
 #include "core/document/Document.h"
 #include "core/geometry/Arc.h"
+#include "core/geometry/PointEnt.h"
+#include "core/geometry/ConstructionLine.h"
+#include "core/geometry/AttDef.h"
 #include "core/geometry/Circle.h"
 #include "core/geometry/Dimension.h"
 #include "core/geometry/Ellipse.h"
@@ -793,4 +796,89 @@ TEST_CASE("Xref attach, DXF round-trip of the cached snapshot, and reload", "[dx
 
     // reloadAllXrefs also refreshes (and reports) reachable references.
     REQUIRE(lcad::reloadAllXrefs(loaded, "") == 1);
+}
+
+TEST_CASE("DXF round-trips points, construction lines, lineweights, and point style", "[dxf][point][xline]") {
+    TempDxfPath temp;
+
+    lcad::Document doc;
+    doc.setPointMode(34); // circled plus
+    doc.setPointSize(3.5);
+    doc.addEntity(std::make_unique<lcad::PointEntity>(doc.reserveEntityId(), doc.currentLayer(),
+                                                      lcad::Point2D(4, 5)));
+    doc.addEntity(std::make_unique<lcad::ConstructionLineEntity>(doc.reserveEntityId(), doc.currentLayer(),
+                                                                 lcad::Point2D(0, 0), lcad::Point2D(1, 1), false));
+    doc.addEntity(std::make_unique<lcad::ConstructionLineEntity>(doc.reserveEntityId(), doc.currentLayer(),
+                                                                 lcad::Point2D(2, 2), lcad::Point2D(0, 1), true));
+    auto heavy = std::make_unique<lcad::LineEntity>(doc.reserveEntityId(), doc.currentLayer(), lcad::Point2D(0, 0),
+                                                    lcad::Point2D(9, 0));
+    heavy->setLineweightOverride(0.5);
+    doc.addEntity(std::move(heavy));
+    if (lcad::Layer* layer = doc.findLayer(0)) layer->lineweight = 0.35;
+
+    REQUIRE(lcad::writeDxf(doc, temp.path.string()));
+    lcad::Document loaded;
+    REQUIRE(lcad::readDxf(loaded, temp.path.string()));
+
+    REQUIRE(loaded.pointMode() == 34);
+    REQUIRE(loaded.pointSize() == Approx(3.5));
+    REQUIRE(loaded.findLayer(0)->lineweight == Approx(0.35));
+
+    const auto entities = loaded.entities();
+    REQUIRE(entities.size() == 4);
+    REQUIRE(entities[0]->type() == lcad::EntityType::Point);
+    REQUIRE(static_cast<const lcad::PointEntity*>(entities[0])->position().x == Approx(4.0));
+
+    const auto* xline = static_cast<const lcad::ConstructionLineEntity*>(entities[1]);
+    REQUIRE(xline->type() == lcad::EntityType::ConstructionLine);
+    REQUIRE_FALSE(xline->isRay());
+    REQUIRE(xline->direction().x == Approx(std::sqrt(0.5)));
+
+    const auto* ray = static_cast<const lcad::ConstructionLineEntity*>(entities[2]);
+    REQUIRE(ray->isRay());
+    REQUIRE(ray->direction().y == Approx(1.0));
+
+    REQUIRE(entities[3]->lineweightOverride().has_value());
+    REQUIRE(*entities[3]->lineweightOverride() == Approx(0.5));
+}
+
+TEST_CASE("DXF round-trips block attributes (ATTDEF + INSERT/ATTRIB)", "[dxf][attrib]") {
+    TempDxfPath temp;
+
+    lcad::Document doc;
+    std::vector<std::unique_ptr<lcad::Entity>> blockEnts;
+    blockEnts.push_back(std::make_unique<lcad::LineEntity>(doc.reserveEntityId(), 0, lcad::Point2D(0, 0),
+                                                           lcad::Point2D(20, 0)));
+    blockEnts.push_back(std::make_unique<lcad::AttDefEntity>(doc.reserveEntityId(), 0, lcad::Point2D(2, 2), "PARTNO",
+                                                             "Part number", "P-000", 2.5));
+    const lcad::BlockDefinition* block = doc.addBlock("title", std::move(blockEnts));
+
+    auto insert = std::make_unique<lcad::InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), block,
+                                                       lcad::Point2D(50, 50));
+    insert->setAttribute("PARTNO", "P-123");
+    doc.addEntity(std::move(insert));
+
+    REQUIRE(lcad::writeDxf(doc, temp.path.string()));
+    lcad::Document loaded;
+    REQUIRE(lcad::readDxf(loaded, temp.path.string()));
+
+    const lcad::BlockDefinition* loadedBlock = loaded.findBlock("title");
+    REQUIRE(loadedBlock);
+    REQUIRE(loadedBlock->entities.size() == 2);
+    const lcad::AttDefEntity* attdef = nullptr;
+    for (const auto& child : loadedBlock->entities) {
+        if (child->type() == lcad::EntityType::AttDef) attdef = static_cast<const lcad::AttDefEntity*>(child.get());
+    }
+    REQUIRE(attdef);
+    REQUIRE(attdef->tag() == "PARTNO");
+    REQUIRE(attdef->prompt() == "Part number");
+    REQUIRE(attdef->defaultValue() == "P-000");
+
+    const auto entities = loaded.entities();
+    REQUIRE(entities.size() == 1);
+    const auto* loadedInsert = static_cast<const lcad::InsertEntity*>(entities[0]);
+    REQUIRE(loadedInsert->type() == lcad::EntityType::Insert);
+    const std::string* value = loadedInsert->attributeValue("PARTNO");
+    REQUIRE(value);
+    REQUIRE(*value == "P-123");
 }

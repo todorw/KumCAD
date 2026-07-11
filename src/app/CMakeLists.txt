@@ -66,6 +66,15 @@ add_executable(kumcad
     commands/PageSetupCommand.cpp
     commands/XrefCommand.h
     commands/XrefCommand.cpp
+    commands/PointCommands.h
+    commands/PointCommands.cpp
+    commands/XlineCommand.h
+    commands/GroupCommand.h
+    commands/MatchPropCommand.h
+    commands/LweightCommand.h
+    commands/IdCommand.h
+    commands/AttDefCommand.h
+    commands/AttDefCommand.cpp
     commands/CopyCommand.h
     commands/CopyCommand.cpp
     commands/RotateCommand.h

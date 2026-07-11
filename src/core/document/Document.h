@@ -97,6 +97,32 @@ public:
         if (scale > 1e-9) m_lineTypeScale = scale;
     }
 
+    // Point display style (PDMODE/PDSIZE): 0 dot, 2 plus, 3 X, 4 tick;
+    // adding 32 draws a circle around it. Size is in drawing units.
+    int pointMode() const { return m_pointMode; }
+    void setPointMode(int mode) { m_pointMode = mode; }
+    double pointSize() const { return m_pointSize; }
+    void setPointSize(double size) {
+        if (size > 1e-9) m_pointSize = size;
+    }
+
+    // Named entity groups (GROUP command): click-selecting one member
+    // selects the whole group. Dead ids are tolerated and skipped.
+    const std::vector<std::pair<std::string, std::vector<EntityId>>>& groups() const { return m_groups; }
+    void setGroup(const std::string& name, std::vector<EntityId> ids);
+    bool removeGroup(const std::string& name);
+    // The members of the first group containing id, or nullptr.
+    const std::vector<EntityId>* groupOf(EntityId id) const;
+
+    // PURGE: drops block definitions no insert references (checking every
+    // space and other blocks' children) and layers with no entities that
+    // aren't current or layer 0. Not undoable, like layout management.
+    struct PurgeResult {
+        int blocks = 0;
+        int layers = 0;
+    };
+    PurgeResult purge();
+
     // Named dimension styles. dimStyle() is the current one; new dimensions
     // snapshot its values at creation. The "Standard" style always exists.
     const DimStyle& dimStyle() const { return currentNamedDimStyle().style; }
@@ -137,6 +163,9 @@ private:
     std::vector<std::unique_ptr<BlockDefinition>> m_blocks;
 
     double m_lineTypeScale = 1.0;
+    int m_pointMode = 3;      // X marker by default so points are visible
+    double m_pointSize = 2.0; // drawing units
+    std::vector<std::pair<std::string, std::vector<EntityId>>> m_groups;
     std::vector<NamedDimStyle> m_dimStyles{NamedDimStyle{}};
     std::string m_currentDimStyle = "Standard";
     std::vector<TextStyle> m_textStyles{TextStyle{}};

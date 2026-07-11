@@ -36,6 +36,9 @@ add_library(lcad_core STATIC
     geometry/ModifyOps.cpp
     geometry/SnapGeometry.h
     geometry/SnapGeometry.cpp
+    geometry/PointEnt.h
+    geometry/ConstructionLine.h
+    geometry/AttDef.h
     geometry/Intersect.h
     geometry/Intersect.cpp
     document/Layer.h

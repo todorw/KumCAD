@@ -225,3 +225,31 @@ TEST_CASE("tangentPoints from an external point touch the circle", "[snapgeometr
     // From inside: none.
     REQUIRE(lcad::tangentPoints(circle, lcad::Point2D(1, 0)).empty());
 }
+
+TEST_CASE("divideEntity and measureEntity place points along curves", "[modifyops][divide]") {
+    lcad::LineEntity line(1, 0, lcad::Point2D(0, 0), lcad::Point2D(10, 0));
+    const auto thirds = lcad::divideEntity(line, 4);
+    REQUIRE(thirds.size() == 3);
+    REQUIRE(thirds[0].x == Approx(2.5));
+    REQUIRE(thirds[1].x == Approx(5.0));
+    REQUIRE(thirds[2].x == Approx(7.5));
+
+    const auto steps = lcad::measureEntity(line, 4.0);
+    REQUIRE(steps.size() == 2);
+    REQUIRE(steps[0].x == Approx(4.0));
+    REQUIRE(steps[1].x == Approx(8.0));
+
+    // Circles divide into n points around the full perimeter.
+    lcad::CircleEntity circle(2, 0, lcad::Point2D(0, 0), 5.0);
+    const auto quarters = lcad::divideEntity(circle, 4);
+    REQUIRE(quarters.size() == 4);
+    REQUIRE(quarters[0].x == Approx(5.0)); // angle 0
+    REQUIRE(quarters[1].y == Approx(5.0).margin(1e-9)); // angle 90
+
+    // Polylines walk their segments.
+    lcad::PolylineEntity pl(3, 0, {{0, 0}, {10, 0}, {10, 10}}, false);
+    const auto halves = lcad::divideEntity(pl, 2);
+    REQUIRE(halves.size() == 1);
+    REQUIRE(halves[0].x == Approx(10.0));
+    REQUIRE(halves[0].y == Approx(0.0).margin(1e-9));
+}

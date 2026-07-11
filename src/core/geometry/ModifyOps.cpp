@@ -1,11 +1,14 @@
 #include "core/geometry/ModifyOps.h"
 
 #include "core/geometry/Arc.h"
+#include "core/geometry/AttDef.h"
 #include "core/geometry/Circle.h"
+#include "core/geometry/ConstructionLine.h"
 #include "core/geometry/Ellipse.h"
 #include "core/geometry/Insert.h"
 #include "core/geometry/Line.h"
 #include "core/geometry/MText.h"
+#include "core/geometry/PointEnt.h"
 #include "core/geometry/Polyline.h"
 #include "core/geometry/Text.h"
 
@@ -102,6 +105,12 @@ std::unique_ptr<Entity> stretchedClone(const Entity& e, const BoundingBox& windo
         return translateIfInside(e, static_cast<const MTextEntity&>(e).position(), window, delta);
     case EntityType::Insert:
         return translateIfInside(e, static_cast<const InsertEntity&>(e).position(), window, delta);
+    case EntityType::Point:
+        return translateIfInside(e, static_cast<const PointEntity&>(e).position(), window, delta);
+    case EntityType::ConstructionLine:
+        return translateIfInside(e, static_cast<const ConstructionLineEntity&>(e).basePoint(), window, delta);
+    case EntityType::AttDef:
+        return translateIfInside(e, static_cast<const AttDefEntity&>(e).position(), window, delta);
     case EntityType::Polyline:
     case EntityType::Spline:
     case EntityType::Hatch:
@@ -300,6 +309,118 @@ BreakResult breakEntity(const Entity& e, const Point2D& a, const Point2D& b,
     default:
         return result;
     }
+}
+
+std::optional<Point2D> pointAtDistance(const Entity& e, double s) {
+    if (s < 0) return std::nullopt;
+    switch (e.type()) {
+    case EntityType::Line: {
+        const auto& line = static_cast<const LineEntity&>(e);
+        const Point2D d = line.end() - line.start();
+        const double len = d.length();
+        if (len < kEps || s > len + kEps) return std::nullopt;
+        return line.start() + d * (s / len);
+    }
+    case EntityType::Arc: {
+        const auto& arc = static_cast<const ArcEntity&>(e);
+        if (arc.radius() < kEps) return std::nullopt;
+        const double sweep = arcSweep(arc);
+        const double ang = arc.startAngle() + s / arc.radius();
+        if (s > sweep * arc.radius() + kEps) return std::nullopt;
+        return Point2D(arc.center().x + arc.radius() * std::cos(ang),
+                       arc.center().y + arc.radius() * std::sin(ang));
+    }
+    case EntityType::Circle: {
+        const auto& circle = static_cast<const CircleEntity&>(e);
+        if (circle.radius() < kEps || s > kTwoPi * circle.radius() + kEps) return std::nullopt;
+        const double ang = s / circle.radius();
+        return Point2D(circle.center().x + circle.radius() * std::cos(ang),
+                       circle.center().y + circle.radius() * std::sin(ang));
+    }
+    case EntityType::Polyline: {
+        const auto& pl = static_cast<const PolylineEntity&>(e);
+        std::optional<Point2D> found;
+        double walked = 0.0;
+        pl.forEachSegment([&](const Point2D& a, const Point2D& b, double bulge) {
+            if (found) return;
+            if (const auto arc = bulgeToArc(a, b, bulge)) {
+                const double segLen = arc->radius * std::abs(arc->sweep);
+                if (s <= walked + segLen + kEps) {
+                    const double frac = segLen < kEps ? 0.0 : (s - walked) / segLen;
+                    const double ang = arc->startAngle + arc->sweep * frac;
+                    found = Point2D(arc->center.x + arc->radius * std::cos(ang),
+                                    arc->center.y + arc->radius * std::sin(ang));
+                    return;
+                }
+                walked += segLen;
+            } else {
+                const double segLen = a.distanceTo(b);
+                if (s <= walked + segLen + kEps) {
+                    const double frac = segLen < kEps ? 0.0 : (s - walked) / segLen;
+                    found = a + (b - a) * frac;
+                    return;
+                }
+                walked += segLen;
+            }
+        });
+        return found;
+    }
+    default:
+        return std::nullopt;
+    }
+}
+
+namespace {
+
+// Length basis for DIVIDE/MEASURE: circles and closed polylines measure
+// their full perimeter (curveLength() deliberately refuses closed curves
+// for LENGTHEN).
+std::optional<double> sampleLength(const Entity& e) {
+    if (e.type() == EntityType::Circle) {
+        return kTwoPi * static_cast<const CircleEntity&>(e).radius();
+    }
+    if (e.type() == EntityType::Polyline) {
+        const auto& pl = static_cast<const PolylineEntity&>(e);
+        double total = 0.0;
+        pl.forEachSegment([&](const Point2D& a, const Point2D& b, double bulge) {
+            if (const auto arc = bulgeToArc(a, b, bulge)) {
+                total += arc->radius * std::abs(arc->sweep);
+            } else {
+                total += a.distanceTo(b);
+            }
+        });
+        return total;
+    }
+    return curveLength(e);
+}
+
+} // namespace
+
+std::vector<Point2D> divideEntity(const Entity& e, int n) {
+    std::vector<Point2D> result;
+    if (n < 2) return result;
+    const auto length = sampleLength(e);
+    if (!length || *length < kEps) return result;
+    // Circles get n points (the "start" is also a division); open curves the
+    // n-1 interior ones.
+    const bool closed = e.type() == EntityType::Circle ||
+                        (e.type() == EntityType::Polyline && static_cast<const PolylineEntity&>(e).closed());
+    const int first = closed ? 0 : 1;
+    for (int i = first; i < n; ++i) {
+        if (const auto p = pointAtDistance(e, *length * i / n)) result.push_back(*p);
+    }
+    return result;
+}
+
+std::vector<Point2D> measureEntity(const Entity& e, double step) {
+    std::vector<Point2D> result;
+    if (step < kEps) return result;
+    const auto length = sampleLength(e);
+    if (!length) return result;
+    for (double s = step; s <= *length + kEps; s += step) {
+        if (const auto p = pointAtDistance(e, s)) result.push_back(*p);
+    }
+    return result;
 }
 
 } // namespace lcad

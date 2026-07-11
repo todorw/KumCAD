@@ -1,7 +1,9 @@
 #include "EntityPainter.h"
 
 #include "core/geometry/Arc.h"
+#include "core/geometry/AttDef.h"
 #include "core/geometry/Circle.h"
+#include "core/geometry/ConstructionLine.h"
 #include "core/geometry/Dimension.h"
 #include "core/geometry/Ellipse.h"
 #include "core/geometry/Hatch.h"
@@ -9,6 +11,7 @@
 #include "core/geometry/Leader.h"
 #include "core/geometry/Line.h"
 #include "core/geometry/MText.h"
+#include "core/geometry/PointEnt.h"
 #include "core/geometry/Polyline.h"
 #include "core/geometry/Spline.h"
 #include "core/geometry/Text.h"
@@ -294,8 +297,54 @@ void paint(QPainter& painter, const lcad::Entity& entity, const WorldToScreen& t
         // ByBlock semantics).
         const auto& insert = static_cast<const lcad::InsertEntity&>(entity);
         for (const auto& child : insert.instantiate()) {
-            paint(painter, *child, toScreen, scale, color, penWidth, linetype, ltScale);
+            paint(painter, *child, toScreen, scale, color, penWidth, linetype, ltScale, document);
         }
+        break;
+    }
+    case lcad::EntityType::Point: {
+        const auto& point = static_cast<const lcad::PointEntity&>(entity);
+        const QPointF s = toScreen(point.position());
+        const int mode = document ? document->pointMode() : 3;
+        const double half = std::max(2.0, (document ? document->pointSize() : 2.0) * scale / 2.0);
+        painter.setPen(QPen(color, penWidth));
+        switch (mode & 7) {
+        case 0: // dot
+            painter.drawPoint(s);
+            break;
+        case 2: // plus
+            painter.drawLine(QPointF(s.x() - half, s.y()), QPointF(s.x() + half, s.y()));
+            painter.drawLine(QPointF(s.x(), s.y() - half), QPointF(s.x(), s.y() + half));
+            break;
+        case 4: // vertical tick
+            painter.drawLine(s, QPointF(s.x(), s.y() - half));
+            break;
+        case 3: // X
+        default:
+            painter.drawLine(QPointF(s.x() - half, s.y() - half), QPointF(s.x() + half, s.y() + half));
+            painter.drawLine(QPointF(s.x() - half, s.y() + half), QPointF(s.x() + half, s.y() - half));
+            break;
+        }
+        if (mode & 32) painter.drawEllipse(s, half, half);
+        break;
+    }
+    case lcad::EntityType::ConstructionLine: {
+        const auto& cl = static_cast<const lcad::ConstructionLineEntity&>(entity);
+        lcad::Point2D a, b;
+        cl.asSegment(a, b);
+        painter.drawLine(toScreen(a), toScreen(b));
+        break;
+    }
+    case lcad::EntityType::AttDef: {
+        // Standalone attribute definitions display their tag, like AutoCAD.
+        const auto& attdef = static_cast<const lcad::AttDefEntity&>(entity);
+        QFont font = painter.font();
+        font.setPixelSize(std::max(1, static_cast<int>(std::round(attdef.height() * scale))));
+        painter.save();
+        painter.setFont(font);
+        painter.translate(toScreen(attdef.position()));
+        painter.rotate(-qRadiansToDegrees(attdef.rotation()));
+        painter.drawText(QPointF(0, 0), QString::fromStdString(attdef.tag()));
+        painter.restore();
         break;
     }
     }

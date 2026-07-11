@@ -26,6 +26,9 @@ enum class EntityType {
     Leader,
     Hatch,
     Insert,
+    Point,            // POINT node (PDMODE/PDSIZE styled)
+    ConstructionLine, // XLINE / RAY
+    AttDef,           // attribute definition inside a block
 };
 
 // Object-snap candidate kinds, mirroring AutoCAD's OSNAP markers. The first
@@ -79,6 +82,11 @@ public:
     const std::optional<LineType>& linetypeOverride() const { return m_linetypeOverride; }
     void setLinetypeOverride(std::optional<LineType> linetype) { m_linetypeOverride = linetype; }
 
+    // Explicit lineweight in mm, overriding the layer's ("ByLayer" when
+    // unset). Display honors it when LWDISPLAY is on.
+    const std::optional<double>& lineweightOverride() const { return m_lineweightOverride; }
+    void setLineweightOverride(std::optional<double> weight) { m_lineweightOverride = weight; }
+
     virtual EntityType type() const = 0;
     virtual BoundingBox boundingBox() const = 0;
 
@@ -116,6 +124,7 @@ private:
     LayerId m_layer;
     std::optional<Color> m_colorOverride;
     std::optional<LineType> m_linetypeOverride;
+    std::optional<double> m_lineweightOverride;
 };
 
 } // namespace lcad

@@ -15,6 +15,7 @@ struct Layer {
     LineType linetype = LineType::Continuous;
     bool visible = true;
     bool locked = false;
+    double lineweight = 0.25; // mm; entities can override per-entity
 };
 
 } // namespace lcad

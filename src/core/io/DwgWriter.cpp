@@ -4,6 +4,8 @@
 
 #include "core/geometry/Arc.h"
 #include "core/geometry/Circle.h"
+#include "core/geometry/ConstructionLine.h"
+#include "core/geometry/PointEnt.h"
 #include "core/geometry/Dimension.h"
 #include "core/geometry/Ellipse.h"
 #include "core/geometry/Insert.h"
@@ -201,8 +203,22 @@ struct DwgExport {
                         e);
             return true;
         }
+        case EntityType::Point: {
+            const dwg_point_3d p = pt3(static_cast<const PointEntity&>(e).position());
+            applyCommon(dwg_add_POINT(blkhdr, &p), e);
+            return true;
+        }
+        case EntityType::ConstructionLine: {
+            const auto& cl = static_cast<const ConstructionLineEntity&>(e);
+            const dwg_point_3d p = pt3(cl.basePoint());
+            const dwg_point_3d v = pt3(cl.direction());
+            applyCommon(cl.isRay() ? static_cast<void*>(dwg_add_RAY(blkhdr, &p, &v))
+                                   : static_cast<void*>(dwg_add_XLINE(blkhdr, &p, &v)),
+                        e);
+            return true;
+        }
         default:
-            return false; // hatches, leaders: not expressible via the add API yet
+            return false; // hatches, leaders, attdefs: not expressible via the add API yet
         }
     }
 };

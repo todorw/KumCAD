@@ -3,6 +3,10 @@
 #include "core/document/Block.h"
 #include "core/geometry/Entity.h"
 
+#include <string>
+#include <utility>
+#include <vector>
+
 namespace lcad {
 
 // A placed reference to a BlockDefinition: position, uniform scale, and
@@ -16,6 +20,13 @@ public:
 
     const BlockDefinition* block() const { return m_block; }
     const std::string& blockName() const { return m_block->name; }
+
+    // Attribute values keyed by the block's ATTDEF tags. instantiate()
+    // materializes them as text at the definitions' transformed positions,
+    // so rendering, hit-testing, and EXPLODE all see them.
+    const std::vector<std::pair<std::string, std::string>>& attributes() const { return m_attributes; }
+    void setAttribute(const std::string& tag, const std::string& value);
+    const std::string* attributeValue(const std::string& tag) const;
     const Point2D& position() const { return m_position; }
     double scaleFactor() const { return m_scale; }
     double rotation() const { return m_rotation; }
@@ -43,6 +54,7 @@ private:
     Point2D m_position;
     double m_scale;
     double m_rotation;
+    std::vector<std::pair<std::string, std::string>> m_attributes;
 };
 
 } // namespace lcad
