@@ -29,6 +29,21 @@ struct NamedDimStyle {
     DimStyle style;
 };
 
+// Multileader style values (a MLEADERSTYLE-lite): new MLEADERs snapshot the
+// current style's values at creation, like DimStyle. landingGap is a
+// multiple of textHeight, matching LEADER's hardcoded text offset.
+struct MLeaderStyle {
+    double textHeight = 2.5;
+    double arrowSize = 1.25;
+    double landingGap = 0.6;
+};
+
+// A named multileader style (AutoCAD's MLEADERSTYLE table entry).
+struct NamedMLeaderStyle {
+    std::string name = "Standard";
+    MLeaderStyle style;
+};
+
 // A named text style (AutoCAD's STYLE table entry). font is a family name
 // (persisted in the DXF STYLE table's font group); fixedHeight 0 means the
 // TEXT command prompts for a height.
@@ -135,6 +150,15 @@ public:
     // False if no style of that name exists.
     bool setCurrentDimStyle(const std::string& name);
 
+    // Named multileader styles, mirroring the DimStyle accessors above.
+    const MLeaderStyle& mleaderStyle() const { return currentNamedMLeaderStyle().style; }
+    MLeaderStyle& mleaderStyle() { return currentNamedMLeaderStyle().style; }
+    const std::vector<NamedMLeaderStyle>& mleaderStyles() const { return m_mleaderStyles; }
+    const std::string& currentMLeaderStyleName() const { return m_currentMLeaderStyle; }
+    NamedMLeaderStyle* findMLeaderStyle(const std::string& name);
+    NamedMLeaderStyle& addOrUpdateMLeaderStyle(const std::string& name, const MLeaderStyle& style);
+    bool setCurrentMLeaderStyle(const std::string& name);
+
     // Named text styles. The "Standard" style always exists; TEXT/MTEXT tag
     // entities with the current style's name and rendering resolves it.
     const std::vector<TextStyle>& textStyles() const { return m_textStyles; }
@@ -168,6 +192,8 @@ private:
     std::vector<std::pair<std::string, std::vector<EntityId>>> m_groups;
     std::vector<NamedDimStyle> m_dimStyles{NamedDimStyle{}};
     std::string m_currentDimStyle = "Standard";
+    std::vector<NamedMLeaderStyle> m_mleaderStyles{NamedMLeaderStyle{}};
+    std::string m_currentMLeaderStyle = "Standard";
     std::vector<TextStyle> m_textStyles{TextStyle{}};
     std::string m_currentTextStyle = "Standard";
     std::vector<Layout> m_layouts{Layout{}};
@@ -175,6 +201,8 @@ private:
 
     NamedDimStyle& currentNamedDimStyle();
     const NamedDimStyle& currentNamedDimStyle() const;
+    NamedMLeaderStyle& currentNamedMLeaderStyle();
+    const NamedMLeaderStyle& currentNamedMLeaderStyle() const;
 
     CommandStack m_commandStack;
 };

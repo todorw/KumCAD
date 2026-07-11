@@ -10,6 +10,7 @@
 #include "core/geometry/Insert.h"
 #include "core/geometry/Leader.h"
 #include "core/geometry/Line.h"
+#include "core/geometry/MLeader.h"
 #include "core/geometry/MText.h"
 #include "core/geometry/PointEnt.h"
 #include "core/geometry/Polyline.h"
@@ -252,6 +253,35 @@ void paint(QPainter& painter, const lcad::Entity& entity, const WorldToScreen& t
             painter.setBrush(color);
             painter.drawPolygon(tri);
             painter.setBrush(Qt::NoBrush);
+        }
+        break;
+    }
+    case lcad::EntityType::MLeader: {
+        const auto& mleader = static_cast<const lcad::MLeaderEntity&>(entity);
+        for (const auto& leg : mleader.legs()) {
+            if (leg.empty()) continue;
+            lcad::Point2D prev = leg.front();
+            for (std::size_t i = 1; i < leg.size(); ++i) {
+                painter.drawLine(toScreen(prev), toScreen(leg[i]));
+                prev = leg[i];
+            }
+            painter.drawLine(toScreen(prev), toScreen(mleader.landing()));
+
+            // Arrowhead at the leg's first point, aimed back along its first segment.
+            const lcad::Point2D next = leg.size() > 1 ? leg[1] : mleader.landing();
+            const lcad::Point2D span = next - leg.front();
+            const double len = span.length();
+            if (len > 1e-9) {
+                const lcad::Point2D dir = span * (1.0 / len);
+                const lcad::Point2D normal(-dir.y, dir.x);
+                const double arrow = mleader.arrowSize();
+                QPolygonF tri;
+                tri << toScreen(leg.front()) << toScreen(leg.front() + dir * arrow + normal * (arrow / 3.0))
+                    << toScreen(leg.front() + dir * arrow - normal * (arrow / 3.0));
+                painter.setBrush(color);
+                painter.drawPolygon(tri);
+                painter.setBrush(Qt::NoBrush);
+            }
         }
         break;
     }

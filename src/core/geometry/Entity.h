@@ -24,6 +24,7 @@ enum class EntityType {
     MText,
     Dimension,
     Leader,
+    MLeader,
     Hatch,
     Insert,
     Point,            // POINT node (PDMODE/PDSIZE styled)

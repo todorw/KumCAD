@@ -10,6 +10,7 @@
 #include "core/geometry/Insert.h"
 #include "core/geometry/Leader.h"
 #include "core/geometry/Line.h"
+#include "core/geometry/MLeader.h"
 #include "core/geometry/MText.h"
 #include "core/geometry/PointEnt.h"
 #include "core/geometry/Polyline.h"
@@ -262,6 +263,29 @@ void writeEntity(std::ofstream& out, const Document& document, const Entity& e) 
         for (double w : table.colWidths()) writeGroup(out, 142, w);
         for (int r = 0; r < table.rows(); ++r) {
             for (int c = 0; c < table.cols(); ++c) writeGroup(out, 1, table.cellText(r, c));
+        }
+        break;
+    }
+    case EntityType::MLeader: {
+        // Simplified MULTILEADER: real DXF MULTILEADER carries its geometry
+        // inside a large "context data" block plus a MLEADERSTYLE object
+        // reference, which is a much bigger project. This round-trips
+        // cleanly within KumCAD; other readers skip the unrecognized layout
+        // rather than error, same tradeoff as ACAD_TABLE above.
+        const auto& mleader = static_cast<const MLeaderEntity&>(e);
+        writeGroup(out, 0, "MULTILEADER");
+        writeCommon(out, document, e);
+        writeGroup(out, 10, mleader.landing().x);
+        writeGroup(out, 20, mleader.landing().y);
+        writeGroup(out, 30, 0.0);
+        writeGroup(out, 40, mleader.arrowSize());
+        for (const auto& leg : mleader.legs()) {
+            writeGroup(out, 70, static_cast<int>(leg.size()));
+            for (const Point2D& p : leg) {
+                writeGroup(out, 11, p.x);
+                writeGroup(out, 21, p.y);
+                writeGroup(out, 31, 0.0);
+            }
         }
         break;
     }

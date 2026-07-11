@@ -10,6 +10,7 @@
 #include "core/geometry/Insert.h"
 #include "core/geometry/Leader.h"
 #include "core/geometry/Line.h"
+#include "core/geometry/MLeader.h"
 #include "core/geometry/MText.h"
 #include "core/geometry/Polyline.h"
 #include "core/geometry/Spline.h"
@@ -620,6 +621,31 @@ TEST_CASE("DXF leader round-trips", "[dxf][leader]") {
     REQUIRE(leader->points().size() == 3);
     REQUIRE(leader->points()[1].x == Approx(5.0));
     REQUIRE(leader->points()[1].y == Approx(5.0));
+}
+
+TEST_CASE("DXF multileader round-trips", "[dxf][mleader]") {
+    TempDxfPath temp;
+
+    lcad::Document doc;
+    std::vector<std::vector<lcad::Point2D>> legs{{{0, 0}, {3, 3}}};
+    doc.addEntity(std::make_unique<lcad::MLeaderEntity>(doc.reserveEntityId(), doc.currentLayer(), legs,
+                                                         lcad::Point2D(8, 3), 1.5));
+
+    REQUIRE(lcad::writeDxf(doc, temp.path.string()));
+    lcad::Document loaded;
+    REQUIRE(lcad::readDxf(loaded, temp.path.string()));
+
+    const auto entities = loaded.entities();
+    REQUIRE(entities.size() == 1);
+    REQUIRE(entities[0]->type() == lcad::EntityType::MLeader);
+    const auto* mleader = static_cast<const lcad::MLeaderEntity*>(entities[0]);
+    REQUIRE(mleader->legs().size() == 1);
+    REQUIRE(mleader->legs()[0].size() == 2);
+    REQUIRE(mleader->legs()[0][1].x == Approx(3.0));
+    REQUIRE(mleader->legs()[0][1].y == Approx(3.0));
+    REQUIRE(mleader->landing().x == Approx(8.0));
+    REQUIRE(mleader->landing().y == Approx(3.0));
+    REQUIRE(mleader->arrowSize() == Approx(1.5));
 }
 
 TEST_CASE("DXF table round-trips", "[dxf][table]") {

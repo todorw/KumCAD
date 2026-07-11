@@ -119,6 +119,10 @@ add_executable(kumcad
     commands/InsertCommand.cpp
     commands/LeaderCommand.h
     commands/LeaderCommand.cpp
+    commands/MLeaderCommand.h
+    commands/MLeaderCommand.cpp
+    commands/MLeaderStyleCommand.h
+    commands/MLeaderStyleCommand.cpp
 )
 
 target_include_directories(kumcad PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

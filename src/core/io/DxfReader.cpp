@@ -10,6 +10,7 @@
 #include "core/geometry/Insert.h"
 #include "core/geometry/Leader.h"
 #include "core/geometry/Line.h"
+#include "core/geometry/MLeader.h"
 #include "core/geometry/MText.h"
 #include "core/geometry/PointEnt.h"
 #include "core/geometry/Polyline.h"
@@ -273,6 +274,11 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
     std::vector<double> tableRowHeights;
     std::vector<double> tableColWidths;
     std::vector<std::string> tableCells;
+    double mleaderArrowSize = 1.25;  // MULTILEADER group 40
+    std::vector<Point2D> mleaderPoints; // flat, split into legs via mleaderLegSizes
+    std::vector<int> mleaderLegSizes;   // one entry per leg, in order (group 70)
+    double pendingLegX = 0.0;
+    bool havePendingLegX = false;
     // The INSERT most recently flushed, so following ATTRIB records can
     // attach their values to it. Cleared by any non-ATTRIB entity.
     InsertEntity* lastInsert = nullptr;
@@ -417,6 +423,15 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             tableCells.resize(static_cast<std::size_t>(tableRows) * tableCols);
             made = std::make_unique<TableEntity>(id, layerId, p10, tableRowHeights, tableColWidths, tableCells,
                                                  tableTextHeight);
+        } else if (curEntityType == "MULTILEADER" && !mleaderLegSizes.empty()) {
+            std::vector<std::vector<Point2D>> legs;
+            std::size_t idx = 0;
+            for (int sz : mleaderLegSizes) {
+                std::vector<Point2D> leg;
+                for (int i = 0; i < sz && idx < mleaderPoints.size(); ++i) leg.push_back(mleaderPoints[idx++]);
+                legs.push_back(std::move(leg));
+            }
+            made = std::make_unique<MLeaderEntity>(id, layerId, legs, p10, mleaderArrowSize);
         }
 
         const bool madeSomething = made != nullptr;
@@ -497,6 +512,10 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
         tableRowHeights.clear();
         tableColWidths.clear();
         tableCells.clear();
+        mleaderArrowSize = 1.25;
+        mleaderPoints.clear();
+        mleaderLegSizes.clear();
+        havePendingLegX = false;
     };
 
     for (const Group& g : groups) {
@@ -760,6 +779,9 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             if (curEntityType == "SPLINE") {
                 pendingFitX = toDouble(g.value);
                 havePendingFitX = true;
+            } else if (curEntityType == "MULTILEADER") {
+                pendingLegX = toDouble(g.value);
+                havePendingLegX = true;
             } else {
                 p11.x = toDouble(g.value);
             }
@@ -769,6 +791,11 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
                 if (havePendingFitX) {
                     splineFit.emplace_back(pendingFitX, toDouble(g.value));
                     havePendingFitX = false;
+                }
+            } else if (curEntityType == "MULTILEADER") {
+                if (havePendingLegX) {
+                    mleaderPoints.emplace_back(pendingLegX, toDouble(g.value));
+                    havePendingLegX = false;
                 }
             } else {
                 p11.y = toDouble(g.value);
@@ -799,6 +826,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             else if (curEntityType == "SPLINE") splineKnots.push_back(toDouble(g.value));
             else if (curEntityType == "VIEWPORT") vpWidth = toDouble(g.value);
             else if (curEntityType == "ACAD_TABLE") tableTextHeight = toDouble(g.value, 2.5);
+            else if (curEntityType == "MULTILEADER") mleaderArrowSize = toDouble(g.value, 1.25);
             else radius = toDouble(g.value);
             break;
         case 41:
@@ -853,6 +881,8 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
                 dimType = toInt(g.value, 32);
             } else if (curEntityType == "HATCH") {
                 hatchSolid = (toInt(g.value) & 1) != 0;
+            } else if (curEntityType == "MULTILEADER") {
+                mleaderLegSizes.push_back(toInt(g.value));
             }
             break;
         case 71:

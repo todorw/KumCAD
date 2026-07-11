@@ -139,6 +139,42 @@ bool Document::setCurrentDimStyle(const std::string& name) {
     return true;
 }
 
+NamedMLeaderStyle& Document::currentNamedMLeaderStyle() {
+    for (NamedMLeaderStyle& s : m_mleaderStyles) {
+        if (s.name == m_currentMLeaderStyle) return s;
+    }
+    return m_mleaderStyles.front();
+}
+
+const NamedMLeaderStyle& Document::currentNamedMLeaderStyle() const {
+    for (const NamedMLeaderStyle& s : m_mleaderStyles) {
+        if (s.name == m_currentMLeaderStyle) return s;
+    }
+    return m_mleaderStyles.front();
+}
+
+NamedMLeaderStyle* Document::findMLeaderStyle(const std::string& name) {
+    for (NamedMLeaderStyle& s : m_mleaderStyles) {
+        if (s.name == name) return &s;
+    }
+    return nullptr;
+}
+
+NamedMLeaderStyle& Document::addOrUpdateMLeaderStyle(const std::string& name, const MLeaderStyle& style) {
+    if (NamedMLeaderStyle* existing = findMLeaderStyle(name)) {
+        existing->style = style;
+        return *existing;
+    }
+    m_mleaderStyles.push_back(NamedMLeaderStyle{name, style});
+    return m_mleaderStyles.back();
+}
+
+bool Document::setCurrentMLeaderStyle(const std::string& name) {
+    if (!findMLeaderStyle(name)) return false;
+    m_currentMLeaderStyle = name;
+    return true;
+}
+
 const TextStyle* Document::findTextStyle(const std::string& name) const {
     for (const TextStyle& s : m_textStyles) {
         if (s.name == name) return &s;
