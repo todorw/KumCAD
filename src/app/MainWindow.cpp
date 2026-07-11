@@ -8,8 +8,10 @@
 #include "LayerPanel.h"
 #include "PropertiesPanel.h"
 #include "core/io/DwgReader.h"
+#include "core/io/DwgWriter.h"
 #include "core/io/DxfReader.h"
 #include "core/io/DxfWriter.h"
+#include "core/io/Xref.h"
 
 #include <QAction>
 #include <QCloseEvent>
@@ -345,6 +347,11 @@ void MainWindow::openDocument() {
         return;
     }
 
+    const int refreshedXrefs = lcad::reloadAllXrefs(m_document, QFileInfo(path).absolutePath().toStdString());
+    if (refreshedXrefs > 0) {
+        statusBar()->showMessage(QStringLiteral("Refreshed %1 xref(s) from disk").arg(refreshedXrefs), 4000);
+    }
+
     m_view->resetViewState();
     m_layerPanel->refresh();
     m_propertiesPanel->refresh();
@@ -513,9 +520,30 @@ void MainWindow::renderDrawing(QPrinter& printer) {
 }
 
 bool MainWindow::saveDocumentAs() {
-    QString path =
-        QFileDialog::getSaveFileName(this, QStringLiteral("Save Drawing As"), QString(), QStringLiteral("DXF Files (*.dxf)"));
+    const QString filter = lcad::dwgWriteSupportAvailable()
+                               ? QStringLiteral("DXF Files (*.dxf);;DWG Files (*.dwg)")
+                               : QStringLiteral("DXF Files (*.dxf)");
+    QString path = QFileDialog::getSaveFileName(this, QStringLiteral("Save Drawing As"), QString(), filter);
     if (path.isEmpty()) return false;
+
+    if (path.endsWith(QStringLiteral(".dwg"), Qt::CaseInsensitive)) {
+        // DWG is an export: LibreDWG's writer is lossier than our DXF, so
+        // the DXF path (and dirty state) stay as they were.
+        std::string error;
+        int skipped = 0;
+        if (!lcad::writeDwg(m_document, path.toStdString(), &error, &skipped)) {
+            QMessageBox::warning(this, QStringLiteral("DWG Export Failed"), QString::fromStdString(error));
+            return false;
+        }
+        const QString note = skipped > 0
+                                 ? QStringLiteral("Exported %1 (%2 entities skipped — DXF keeps everything)")
+                                       .arg(QFileInfo(path).fileName())
+                                       .arg(skipped)
+                                 : QStringLiteral("Exported %1").arg(QFileInfo(path).fileName());
+        statusBar()->showMessage(note, 6000);
+        return true;
+    }
+
     if (!path.endsWith(QStringLiteral(".dxf"), Qt::CaseInsensitive)) path += QStringLiteral(".dxf");
 
     std::string error;

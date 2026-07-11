@@ -80,6 +80,7 @@ public:
     // them stay valid for the document's lifetime, including across moves.
     const BlockDefinition* addBlock(std::string name, std::vector<std::unique_ptr<Entity>> entities);
     const BlockDefinition* findBlock(const std::string& name) const;
+    BlockDefinition* findBlock(const std::string& name);
     const std::vector<std::unique_ptr<BlockDefinition>>& blocks() const { return m_blocks; }
 
     CommandStack& commandStack() { return m_commandStack; }

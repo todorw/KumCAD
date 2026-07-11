@@ -14,6 +14,7 @@
 #include "core/io/DxfColors.h"
 #include "core/io/DxfReader.h"
 #include "core/io/DxfWriter.h"
+#include "core/io/Xref.h"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -741,4 +742,55 @@ TEST_CASE("DXF multiple layouts with paper entities round-trip", "[dxf][layout]"
     REQUIRE(paper1.size() == 1);
     REQUIRE(paper1[0]->type() == lcad::EntityType::Text);
     REQUIRE(static_cast<const lcad::TextEntity*>(paper1[0])->text() == "Sheet note");
+}
+
+TEST_CASE("Xref attach, DXF round-trip of the cached snapshot, and reload", "[dxf][xref]") {
+    TempDxfPath external;
+    TempDxfPath host;
+
+    // The referenced drawing: one line on a colored layer.
+    {
+        lcad::Document ref;
+        const lcad::LayerId red = ref.addLayer("Red", lcad::Color{255, 0, 0});
+        ref.addEntity(std::make_unique<lcad::LineEntity>(ref.reserveEntityId(), red, lcad::Point2D(0, 0),
+                                                         lcad::Point2D(30, 0)));
+        REQUIRE(lcad::writeDxf(ref, external.path.string()));
+    }
+
+    lcad::Document doc;
+    std::string error;
+    const lcad::BlockDefinition* block = lcad::attachXref(doc, external.path.string(), &error);
+    REQUIRE(block);
+    REQUIRE(block->isXref());
+    REQUIRE(block->entities.size() == 1);
+    // Source layer's color baked into the snapshot.
+    REQUIRE(block->entities[0]->colorOverride().has_value());
+
+    doc.addEntity(std::make_unique<lcad::InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), block,
+                                                       lcad::Point2D(100, 100)));
+
+    REQUIRE(lcad::writeDxf(doc, host.path.string()));
+    lcad::Document loaded;
+    REQUIRE(lcad::readDxf(loaded, host.path.string()));
+
+    const lcad::BlockDefinition* loadedBlock = loaded.findBlock(block->name);
+    REQUIRE(loadedBlock);
+    REQUIRE(loadedBlock->isXref());
+    REQUIRE(loadedBlock->xrefPath == external.path.string());
+    REQUIRE(loadedBlock->entities.size() == 1); // cached snapshot survives in the file
+
+    // The external file grows a circle; reload picks it up.
+    {
+        lcad::Document ref;
+        ref.addEntity(std::make_unique<lcad::LineEntity>(ref.reserveEntityId(), ref.currentLayer(),
+                                                         lcad::Point2D(0, 0), lcad::Point2D(30, 0)));
+        ref.addEntity(std::make_unique<lcad::CircleEntity>(ref.reserveEntityId(), ref.currentLayer(),
+                                                           lcad::Point2D(10, 10), 4.0));
+        REQUIRE(lcad::writeDxf(ref, external.path.string()));
+    }
+    REQUIRE(lcad::reloadXref(loaded, block->name, &error));
+    REQUIRE(loaded.findBlock(block->name)->entities.size() == 2);
+
+    // reloadAllXrefs also refreshes (and reports) reachable references.
+    REQUIRE(lcad::reloadAllXrefs(loaded, "") == 1);
 }

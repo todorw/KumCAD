@@ -43,6 +43,7 @@
 #include "commands/StyleCommand.h"
 #include "commands/TextCommand.h"
 #include "commands/TrimCommand.h"
+#include "commands/XrefCommand.h"
 #include "commands/VpScaleCommand.h"
 #include "core/document/Commands.h"
 #include "core/geometry/Arc.h"
@@ -245,6 +246,8 @@ void CommandDispatcher::handleCommandText(const QString& text) {
     } else if (cmd == QLatin1String("ARRAY") || cmd == QLatin1String("AR")) {
         const std::vector<lcad::EntityId> ids = selectionForModify();
         if (!ids.empty()) startCommand(std::make_unique<ArrayCommand>(m_document, ids), QStringLiteral("ARRAY"));
+    } else if (cmd == QLatin1String("XREF") || cmd == QLatin1String("XR")) {
+        startCommand(std::make_unique<XrefCommand>(m_document), QStringLiteral("XREF"));
     } else if (cmd == QLatin1String("EXPLODE") || cmd == QLatin1String("X")) {
         explodeSelection();
     } else if (cmd == QLatin1String("AREA") || cmd == QLatin1String("AA")) {

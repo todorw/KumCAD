@@ -12,6 +12,7 @@ add_executable(lcad_core_tests
     DocumentTests.cpp
     CommandStackTests.cpp
     DxfIoTests.cpp
+    DwgIoTests.cpp
     ModifyOpsTests.cpp
 )
 target_link_libraries(lcad_core_tests PRIVATE lcad_core Catch2::Catch2WithMain)

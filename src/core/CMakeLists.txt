@@ -56,6 +56,10 @@ add_library(lcad_core STATIC
     io/DxfReader.cpp
     io/DwgReader.h
     io/DwgReader.cpp
+    io/DwgWriter.h
+    io/DwgWriter.cpp
+    io/Xref.h
+    io/Xref.cpp
 )
 
 target_include_directories(lcad_core PUBLIC ${CMAKE_SOURCE_DIR}/src)

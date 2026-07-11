@@ -7,6 +7,7 @@
 #include "core/geometry/Circle.h"
 #include "core/geometry/Dimension.h"
 #include "core/geometry/Ellipse.h"
+#include "core/geometry/Insert.h"
 #include "core/geometry/Intersect.h"
 #include "core/geometry/Line.h"
 #include "core/geometry/Polyline.h"
@@ -461,6 +462,11 @@ void DrawingView::paintEvent(QPaintEvent*) {
             color = QColor(override->r, override->g, override->b);
         } else {
             color = layer ? QColor(layer->color.r, layer->color.g, layer->color.b) : QColor(255, 255, 255);
+        }
+        // Xref geometry renders dimmed so it reads as reference, not native.
+        if (!selected && !hovered && e->type() == lcad::EntityType::Insert &&
+            static_cast<const lcad::InsertEntity*>(e)->block()->isXref()) {
+            color.setAlpha(120);
         }
         drawEntity(painter, *e, color, width);
     }

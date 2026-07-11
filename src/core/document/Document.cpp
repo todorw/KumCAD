@@ -209,4 +209,11 @@ const BlockDefinition* Document::findBlock(const std::string& name) const {
     return nullptr;
 }
 
+BlockDefinition* Document::findBlock(const std::string& name) {
+    for (const auto& block : m_blocks) {
+        if (block->name == name) return block.get();
+    }
+    return nullptr;
+}
+
 } // namespace lcad

@@ -161,6 +161,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
     bool inBlockHeader = false;
     bool inBlockBody = false;
     std::string curBlockName;
+    std::string curBlockXrefPath;
     Point2D curBlockBase;
     std::vector<std::unique_ptr<Entity>> curBlockEntities;
     int curPaperIndex = -1; // >= 0 while inside a *Paper_Space block
@@ -186,6 +187,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
         if (curBlockName.empty() || curBlockName[0] == '*') {
             curBlockEntities.clear();
             curBlockName.clear();
+            curBlockXrefPath.clear();
             curBlockBase = Point2D();
             return;
         }
@@ -194,9 +196,16 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             const Point2D shift(-curBlockBase.x, -curBlockBase.y);
             for (auto& e : curBlockEntities) e->translate(shift);
         }
-        if (!fresh.findBlock(curBlockName)) fresh.addBlock(curBlockName, std::move(curBlockEntities));
+        if (!fresh.findBlock(curBlockName)) {
+            fresh.addBlock(curBlockName, std::move(curBlockEntities));
+            // Xref block: remember the referenced file. The inline entities
+            // (if any) are the cached snapshot; the app refreshes it from
+            // disk after open when the file is reachable.
+            if (!curBlockXrefPath.empty()) fresh.findBlock(curBlockName)->xrefPath = curBlockXrefPath;
+        }
         curBlockEntities.clear();
         curBlockName.clear();
+        curBlockXrefPath.clear();
         curBlockBase = Point2D();
     };
 
@@ -634,6 +643,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
         if (section == Section::Blocks && inBlockHeader) {
             if (g.code == 10) curBlockBase.x = toDouble(g.value);
             else if (g.code == 20) curBlockBase.y = toDouble(g.value);
+            else if (g.code == 1) curBlockXrefPath = g.value; // xref file path
             continue;
         }
 

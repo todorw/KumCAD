@@ -430,11 +430,15 @@ bool writeDxf(const Document& document, const std::string& path, std::string* er
             writeGroup(out, 0, "BLOCK");
             writeGroup(out, 8, "0");
             writeGroup(out, 2, block->name);
-            writeGroup(out, 70, 0);
+            // Xrefs carry flag bits 4|32 and the file path in group 1. Unlike
+            // AutoCAD we also write the cached snapshot inline, so the
+            // drawing stays viewable when the referenced file is missing.
+            writeGroup(out, 70, block->isXref() ? 36 : 0);
             writeGroup(out, 10, 0.0); // child geometry is stored base-point-relative
             writeGroup(out, 20, 0.0);
             writeGroup(out, 30, 0.0);
             writeGroup(out, 3, block->name);
+            if (block->isXref()) writeGroup(out, 1, block->xrefPath);
             for (const auto& child : block->entities) writeEntity(out, document, *child);
             writeGroup(out, 0, "ENDBLK");
             writeGroup(out, 8, "0");
