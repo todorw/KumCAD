@@ -23,7 +23,7 @@ public:
     void cancel() override { m_finished = true; }
 
 private:
-    enum class Stage { Name, Font, Height, WidthFactor, Oblique };
+    enum class Stage { Name, Font, Height, WidthFactor, Oblique, Annotative };
 
     lcad::Document& m_document;
     Stage m_stage = Stage::Name;

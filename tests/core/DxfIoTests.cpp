@@ -736,8 +736,10 @@ TEST_CASE("DXF text and dim styles round-trip", "[dxf][style]") {
     title.fixedHeight = 5.0;
     title.widthFactor = 0.8;
     title.obliqueDeg = 15.0;
+    title.annotative = true;
     doc.addOrUpdateTextStyle(title);
     doc.setCurrentTextStyle("Title");
+    doc.setAnnotationScale(2.5);
 
     lcad::DimStyle arch;
     arch.textHeight = 3.5;
@@ -762,6 +764,8 @@ TEST_CASE("DXF text and dim styles round-trip", "[dxf][style]") {
     REQUIRE(style->fixedHeight == Approx(5.0));
     REQUIRE(style->widthFactor == Approx(0.8));
     REQUIRE(style->obliqueDeg == Approx(15.0));
+    REQUIRE(style->annotative);
+    REQUIRE(loaded.annotationScale() == Approx(2.5));
 
     REQUIRE(loaded.currentDimStyleName() == "Arch");
     REQUIRE(loaded.dimStyle().textHeight == Approx(3.5));

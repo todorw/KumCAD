@@ -73,6 +73,15 @@ QFont styledFont(const QPainter& painter, const lcad::Document* document, const 
     return font;
 }
 
+// Simplified annotative scaling: an Annotative TextStyle's objects render at
+// height * document->annotationScale() instead of their nominal height, so
+// they read the same physical size once the scale matches your plot scale.
+double annotationMultiplier(const lcad::Document* document, const std::string& styleName) {
+    if (!document) return 1.0;
+    const lcad::TextStyle* style = document->findTextStyle(styleName);
+    return (style && style->annotative) ? document->annotationScale() : 1.0;
+}
+
 } // namespace
 
 void paint(QPainter& painter, const lcad::Entity& entity, const WorldToScreen& toScreen, double scale,
@@ -221,7 +230,8 @@ void paint(QPainter& painter, const lcad::Entity& entity, const WorldToScreen& t
     }
     case lcad::EntityType::Text: {
         const auto& text = static_cast<const lcad::TextEntity&>(entity);
-        const QFont font = styledFont(painter, document, text.styleName(), text.height() * scale);
+        const QFont font =
+            styledFont(painter, document, text.styleName(), text.height() * scale * annotationMultiplier(document, text.styleName()));
         painter.save();
         painter.setFont(font);
         painter.translate(toScreen(text.position()));
@@ -288,12 +298,13 @@ void paint(QPainter& painter, const lcad::Entity& entity, const WorldToScreen& t
     }
     case lcad::EntityType::MText: {
         const auto& mtext = static_cast<const lcad::MTextEntity&>(entity);
-        const QFont font = styledFont(painter, document, mtext.styleName(), mtext.height() * scale);
+        const double annoScale = annotationMultiplier(document, mtext.styleName());
+        const QFont font = styledFont(painter, document, mtext.styleName(), mtext.height() * scale * annoScale);
         painter.save();
         painter.setFont(font);
         painter.translate(toScreen(mtext.position()));
         painter.rotate(-qRadiansToDegrees(mtext.rotation())); // same sign flip as the Text case
-        const double advance = mtext.lineAdvance() * scale;
+        const double advance = mtext.lineAdvance() * scale * annoScale;
         const QFontMetricsF metrics(font);
         double y = metrics.ascent(); // first baseline sits one ascent below the top-left anchor
         for (const std::string& line : mtext.wrappedLines()) {

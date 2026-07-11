@@ -487,6 +487,8 @@ bool writeDxf(const Document& document, const std::string& path, std::string* er
     writeGroup(out, 70, document.pointMode());
     writeGroup(out, 9, "$PDSIZE");
     writeGroup(out, 40, document.pointSize());
+    writeGroup(out, 9, "$KUMCAD_ANNOSCALE"); // this codebase's simplified CANNOSCALE
+    writeGroup(out, 40, document.annotationScale());
     writeGroup(out, 0, "ENDSEC");
 
     writeGroup(out, 0, "SECTION");
@@ -542,6 +544,7 @@ bool writeDxf(const Document& document, const std::string& path, std::string* er
         writeGroup(out, 42, 2.5); // last-used height, required by the spec
         writeGroup(out, 3, style.font);
         writeGroup(out, 4, "");
+        if (style.annotative) writeGroup(out, 290, 1); // this codebase's simplified ANNOTATIVE flag
     }
     writeGroup(out, 0, "ENDTAB");
     writeGroup(out, 0, "TABLE");

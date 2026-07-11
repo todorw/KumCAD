@@ -55,14 +55,26 @@ std::optional<QString> StyleCommand::onText(const QString& text) {
             if (!ok || v < -85.0 || v > 85.0) return QStringLiteral("*Invalid* Oblique angle <%1>:").arg(m_style.obliqueDeg);
             m_style.obliqueDeg = v;
         }
+        m_stage = Stage::Annotative;
+        return QStringLiteral("Annotative? [Yes/No] <%1>:").arg(m_style.annotative ? QStringLiteral("Y") : QStringLiteral("N"));
+    }
+    case Stage::Annotative: {
+        if (!trimmed.isEmpty()) {
+            const QString upper = trimmed.toUpper();
+            if (upper == QLatin1String("Y") || upper == QLatin1String("YES")) m_style.annotative = true;
+            else if (upper == QLatin1String("N") || upper == QLatin1String("NO")) m_style.annotative = false;
+            else return QStringLiteral("*Invalid* Annotative? [Yes/No] <%1>:")
+                            .arg(m_style.annotative ? QStringLiteral("Y") : QStringLiteral("N"));
+        }
         m_document.addOrUpdateTextStyle(m_style);
         m_document.setCurrentTextStyle(m_style.name);
         m_finished = true;
-        return QStringLiteral("*Style \"%1\" is current: %2, height %3, width %4, oblique %5*")
+        return QStringLiteral("*Style \"%1\" is current: %2, height %3, width %4, oblique %5%6*")
             .arg(QString::fromStdString(m_style.name), QString::fromStdString(m_style.font))
             .arg(m_style.fixedHeight)
             .arg(m_style.widthFactor)
-            .arg(m_style.obliqueDeg);
+            .arg(m_style.obliqueDeg)
+            .arg(m_style.annotative ? QStringLiteral(", annotative") : QString());
     }
     }
     return std::nullopt;

@@ -53,6 +53,12 @@ struct TextStyle {
     double fixedHeight = 0.0;  // DXF 40
     double widthFactor = 1.0;  // DXF 41
     double obliqueDeg = 0.0;   // DXF 50
+    // AutoCAD's ANNOTATIVE object property, simplified: annotative status
+    // lives on the text style (matching how AutoCAD's own Annotative text
+    // styles work) rather than per-instance, and there's one document-wide
+    // annotation scale (Document::annotationScale()) rather than the several
+    // simultaneous per-viewport scale representations AutoCAD supports.
+    bool annotative = false; // DXF 290 (this codebase's TABLES extension)
 };
 
 class Document {
@@ -175,6 +181,15 @@ public:
     // last layout. Returns false when index is invalid.
     bool removeLayout(int index);
 
+    // Document-wide annotation scale (a simplified CANNOSCALE): text/mtext
+    // using an Annotative TextStyle renders at height * annotationScale, so
+    // it reads the same physical size once you match this to your plot
+    // scale, without editing every annotative object's height by hand.
+    double annotationScale() const { return m_annotationScale; }
+    void setAnnotationScale(double scale) {
+        if (scale > 1e-9) m_annotationScale = scale;
+    }
+
 private:
     std::vector<Layer> m_layers;
     LayerId m_nextLayerId = 1;
@@ -198,6 +213,7 @@ private:
     std::string m_currentTextStyle = "Standard";
     std::vector<Layout> m_layouts{Layout{}};
     int m_activeSpace = -1; // -1 = model space, otherwise a layout index
+    double m_annotationScale = 1.0;
 
     NamedDimStyle& currentNamedDimStyle();
     const NamedDimStyle& currentNamedDimStyle() const;

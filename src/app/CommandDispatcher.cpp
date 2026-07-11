@@ -3,6 +3,7 @@
 #include "CommandLine.h"
 #include "DrawingView.h"
 #include "commands/AlignCommand.h"
+#include "commands/AnnoScaleCommand.h"
 #include "commands/AttDefCommand.h"
 #include "commands/ArcCommand.h"
 #include "commands/AreaCommand.h"
@@ -341,6 +342,8 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         }
     } else if (cmd == QLatin1String("LTSCALE") || cmd == QLatin1String("LTS")) {
         startCommand(std::make_unique<LtScaleCommand>(m_document), QStringLiteral("LTSCALE"));
+    } else if (cmd == QLatin1String("ANNOSCALE") || cmd == QLatin1String("ANNO")) {
+        startCommand(std::make_unique<AnnoScaleCommand>(m_document), QStringLiteral("ANNOSCALE"));
     } else if (cmd == QLatin1String("ZOOM") || cmd == QLatin1String("Z")) {
         if (m_view) {
             m_view->zoomExtents();

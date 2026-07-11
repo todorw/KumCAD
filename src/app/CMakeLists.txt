@@ -25,6 +25,7 @@ add_executable(kumcad
     commands/DrawCommand.h
     commands/LineCommand.h
     commands/LineCommand.cpp
+    commands/AnnoScaleCommand.h
     commands/LtScaleCommand.h
     commands/CircleCommand.h
     commands/CircleCommand.cpp

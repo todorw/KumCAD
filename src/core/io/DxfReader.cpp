@@ -688,6 +688,8 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             } else if (g.code == 40 && curHeaderVar == "$PDSIZE") {
                 const double v = toDouble(g.value);
                 if (v > 1e-9) fresh.setPointSize(v);
+            } else if (g.code == 40 && curHeaderVar == "$KUMCAD_ANNOSCALE") {
+                fresh.setAnnotationScale(toDouble(g.value, 1.0));
             }
             continue;
         }
@@ -697,6 +699,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             else if (g.code == 40) curTextStyle.fixedHeight = std::max(0.0, toDouble(g.value));
             else if (g.code == 41) curTextStyle.widthFactor = std::clamp(toDouble(g.value, 1.0), 0.1, 10.0);
             else if (g.code == 50) curTextStyle.obliqueDeg = toDouble(g.value);
+            else if (g.code == 290) curTextStyle.annotative = toInt(g.value) != 0;
             continue;
         }
 
