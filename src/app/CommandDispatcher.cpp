@@ -47,6 +47,8 @@
 #include "commands/SplineCommand.h"
 #include "commands/StretchCommand.h"
 #include "commands/StyleCommand.h"
+#include "commands/TableCommand.h"
+#include "commands/TableEditCommand.h"
 #include "commands/TextCommand.h"
 #include "commands/TrimCommand.h"
 #include "commands/XlineCommand.h"
@@ -242,6 +244,10 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         }
     } else if (cmd == QLatin1String("LEADER") || cmd == QLatin1String("LEAD") || cmd == QLatin1String("LE")) {
         startCommand(std::make_unique<LeaderCommand>(m_document), QStringLiteral("LEADER"));
+    } else if (cmd == QLatin1String("TABLE") || cmd == QLatin1String("TB")) {
+        startCommand(std::make_unique<TableCommand>(m_document), QStringLiteral("TABLE"));
+    } else if (cmd == QLatin1String("TABLEDIT") || cmd == QLatin1String("TED")) {
+        startCommand(std::make_unique<TableEditCommand>(m_document), QStringLiteral("TABLEDIT"));
     } else if (cmd == QLatin1String("HATCH") || cmd == QLatin1String("H")) {
         const std::vector<lcad::EntityId> ids = selectionForModify();
         if (!ids.empty()) startCommand(std::make_unique<HatchCommand>(m_document, ids), QStringLiteral("HATCH"));

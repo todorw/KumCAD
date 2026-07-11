@@ -13,6 +13,7 @@
 #include "core/geometry/MText.h"
 #include "core/geometry/Polyline.h"
 #include "core/geometry/Spline.h"
+#include "core/geometry/Table.h"
 #include "core/geometry/Text.h"
 #include "core/io/DxfColors.h"
 #include "core/io/DxfReader.h"
@@ -619,6 +620,35 @@ TEST_CASE("DXF leader round-trips", "[dxf][leader]") {
     REQUIRE(leader->points().size() == 3);
     REQUIRE(leader->points()[1].x == Approx(5.0));
     REQUIRE(leader->points()[1].y == Approx(5.0));
+}
+
+TEST_CASE("DXF table round-trips", "[dxf][table]") {
+    TempDxfPath temp;
+
+    lcad::Document doc;
+    std::vector<double> rowHeights{1.0, 1.0};
+    std::vector<double> colWidths{2.0, 3.0, 2.5};
+    std::vector<std::string> cells{"A1", "B1", "C1", "A2", "", "C2"};
+    doc.addEntity(std::make_unique<lcad::TableEntity>(doc.reserveEntityId(), doc.currentLayer(),
+                                                       lcad::Point2D(1.0, 4.0), rowHeights, colWidths, cells, 2.5));
+
+    REQUIRE(lcad::writeDxf(doc, temp.path.string()));
+    lcad::Document loaded;
+    REQUIRE(lcad::readDxf(loaded, temp.path.string()));
+
+    const auto entities = loaded.entities();
+    REQUIRE(entities.size() == 1);
+    REQUIRE(entities[0]->type() == lcad::EntityType::Table);
+    const auto* table = static_cast<const lcad::TableEntity*>(entities[0]);
+    REQUIRE(table->rows() == 2);
+    REQUIRE(table->cols() == 3);
+    REQUIRE(table->position().x == Approx(1.0));
+    REQUIRE(table->position().y == Approx(4.0));
+    REQUIRE(table->colWidths()[1] == Approx(3.0));
+    REQUIRE(table->cellText(0, 1) == "B1");
+    REQUIRE(table->cellText(1, 0) == "A2");
+    REQUIRE(table->cellText(1, 1).empty());
+    REQUIRE(table->cellText(1, 2) == "C2");
 }
 
 TEST_CASE("DXF layout viewports round-trip via *Paper_Space", "[dxf][layout]") {

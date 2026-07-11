@@ -14,6 +14,7 @@
 #include "core/geometry/PointEnt.h"
 #include "core/geometry/Polyline.h"
 #include "core/geometry/Spline.h"
+#include "core/geometry/Table.h"
 #include "core/geometry/Text.h"
 #include "core/io/DxfColors.h"
 
@@ -239,6 +240,28 @@ void writeEntity(std::ofstream& out, const Document& document, const Entity& e) 
             writeGroup(out, 10, p.x);
             writeGroup(out, 20, p.y);
             writeGroup(out, 30, 0.0);
+        }
+        break;
+    }
+    case EntityType::Table: {
+        // Simplified ACAD_TABLE: real AutoCAD tables carry a TABLESTYLE
+        // object plus per-cell formatting/fields/merges, which is a much
+        // bigger project. This round-trips cleanly within KumCAD (readDxf
+        // below); other DXF readers will skip the unrecognized entity type
+        // rather than error, per the DXF spec's forward-compatibility rule.
+        const auto& table = static_cast<const TableEntity&>(e);
+        writeGroup(out, 0, "ACAD_TABLE");
+        writeCommon(out, document, e);
+        writeGroup(out, 10, table.position().x);
+        writeGroup(out, 20, table.position().y);
+        writeGroup(out, 30, 0.0);
+        writeGroup(out, 40, table.textHeight());
+        writeGroup(out, 90, table.rows());
+        writeGroup(out, 91, table.cols());
+        for (double h : table.rowHeights()) writeGroup(out, 141, h);
+        for (double w : table.colWidths()) writeGroup(out, 142, w);
+        for (int r = 0; r < table.rows(); ++r) {
+            for (int c = 0; c < table.cols(); ++c) writeGroup(out, 1, table.cellText(r, c));
         }
         break;
     }

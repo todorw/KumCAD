@@ -60,6 +60,10 @@ add_executable(kumcad
     commands/PolarAngCommand.h
     commands/StyleCommand.h
     commands/StyleCommand.cpp
+    commands/TableCommand.h
+    commands/TableCommand.cpp
+    commands/TableEditCommand.h
+    commands/TableEditCommand.cpp
     commands/LayoutCommand.h
     commands/LayoutCommand.cpp
     commands/PageSetupCommand.h

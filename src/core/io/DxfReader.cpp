@@ -14,6 +14,7 @@
 #include "core/geometry/PointEnt.h"
 #include "core/geometry/Polyline.h"
 #include "core/geometry/Spline.h"
+#include "core/geometry/Table.h"
 #include "core/geometry/Text.h"
 #include "core/io/DxfColors.h"
 
@@ -266,6 +267,12 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
     int entityLineweight = 0;       // per-entity 370 override, 0 = none seen
     std::string attTag;             // ATTDEF/ATTRIB group 2
     std::string attPrompt;          // ATTDEF group 3
+    int tableRows = 0;               // ACAD_TABLE group 90
+    int tableCols = 0;               // ACAD_TABLE group 91
+    double tableTextHeight = 2.5;    // ACAD_TABLE group 40
+    std::vector<double> tableRowHeights;
+    std::vector<double> tableColWidths;
+    std::vector<std::string> tableCells;
     // The INSERT most recently flushed, so following ATTRIB records can
     // attach their values to it. Cleared by any non-ATTRIB entity.
     InsertEntity* lastInsert = nullptr;
@@ -404,6 +411,12 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             // Attribute value for the preceding INSERT; position/height are
             // derived from the block's ATTDEF, so only tag+value matter.
             if (lastInsert && !attTag.empty()) lastInsert->setAttribute(attTag, textContent);
+        } else if (curEntityType == "ACAD_TABLE" && tableRows > 0 && tableCols > 0 &&
+                  static_cast<int>(tableRowHeights.size()) == tableRows &&
+                  static_cast<int>(tableColWidths.size()) == tableCols) {
+            tableCells.resize(static_cast<std::size_t>(tableRows) * tableCols);
+            made = std::make_unique<TableEntity>(id, layerId, p10, tableRowHeights, tableColWidths, tableCells,
+                                                 tableTextHeight);
         }
 
         const bool madeSomething = made != nullptr;
@@ -478,6 +491,12 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
         entityLineweight = 0;
         attTag.clear();
         attPrompt.clear();
+        tableRows = 0;
+        tableCols = 0;
+        tableTextHeight = 2.5;
+        tableRowHeights.clear();
+        tableColWidths.clear();
+        tableCells.clear();
     };
 
     for (const Group& g : groups) {
@@ -779,6 +798,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
                      curEntityType == "ATTRIB") textHeight = toDouble(g.value);
             else if (curEntityType == "SPLINE") splineKnots.push_back(toDouble(g.value));
             else if (curEntityType == "VIEWPORT") vpWidth = toDouble(g.value);
+            else if (curEntityType == "ACAD_TABLE") tableTextHeight = toDouble(g.value, 2.5);
             else radius = toDouble(g.value);
             break;
         case 41:
@@ -848,9 +868,22 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
         case 140:
             if (curEntityType == "DIMENSION") dimTextHeight = toDouble(g.value, 2.5);
             break;
+        case 90:
+            if (curEntityType == "ACAD_TABLE") tableRows = std::max(0, toInt(g.value));
+            break;
+        case 91:
+            if (curEntityType == "ACAD_TABLE") tableCols = std::max(0, toInt(g.value));
+            break;
+        case 141:
+            if (curEntityType == "ACAD_TABLE") tableRowHeights.push_back(std::max(0.1, toDouble(g.value, 1.0)));
+            break;
+        case 142:
+            if (curEntityType == "ACAD_TABLE") tableColWidths.push_back(std::max(0.1, toDouble(g.value, 1.0)));
+            break;
         case 1:
             if (curEntityType == "TEXT" || curEntityType == "MTEXT" || curEntityType == "ATTDEF" ||
                 curEntityType == "ATTRIB") textContent = g.value;
+            else if (curEntityType == "ACAD_TABLE") tableCells.push_back(g.value);
             break;
         case 3:
             if (curEntityType == "MTEXT") mtextChunks += g.value;

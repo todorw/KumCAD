@@ -28,6 +28,8 @@ add_library(lcad_core STATIC
     geometry/Hatch.cpp
     geometry/Leader.h
     geometry/Leader.cpp
+    geometry/Table.h
+    geometry/Table.cpp
     geometry/Insert.h
     geometry/Insert.cpp
     geometry/PolylineOps.h

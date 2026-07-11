@@ -14,6 +14,7 @@
 #include "core/geometry/PointEnt.h"
 #include "core/geometry/Polyline.h"
 #include "core/geometry/Spline.h"
+#include "core/geometry/Table.h"
 #include "core/geometry/Text.h"
 #include "core/document/Document.h"
 
@@ -267,6 +268,47 @@ void paint(QPainter& painter, const lcad::Entity& entity, const WorldToScreen& t
         for (const std::string& line : mtext.wrappedLines()) {
             painter.drawText(QPointF(0, y), QString::fromStdString(line));
             y += advance;
+        }
+        painter.restore();
+        break;
+    }
+    case lcad::EntityType::Table: {
+        const auto& table = static_cast<const lcad::TableEntity&>(entity);
+        const double totalW = table.totalWidth();
+        const double totalH = table.totalHeight();
+        const lcad::Point2D& pos = table.position();
+
+        // Grid lines: outer border plus each internal row/column boundary.
+        double y = pos.y;
+        painter.drawLine(toScreen(lcad::Point2D(pos.x, y)), toScreen(lcad::Point2D(pos.x + totalW, y)));
+        for (double h : table.rowHeights()) {
+            y -= h;
+            painter.drawLine(toScreen(lcad::Point2D(pos.x, y)), toScreen(lcad::Point2D(pos.x + totalW, y)));
+        }
+        double x = pos.x;
+        painter.drawLine(toScreen(lcad::Point2D(x, pos.y)), toScreen(lcad::Point2D(x, pos.y - totalH)));
+        for (double w : table.colWidths()) {
+            x += w;
+            painter.drawLine(toScreen(lcad::Point2D(x, pos.y)), toScreen(lcad::Point2D(x, pos.y - totalH)));
+        }
+
+        // Cell text, clipped to its cell so long strings don't bleed over
+        // neighbors.
+        const QFont font = styledFont(painter, document, "Standard", table.textHeight() * scale);
+        painter.save();
+        painter.setFont(font);
+        const double pad = 0.2 * table.textHeight() * scale;
+        for (int r = 0; r < table.rows(); ++r) {
+            for (int c = 0; c < table.cols(); ++c) {
+                const std::string& text = table.cellText(r, c);
+                if (text.empty()) continue;
+                const lcad::BoundingBox cell = table.cellRect(r, c);
+                const QPointF topLeft = toScreen(lcad::Point2D(cell.min.x, cell.max.y));
+                const QPointF bottomRight = toScreen(lcad::Point2D(cell.max.x, cell.min.y));
+                const QRectF rect(topLeft + QPointF(pad, 0), bottomRight - QPointF(pad, 0));
+                painter.drawText(rect, Qt::AlignVCenter | Qt::AlignLeft | Qt::TextSingleLine,
+                                 QString::fromStdString(text));
+            }
         }
         painter.restore();
         break;
