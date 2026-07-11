@@ -1,5 +1,6 @@
 #include "core/document/Document.h"
 #include "core/geometry/Arc.h"
+#include "core/geometry/BoundaryTrace.h"
 #include "core/geometry/Circle.h"
 #include "core/geometry/Dimension.h"
 #include "core/geometry/Ellipse.h"
@@ -783,4 +784,36 @@ TEST_CASE("joinToPolyline chains lines and arcs into one polyline", "[geometry][
     // Disjoint pieces refuse.
     lcad::LineEntity far(5, 0, lcad::Point2D(100, 100), lcad::Point2D(110, 100));
     REQUIRE(lcad::joinToPolyline(12, 0, {&l1, &far}) == nullptr);
+}
+
+TEST_CASE("traceBoundary finds the enclosing loop from disjoint segments", "[geometry][boundary]") {
+    using Seg = std::pair<lcad::Point2D, lcad::Point2D>;
+
+    // A plain square, one segment per side (as HATCH's pick-point would see
+    // four independent LINE entities, not a pre-closed polyline).
+    std::vector<Seg> square{{{0, 0}, {10, 0}}, {{10, 0}, {10, 10}}, {{10, 10}, {0, 10}}, {{0, 10}, {0, 0}}};
+
+    auto loop = lcad::traceBoundary(square, lcad::Point2D(5, 5));
+    REQUIRE(loop.has_value());
+    REQUIRE(loop->size() == 4);
+
+    // Outside the square: nothing to enclose it.
+    REQUIRE_FALSE(lcad::traceBoundary(square, lcad::Point2D(20, 20)).has_value());
+
+    // Open geometry (missing the top side): no enclosed face at all.
+    std::vector<Seg> openSquare{{{0, 0}, {10, 0}}, {{10, 0}, {10, 10}}, {{0, 10}, {0, 0}}};
+    REQUIRE_FALSE(lcad::traceBoundary(openSquare, lcad::Point2D(5, 5)).has_value());
+
+    // A diagonal splits the square into two triangles; picking one side
+    // should trace just that triangle, not the whole square.
+    std::vector<Seg> split = square;
+    split.push_back({{0, 0}, {10, 10}});
+    auto lower = lcad::traceBoundary(split, lcad::Point2D(7, 2));
+    REQUIRE(lower.has_value());
+    REQUIRE(lower->size() == 3);
+    double area = 0.0;
+    for (std::size_t i = 0, j = lower->size() - 1; i < lower->size(); j = i++) {
+        area += (*lower)[j].x * (*lower)[i].y - (*lower)[i].x * (*lower)[j].y;
+    }
+    REQUIRE(std::abs(area) / 2.0 == Approx(50.0));
 }

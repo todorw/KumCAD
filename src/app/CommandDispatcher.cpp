@@ -19,6 +19,7 @@
 #include "commands/EllipseCommand.h"
 #include "commands/ExtendCommand.h"
 #include "commands/FilletCommand.h"
+#include "commands/GradientCommand.h"
 #include "commands/GroupCommand.h"
 #include "commands/IdCommand.h"
 #include "commands/HatchCommand.h"
@@ -255,8 +256,16 @@ void CommandDispatcher::handleCommandText(const QString& text) {
     } else if (cmd == QLatin1String("TABLEDIT") || cmd == QLatin1String("TED")) {
         startCommand(std::make_unique<TableEditCommand>(m_document), QStringLiteral("TABLEDIT"));
     } else if (cmd == QLatin1String("HATCH") || cmd == QLatin1String("H")) {
-        const std::vector<lcad::EntityId> ids = selectionForModify();
-        if (!ids.empty()) startCommand(std::make_unique<HatchCommand>(m_document, ids), QStringLiteral("HATCH"));
+        // With a selection: hatch it directly (existing closed polylines).
+        // With none: HatchCommand switches to pick-internal-point mode, so an
+        // empty selection isn't an error here the way it is for MOVE/COPY/etc.
+        const std::vector<lcad::EntityId> ids =
+            m_view && m_view->hasSelection() ? m_view->selectedIds() : std::vector<lcad::EntityId>{};
+        startCommand(std::make_unique<HatchCommand>(m_document, ids), QStringLiteral("HATCH"));
+    } else if (cmd == QLatin1String("GRADIENT") || cmd == QLatin1String("GD")) {
+        const std::vector<lcad::EntityId> ids =
+            m_view && m_view->hasSelection() ? m_view->selectedIds() : std::vector<lcad::EntityId>{};
+        startCommand(std::make_unique<GradientCommand>(m_document, ids), QStringLiteral("GRADIENT"));
     } else if (cmd == QLatin1String("BLOCK") || cmd == QLatin1String("B")) {
         const std::vector<lcad::EntityId> ids = selectionForModify();
         if (!ids.empty()) startCommand(std::make_unique<BlockCommand>(m_document, ids), QStringLiteral("BLOCK"));

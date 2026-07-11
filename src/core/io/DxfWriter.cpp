@@ -355,6 +355,16 @@ void writeEntity(std::ofstream& out, const Document& document, const Entity& e) 
             }
         }
         writeGroup(out, 98, 0); // no seed points
+        // Simplified GRADIENT marker: real DXF stores a full gradient
+        // definition (450-470 range including angle/named presets); this
+        // just carries the second color, enough to round-trip within KumCAD.
+        // The base color (this fill's "color1") already goes out via
+        // writeCommon's 62/420 above, since GradientCommand sets it as this
+        // entity's normal color override.
+        if (const auto& c2 = hatch.gradientColor2()) {
+            writeGroup(out, 450, 1);
+            writeGroup(out, 421, trueColor(*c2));
+        }
         break;
     }
     case EntityType::Insert: {

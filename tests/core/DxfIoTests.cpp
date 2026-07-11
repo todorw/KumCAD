@@ -333,6 +333,29 @@ TEST_CASE("DXF hatch round-trips", "[dxf][hatch]") {
     REQUIRE(hatch->containsPoint(lcad::Point2D(5, 2)));
 }
 
+TEST_CASE("DXF gradient hatch round-trips", "[dxf][hatch][gradient]") {
+    TempDxfPath temp;
+
+    lcad::Document doc;
+    std::vector<lcad::Point2D> tri{{0, 0}, {10, 0}, {5, 8}};
+    auto hatch = std::make_unique<lcad::HatchEntity>(doc.reserveEntityId(), doc.currentLayer(), tri);
+    hatch->setColorOverride(lcad::Color{200, 50, 50});
+    hatch->setGradientColor2(lcad::Color{50, 50, 200});
+    doc.addEntity(std::move(hatch));
+    REQUIRE(lcad::writeDxf(doc, temp.path.string()));
+
+    lcad::Document loaded;
+    REQUIRE(lcad::readDxf(loaded, temp.path.string()));
+    REQUIRE(loaded.entities().size() == 1);
+
+    const auto* loadedHatch = static_cast<const lcad::HatchEntity*>(loaded.entities().front());
+    REQUIRE(loadedHatch->isGradient());
+    REQUIRE(loadedHatch->gradientColor2()->r == 50);
+    REQUIRE(loadedHatch->gradientColor2()->g == 50);
+    REQUIRE(loadedHatch->gradientColor2()->b == 200);
+    REQUIRE(loadedHatch->colorOverride()->r == 200);
+}
+
 TEST_CASE("DXF block definitions and inserts round-trip", "[dxf][block]") {
     TempDxfPath temp;
 

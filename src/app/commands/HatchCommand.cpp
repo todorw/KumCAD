@@ -1,5 +1,6 @@
 #include "commands/HatchCommand.h"
 
+#include "commands/HatchBoundary.h"
 #include "core/document/Commands.h"
 #include "core/geometry/Hatch.h"
 #include "core/geometry/Polyline.h"
@@ -7,12 +8,18 @@
 #include <cmath>
 
 QString HatchCommand::start() {
+    if (m_stage == Stage::BoundaryPick) return QStringLiteral("HATCH  Pick internal point:");
     return QStringLiteral("HATCH  Enter pattern [SOLID/ANSI31/ANSI32/ANSI33/ANSI37] <SOLID>:");
 }
 
 std::optional<QString> HatchCommand::onPoint(const lcad::Point2D& pt) {
-    (void)pt;
-    return std::nullopt;
+    if (m_stage != Stage::BoundaryPick) return std::nullopt;
+    if (auto boundary = pickHatchBoundary(m_document, pt)) {
+        m_pickedBoundaries.push_back(std::move(*boundary));
+        return QStringLiteral("*%1 boundary(ies) found* Pick internal point (Enter to finish):")
+            .arg(m_pickedBoundaries.size());
+    }
+    return QStringLiteral("*Valid boundary not found there*\nPick internal point:");
 }
 
 std::optional<QString> HatchCommand::onOption(const QString& option) {
@@ -46,6 +53,14 @@ std::optional<QString> HatchCommand::onScalar(double value) {
 }
 
 bool HatchCommand::requestFinish() {
+    if (m_stage == Stage::BoundaryPick) {
+        if (m_pickedBoundaries.empty()) {
+            m_finished = true;
+            return false;
+        }
+        m_stage = Stage::Pattern;
+        return true; // not finished yet -- resultMessage() gives the pattern prompt
+    }
     // Enter: accept the defaults for whatever wasn't specified yet.
     commit();
     m_finished = true;
@@ -71,6 +86,13 @@ void HatchCommand::commit() {
             }
         }
         ++skipped;
+    }
+    for (auto& boundary : m_pickedBoundaries) {
+        batch->add(std::make_unique<lcad::AddEntityCommand>(
+            m_document, std::make_unique<lcad::HatchEntity>(m_document.reserveEntityId(), m_document.currentLayer(),
+                                                             std::move(boundary), m_pattern, m_scale,
+                                                             m_angleDeg * M_PI / 180.0)));
+        ++made;
     }
     if (!batch->empty()) m_document.commandStack().execute(std::move(batch));
     m_result = skipped > 0

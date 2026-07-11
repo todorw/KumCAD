@@ -249,6 +249,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
     bool hatchSolid = true;
     double hatchAngleDeg = 0.0;
     double hatchScale = 1.0;
+    std::optional<Color> hatchGradientColor2; // HATCH group 421 (simplified GRADIENT marker)
     std::string insertName;
     double insertScale = 1.0;
     Point2D vpViewCenter; // VIEWPORT group 12/22
@@ -375,8 +376,10 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
                 // reads as hatched rather than silently going solid.
                 pattern = hatchPatternFromName(hatchPatternNameStr).value_or(HatchPattern::Ansi31);
             }
-            made = std::make_unique<HatchEntity>(id, layerId, polyVerts, pattern, hatchScale,
-                                                 hatchAngleDeg * M_PI / 180.0);
+            auto hatch = std::make_unique<HatchEntity>(id, layerId, polyVerts, pattern, hatchScale,
+                                                       hatchAngleDeg * M_PI / 180.0);
+            if (hatchGradientColor2) hatch->setGradientColor2(*hatchGradientColor2);
+            made = std::move(hatch);
         } else if (curEntityType == "VIEWPORT") {
             // Only paper-space viewports (from *Paper_Space blocks) become
             // layout viewports; the model-space VIEWPORT some writers emit is
@@ -489,6 +492,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
         hatchSolid = true;
         hatchAngleDeg = 0.0;
         hatchScale = 1.0;
+        hatchGradientColor2.reset();
         insertName.clear();
         insertScale = 1.0;
         splineDegree = 3;
@@ -871,6 +875,9 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
         case 420:
             entityTrueColor = colorFromTrueColor(toInt(g.value));
             entityHasTrueColor = true;
+            break;
+        case 421:
+            if (curEntityType == "HATCH") hatchGradientColor2 = colorFromTrueColor(toInt(g.value));
             break;
         case 70:
             // Closed flag (bit 0) on the polyline header; a VERTEX's own 70

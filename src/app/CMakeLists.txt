@@ -73,6 +73,10 @@ add_executable(kumcad
     commands/PointCommands.h
     commands/PointCommands.cpp
     commands/XlineCommand.h
+    commands/GradientCommand.h
+    commands/GradientCommand.cpp
+    commands/HatchBoundary.h
+    commands/HatchBoundary.cpp
     commands/GroupCommand.h
     commands/MatchPropCommand.h
     commands/LweightCommand.h

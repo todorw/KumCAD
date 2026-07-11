@@ -21,6 +21,7 @@
 
 #include <QFont>
 #include <QFontMetricsF>
+#include <QLinearGradient>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPolygonF>
@@ -345,7 +346,28 @@ void paint(QPainter& painter, const lcad::Entity& entity, const WorldToScreen& t
     }
     case lcad::EntityType::Hatch: {
         const auto& hatch = static_cast<const lcad::HatchEntity&>(entity);
-        if (hatch.pattern() == lcad::HatchPattern::Solid) {
+        if (hatch.isGradient()) {
+            QPolygonF poly;
+            lcad::BoundingBox box;
+            for (const lcad::Point2D& v : hatch.vertices()) {
+                poly << toScreen(v);
+                box.expand(v);
+            }
+            // A linear gradient along patternAngle, spanning the boundary's
+            // own extent so it reads the same regardless of drawing scale.
+            const lcad::Point2D mid((box.min.x + box.max.x) / 2.0, (box.min.y + box.max.y) / 2.0);
+            const double halfSpan = 0.5 * lcad::Point2D(box.max.x - box.min.x, box.max.y - box.min.y).length();
+            const lcad::Point2D dir(std::cos(hatch.patternAngle()), std::sin(hatch.patternAngle()));
+            const QPointF p1 = toScreen(mid - dir * halfSpan);
+            const QPointF p2 = toScreen(mid + dir * halfSpan);
+            QLinearGradient gradient(p1, p2);
+            const lcad::Color& c2 = *hatch.gradientColor2();
+            gradient.setColorAt(0.0, color);
+            gradient.setColorAt(1.0, QColor(c2.r, c2.g, c2.b));
+            painter.setBrush(gradient);
+            painter.drawPolygon(poly);
+            painter.setBrush(Qt::NoBrush);
+        } else if (hatch.pattern() == lcad::HatchPattern::Solid) {
             QPolygonF poly;
             for (const lcad::Point2D& v : hatch.vertices()) poly << toScreen(v);
             painter.setBrush(color);

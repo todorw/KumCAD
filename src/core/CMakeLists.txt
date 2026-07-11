@@ -45,6 +45,8 @@ add_library(lcad_core STATIC
     geometry/AttDef.h
     geometry/Intersect.h
     geometry/Intersect.cpp
+    geometry/BoundaryTrace.h
+    geometry/BoundaryTrace.cpp
     document/Layer.h
     document/Layout.h
     document/LineType.h
