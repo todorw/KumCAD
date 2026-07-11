@@ -169,3 +169,52 @@ TEST_CASE("BatchCommand groups children into one undo step", "[commands]") {
     doc.commandStack().redo();
     REQUIRE(doc.entities().empty());
 }
+
+TEST_CASE("SetLayoutsCommand undo/redo round-trips", "[commands][layout]") {
+    lcad::Document doc;
+    REQUIRE(doc.layouts().size() == 1);
+
+    std::vector<lcad::Layout> newLayouts = doc.layouts();
+    lcad::Layout second;
+    second.name = "Sheet 2";
+    newLayouts.push_back(second);
+    doc.commandStack().execute(std::make_unique<lcad::SetLayoutsCommand>(doc, newLayouts));
+    REQUIRE(doc.layouts().size() == 2);
+    REQUIRE(doc.layouts()[1].name == "Sheet 2");
+
+    doc.commandStack().undo();
+    REQUIRE(doc.layouts().size() == 1);
+
+    doc.commandStack().redo();
+    REQUIRE(doc.layouts().size() == 2);
+    REQUIRE(doc.layouts()[1].name == "Sheet 2");
+}
+
+TEST_CASE("DeleteLayoutCommand undo restores the layout and its entities", "[commands][layout]") {
+    lcad::Document doc;
+    lcad::Layout second;
+    second.name = "Sheet 2";
+    doc.layouts().push_back(second);
+
+    doc.setActiveSpace(1);
+    const lcad::EntityId id =
+        doc.reserveEntityId();
+    doc.addEntity(std::make_unique<lcad::LineEntity>(id, doc.currentLayer(), lcad::Point2D(0, 0), lcad::Point2D(1, 1)));
+    doc.setActiveSpace(-1);
+    REQUIRE(doc.layouts()[1].entityIds.size() == 1);
+    REQUIRE(doc.findEntity(id) != nullptr);
+
+    doc.commandStack().execute(std::make_unique<lcad::DeleteLayoutCommand>(doc, 1));
+    REQUIRE(doc.layouts().size() == 1);
+    REQUIRE(doc.findEntity(id) == nullptr);
+
+    doc.commandStack().undo();
+    REQUIRE(doc.layouts().size() == 2);
+    REQUIRE(doc.layouts()[1].name == "Sheet 2");
+    REQUIRE(doc.layouts()[1].entityIds == std::vector<lcad::EntityId>{id});
+    REQUIRE(doc.findEntity(id) != nullptr);
+
+    doc.commandStack().redo();
+    REQUIRE(doc.layouts().size() == 1);
+    REQUIRE(doc.findEntity(id) == nullptr);
+}

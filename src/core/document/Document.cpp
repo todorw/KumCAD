@@ -53,6 +53,11 @@ std::unique_ptr<Entity> Document::removeEntity(EntityId id) {
     return entity;
 }
 
+void Document::restoreEntity(std::unique_ptr<Entity> entity) {
+    const EntityId id = entity->id();
+    m_entityMap.emplace(id, std::move(entity));
+}
+
 Entity* Document::findEntity(EntityId id) {
     auto it = m_entityMap.find(id);
     return it != m_entityMap.end() ? it->second.get() : nullptr;

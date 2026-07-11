@@ -6,7 +6,7 @@
 // AutoCAD-style LAYOUT: New (fresh A4 sheet), Copy (duplicates the active
 // layout's sheet size and viewports), Rename, and Delete (refused for the
 // last layout). MainWindow rebuilds the space tabs when the command ends.
-// Layout management isn't undoable, matching the viewport operations.
+// Each option is one undo step (see SetLayoutsCommand/DeleteLayoutCommand).
 class LayoutCommand : public DrawCommand {
 public:
     LayoutCommand(lcad::Document& document, int activeLayoutIndex)

@@ -1,5 +1,7 @@
 #include "commands/PageSetupCommand.h"
 
+#include "core/document/Commands.h"
+
 namespace {
 
 // Portrait-orientation ISO/ANSI sheet sizes in mm.
@@ -49,35 +51,44 @@ std::optional<QString> PageSetupCommand::onText(const QString& text) {
     }
     case Stage::Orientation: {
         const bool portrait = upper == QLatin1String("P") || upper == QLatin1String("PORTRAIT");
-        layout().paperWidth = portrait ? m_width : m_height;
-        layout().paperHeight = portrait ? m_height : m_width;
+        m_pendingWidth = portrait ? m_width : m_height;
+        m_pendingHeight = portrait ? m_height : m_width;
+        commit();
         m_finished = true;
-        return QStringLiteral("*Sheet set to %1 x %2 mm*").arg(layout().paperWidth).arg(layout().paperHeight);
+        return QStringLiteral("*Sheet set to %1 x %2 mm*").arg(m_pendingWidth).arg(m_pendingHeight);
     }
     case Stage::CustomWidth: {
         bool ok = false;
         const double v = trimmed.toDouble(&ok);
         if (trimmed.isEmpty()) {
             m_stage = Stage::CustomHeight;
-            return QStringLiteral("Sheet height (mm) <%1>:").arg(layout().paperHeight);
+            return QStringLiteral("Sheet height (mm) <%1>:").arg(m_pendingHeight);
         }
-        if (!ok || v < 10.0 || v > 5000.0) return QStringLiteral("*Invalid* Sheet width (mm) <%1>:").arg(layout().paperWidth);
-        layout().paperWidth = v;
+        if (!ok || v < 10.0 || v > 5000.0) return QStringLiteral("*Invalid* Sheet width (mm) <%1>:").arg(m_pendingWidth);
+        m_pendingWidth = v;
         m_stage = Stage::CustomHeight;
-        return QStringLiteral("Sheet height (mm) <%1>:").arg(layout().paperHeight);
+        return QStringLiteral("Sheet height (mm) <%1>:").arg(m_pendingHeight);
     }
     case Stage::CustomHeight: {
         if (!trimmed.isEmpty()) {
             bool ok = false;
             const double v = trimmed.toDouble(&ok);
             if (!ok || v < 10.0 || v > 5000.0) {
-                return QStringLiteral("*Invalid* Sheet height (mm) <%1>:").arg(layout().paperHeight);
+                return QStringLiteral("*Invalid* Sheet height (mm) <%1>:").arg(m_pendingHeight);
             }
-            layout().paperHeight = v;
+            m_pendingHeight = v;
         }
+        commit();
         m_finished = true;
-        return QStringLiteral("*Sheet set to %1 x %2 mm*").arg(layout().paperWidth).arg(layout().paperHeight);
+        return QStringLiteral("*Sheet set to %1 x %2 mm*").arg(m_pendingWidth).arg(m_pendingHeight);
     }
     }
     return std::nullopt;
+}
+
+void PageSetupCommand::commit() {
+    std::vector<lcad::Layout> layouts = m_document.layouts();
+    layouts[static_cast<std::size_t>(m_layoutIndex)].paperWidth = m_pendingWidth;
+    layouts[static_cast<std::size_t>(m_layoutIndex)].paperHeight = m_pendingHeight;
+    m_document.commandStack().execute(std::make_unique<lcad::SetLayoutsCommand>(m_document, std::move(layouts)));
 }

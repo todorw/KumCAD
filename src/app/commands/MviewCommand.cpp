@@ -1,5 +1,6 @@
 #include "commands/MviewCommand.h"
 
+#include "core/document/Commands.h"
 #include "core/geometry/BoundingBox.h"
 
 #include <algorithm>
@@ -32,7 +33,9 @@ std::optional<QString> MviewCommand::onPoint(const lcad::Point2D& pt) {
     }
 
     if (m_layoutIndex >= 0 && m_layoutIndex < static_cast<int>(m_document.layouts().size())) {
-        m_document.layouts()[m_layoutIndex].viewports.push_back(vp);
+        std::vector<lcad::Layout> layouts = m_document.layouts();
+        layouts[static_cast<std::size_t>(m_layoutIndex)].viewports.push_back(vp);
+        m_document.commandStack().execute(std::make_unique<lcad::SetLayoutsCommand>(m_document, std::move(layouts)));
     }
     m_finished = true;
     return QStringLiteral("*Viewport created (scale %1) -- use VPSCALE to change it*").arg(vp.viewScale);

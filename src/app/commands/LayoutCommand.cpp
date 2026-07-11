@@ -1,5 +1,7 @@
 #include "commands/LayoutCommand.h"
 
+#include "core/document/Commands.h"
+
 #include <QStringList>
 
 QString LayoutCommand::layoutList() const {
@@ -63,9 +65,11 @@ std::optional<QString> LayoutCommand::onText(const QString& text) {
     case Stage::NewName: {
         const QString name =
             uniqueName(trimmed.isEmpty() ? QStringLiteral("Layout%1").arg(m_document.layouts().size() + 1) : trimmed);
+        std::vector<lcad::Layout> layouts = m_document.layouts();
         lcad::Layout layout;
         layout.name = name.toStdString();
-        m_document.layouts().push_back(layout);
+        layouts.push_back(layout);
+        m_document.commandStack().execute(std::make_unique<lcad::SetLayoutsCommand>(m_document, std::move(layouts)));
         m_finished = true;
         return QStringLiteral("*Layout \"%1\" created*").arg(name);
     }
@@ -79,7 +83,9 @@ std::optional<QString> LayoutCommand::onText(const QString& text) {
         copy.paperHeight = source.paperHeight;
         copy.viewports = source.viewports;
         // Paper entities stay with the source; only the sheet setup copies.
-        m_document.layouts().push_back(copy);
+        std::vector<lcad::Layout> layouts = m_document.layouts();
+        layouts.push_back(copy);
+        m_document.commandStack().execute(std::make_unique<lcad::SetLayoutsCommand>(m_document, std::move(layouts)));
         m_finished = true;
         return QStringLiteral("*Layout \"%1\" created from \"%2\" (sheet and viewports; entities not copied)*")
             .arg(name, QString::fromStdString(source.name));
@@ -87,11 +93,12 @@ std::optional<QString> LayoutCommand::onText(const QString& text) {
     case Stage::DeleteName: {
         const int index = findLayout(trimmed);
         if (index < 0) return QStringLiteral("*No layout named \"%1\"*\nLayout to delete:").arg(trimmed);
-        const QString name = QString::fromStdString(m_document.layouts()[index].name);
-        if (!m_document.removeLayout(index)) {
+        if (m_document.layouts().size() == 1) {
             m_finished = true;
             return QStringLiteral("*Cannot delete the last layout*");
         }
+        const QString name = QString::fromStdString(m_document.layouts()[index].name);
+        m_document.commandStack().execute(std::make_unique<lcad::DeleteLayoutCommand>(m_document, index));
         m_finished = true;
         return QStringLiteral("*Layout \"%1\" deleted*").arg(name);
     }
@@ -104,7 +111,9 @@ std::optional<QString> LayoutCommand::onText(const QString& text) {
     case Stage::RenameNew: {
         if (trimmed.isEmpty()) return QStringLiteral("New name:");
         const QString name = uniqueName(trimmed);
-        m_document.layouts()[m_renameIndex].name = name.toStdString();
+        std::vector<lcad::Layout> layouts = m_document.layouts();
+        layouts[static_cast<std::size_t>(m_renameIndex)].name = name.toStdString();
+        m_document.commandStack().execute(std::make_unique<lcad::SetLayoutsCommand>(m_document, std::move(layouts)));
         m_finished = true;
         return QStringLiteral("*Renamed to \"%1\"*").arg(name);
     }

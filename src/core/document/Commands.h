@@ -2,6 +2,7 @@
 
 #include "core/document/Command.h"
 #include "core/document/Document.h"
+#include "core/document/Layout.h"
 #include "core/geometry/Entity.h"
 
 #include <memory>
@@ -352,6 +353,59 @@ private:
     std::vector<EntityId> m_ids;
     LayerId m_newLayer;
     std::vector<std::pair<EntityId, LayerId>> m_oldLayers;
+};
+
+// Undoable replacement of the whole layouts vector (LAYOUT New/Copy/Rename,
+// MVIEW, VPSCALE, PAGESETUP): simpler than fine-grained per-field commands
+// since Layout and Viewport are small copyable value types with no owned
+// entities of their own -- unlike deleting a layout, which also needs to
+// remove/restore the entities on its sheet (see DeleteLayoutCommand).
+class SetLayoutsCommand : public Command {
+public:
+    SetLayoutsCommand(Document& document, std::vector<Layout> newLayouts)
+        : m_document(document), m_newLayouts(std::move(newLayouts)) {}
+
+    void execute() override {
+        m_oldLayouts = m_document.layouts();
+        m_document.layouts() = m_newLayouts;
+    }
+    void undo() override { m_document.layouts() = m_oldLayouts; }
+    std::string description() const override { return "Layout"; }
+
+private:
+    Document& m_document;
+    std::vector<Layout> m_newLayouts;
+    std::vector<Layout> m_oldLayouts;
+};
+
+// LAYOUT Delete: removes a layout and the entities drawn on its sheet.
+// Unlike SetLayoutsCommand, this must also snapshot/restore those entities
+// (Document::removeEntity erases them from the document entirely), so it's
+// its own Command rather than a layouts-vector swap.
+class DeleteLayoutCommand : public Command {
+public:
+    DeleteLayoutCommand(Document& document, int index) : m_document(document), m_index(index) {}
+
+    void execute() override {
+        m_layout = m_document.layouts()[static_cast<std::size_t>(m_index)];
+        m_removedEntities.clear();
+        for (EntityId id : m_layout.entityIds) {
+            if (auto entity = m_document.removeEntity(id)) m_removedEntities.push_back(std::move(entity));
+        }
+        m_document.layouts().erase(m_document.layouts().begin() + m_index);
+    }
+    void undo() override {
+        m_document.layouts().insert(m_document.layouts().begin() + m_index, m_layout);
+        for (auto& entity : m_removedEntities) m_document.restoreEntity(std::move(entity));
+        m_removedEntities.clear();
+    }
+    std::string description() const override { return "Delete Layout"; }
+
+private:
+    Document& m_document;
+    int m_index;
+    Layout m_layout;
+    std::vector<std::unique_ptr<Entity>> m_removedEntities;
 };
 
 } // namespace lcad

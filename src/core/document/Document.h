@@ -83,6 +83,10 @@ public:
     EntityId reserveEntityId() { return m_nextEntityId++; }
     void addEntity(std::unique_ptr<Entity> entity);
     std::unique_ptr<Entity> removeEntity(EntityId id);
+    // Re-inserts a previously-removed entity directly into the entity map,
+    // without touching any space's draw-order list -- for undoing a layout
+    // deletion, which restores the owning layout's entityIds itself.
+    void restoreEntity(std::unique_ptr<Entity> entity);
     Entity* findEntity(EntityId id);
     const Entity* findEntity(EntityId id) const;
     std::vector<Entity*> entities();
