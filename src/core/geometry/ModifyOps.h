@@ -62,4 +62,16 @@ std::vector<Point2D> divideEntity(const Entity& e, int n);
 // start itself). Empty when unsupported or step is not positive.
 std::vector<Point2D> measureEntity(const Entity& e, double step);
 
+// AutoCAD Express Tools' OVERKILL, simplified: indices into entities whose
+// geometry exactly duplicates an earlier entity in the list (same concrete
+// type, same layer, same defining geometry within tolerance -- a Line's
+// endpoints may be swapped, an Arc's start/end likewise via its sweep
+// direction not being compared). Always the LATER occurrence in a duplicate
+// pair or chain, so callers keep the first and delete the rest. Only
+// Line/Circle/Arc/Polyline are compared, the types where "duplicate" has an
+// unambiguous definition without also touching color/linetype/width
+// overrides the way real OVERKILL's property-matching options do; every
+// other type never comes back flagged, even if genuinely identical.
+std::vector<std::size_t> findDuplicateEntities(const std::vector<const Entity*>& entities, double tolerance = 1e-6);
+
 } // namespace lcad

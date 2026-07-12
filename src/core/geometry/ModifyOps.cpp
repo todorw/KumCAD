@@ -518,4 +518,65 @@ std::vector<Point2D> measureEntity(const Entity& e, double step) {
     return result;
 }
 
+namespace {
+
+bool anglesClose(double a, double b, double tol) {
+    const double diff = std::abs(normalizeAngle(a) - normalizeAngle(b));
+    return std::min(diff, kTwoPi - diff) < tol;
+}
+
+bool sameGeometry(const Entity& a, const Entity& b, double tolerance) {
+    if (a.type() != b.type() || a.layer() != b.layer()) return false;
+    switch (a.type()) {
+    case EntityType::Line: {
+        const auto& la = static_cast<const LineEntity&>(a);
+        const auto& lb = static_cast<const LineEntity&>(b);
+        const bool sameOrder = la.start().distanceTo(lb.start()) < tolerance && la.end().distanceTo(lb.end()) < tolerance;
+        const bool swapped = la.start().distanceTo(lb.end()) < tolerance && la.end().distanceTo(lb.start()) < tolerance;
+        return sameOrder || swapped;
+    }
+    case EntityType::Circle: {
+        const auto& ca = static_cast<const CircleEntity&>(a);
+        const auto& cb = static_cast<const CircleEntity&>(b);
+        return ca.center().distanceTo(cb.center()) < tolerance && std::abs(ca.radius() - cb.radius()) < tolerance;
+    }
+    case EntityType::Arc: {
+        const auto& aa = static_cast<const ArcEntity&>(a);
+        const auto& ab = static_cast<const ArcEntity&>(b);
+        return aa.center().distanceTo(ab.center()) < tolerance && std::abs(aa.radius() - ab.radius()) < tolerance &&
+               anglesClose(aa.startAngle(), ab.startAngle(), tolerance) &&
+               anglesClose(aa.endAngle(), ab.endAngle(), tolerance);
+    }
+    case EntityType::Polyline: {
+        const auto& pa = static_cast<const PolylineEntity&>(a);
+        const auto& pb = static_cast<const PolylineEntity&>(b);
+        if (pa.closed() != pb.closed() || pa.vertices().size() != pb.vertices().size()) return false;
+        for (std::size_t i = 0; i < pa.vertices().size(); ++i) {
+            if (pa.vertices()[i].distanceTo(pb.vertices()[i]) >= tolerance) return false;
+            if (std::abs(pa.bulgeAt(i) - pb.bulgeAt(i)) >= tolerance) return false;
+        }
+        return true;
+    }
+    default:
+        return false;
+    }
+}
+
+} // namespace
+
+std::vector<std::size_t> findDuplicateEntities(const std::vector<const Entity*>& entities, double tolerance) {
+    std::vector<std::size_t> duplicates;
+    for (std::size_t i = 0; i < entities.size(); ++i) {
+        if (!entities[i]) continue;
+        for (std::size_t j = 0; j < i; ++j) {
+            if (!entities[j]) continue;
+            if (sameGeometry(*entities[i], *entities[j], tolerance)) {
+                duplicates.push_back(i);
+                break;
+            }
+        }
+    }
+    return duplicates;
+}
+
 } // namespace lcad

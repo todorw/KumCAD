@@ -78,6 +78,9 @@ private:
     // Instant selection-based action (no prompt loop): EXPLODE breaks block
     // references and polylines apart.
     void explodeSelection();
+    // OVERKILL (Express Tools): deletes exact geometric duplicates within
+    // the current selection, keeping the first occurrence of each.
+    void overkillSelection();
 
     lcad::Document& m_document;
     CommandLine& m_commandLine;

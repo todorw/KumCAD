@@ -144,6 +144,8 @@ add_executable(kumcad
     commands/DataLinkCommand.cpp
     commands/LayerStateCommand.h
     commands/LayerStateCommand.cpp
+    commands/TCaseCommand.h
+    commands/TCaseCommand.cpp
     commands/DimAngularCommand.h
     commands/DimAngularCommand.cpp
     commands/DimStyleCommand.h

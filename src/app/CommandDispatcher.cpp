@@ -15,6 +15,7 @@
 #include "commands/CopyCommand.h"
 #include "commands/DataLinkCommand.h"
 #include "commands/LayerStateCommand.h"
+#include "commands/TCaseCommand.h"
 #include "commands/DimAngularCommand.h"
 #include "commands/DimCommand.h"
 #include "commands/DimRadialCommand.h"
@@ -72,6 +73,7 @@
 #include "core/geometry/Hatch.h"
 #include "core/geometry/Insert.h"
 #include "core/geometry/Line.h"
+#include "core/geometry/ModifyOps.h"
 #include "core/geometry/Polyline.h"
 
 #include <QFile>
@@ -478,6 +480,11 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         startCommand(std::make_unique<XrefCommand>(m_document), QStringLiteral("XREF"));
     } else if (cmd == QLatin1String("EXPLODE") || cmd == QLatin1String("X")) {
         explodeSelection();
+    } else if (cmd == QLatin1String("OVERKILL") || cmd == QLatin1String("OV")) {
+        overkillSelection();
+    } else if (cmd == QLatin1String("TCASE")) {
+        const std::vector<lcad::EntityId> ids = selectionForModify();
+        if (!ids.empty()) startCommand(std::make_unique<TCaseCommand>(m_document, ids), QStringLiteral("TCASE"));
     } else if (cmd == QLatin1String("QSELECT") || cmd == QLatin1String("QSE")) {
         startCommand(std::make_unique<QSelectCommand>(m_document), QStringLiteral("QSELECT"));
     } else if (cmd == QLatin1String("FIND")) {
@@ -648,6 +655,29 @@ void CommandDispatcher::explodeSelection() {
     } else {
         m_commandLine.appendLine(QStringLiteral("*%1 exploded*").arg(made));
     }
+}
+
+void CommandDispatcher::overkillSelection() {
+    const std::vector<lcad::EntityId> ids = selectionForModify();
+    if (ids.empty()) return;
+
+    std::vector<const lcad::Entity*> entities;
+    entities.reserve(ids.size());
+    for (lcad::EntityId id : ids) entities.push_back(m_document.findEntity(id));
+
+    const auto duplicateIndices = lcad::findDuplicateEntities(entities);
+    if (duplicateIndices.empty()) {
+        m_commandLine.appendLine(QStringLiteral("*No duplicates found*"));
+        return;
+    }
+
+    auto batch = std::make_unique<lcad::BatchCommand>("Overkill");
+    for (std::size_t index : duplicateIndices) {
+        batch->add(std::make_unique<lcad::DeleteEntityCommand>(m_document, ids[index]));
+    }
+    m_document.commandStack().execute(std::move(batch));
+    m_commandLine.appendLine(QStringLiteral("*%1 duplicate(s) removed*").arg(duplicateIndices.size()));
+    emit documentChanged();
 }
 
 std::vector<lcad::EntityId> CommandDispatcher::selectionForModify() const {

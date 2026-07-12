@@ -354,3 +354,37 @@ TEST_CASE("divideEntity and measureEntity place points along curves", "[modifyop
     REQUIRE(halves[0].x == Approx(10.0));
     REQUIRE(halves[0].y == Approx(0.0).margin(1e-9));
 }
+
+TEST_CASE("findDuplicateEntities flags exact repeats, keeping the first occurrence", "[modifyops][overkill]") {
+    lcad::LineEntity a(1, 0, lcad::Point2D(0, 0), lcad::Point2D(10, 0));
+    lcad::LineEntity aReversed(2, 0, lcad::Point2D(10, 0), lcad::Point2D(0, 0)); // same line, endpoints swapped
+    lcad::LineEntity differentLayer(3, 1, lcad::Point2D(0, 0), lcad::Point2D(10, 0));
+    lcad::LineEntity unrelated(4, 0, lcad::Point2D(0, 0), lcad::Point2D(5, 5));
+    lcad::CircleEntity circle(5, 0, lcad::Point2D(0, 0), 3.0);
+
+    const std::vector<const lcad::Entity*> entities{&a, &aReversed, &differentLayer, &unrelated, &circle};
+    const auto duplicates = lcad::findDuplicateEntities(entities);
+    REQUIRE(duplicates == std::vector<std::size_t>{1}); // only aReversed duplicates a; nothing else matches
+}
+
+TEST_CASE("findDuplicateEntities compares circles, arcs, and polylines by their own geometry", "[modifyops][overkill]") {
+    lcad::CircleEntity c1(1, 0, lcad::Point2D(1, 1), 5.0);
+    lcad::CircleEntity c2(2, 0, lcad::Point2D(1, 1), 5.0);       // duplicate
+    lcad::CircleEntity c3(3, 0, lcad::Point2D(1, 1), 5.1);       // different radius: not a duplicate
+    lcad::ArcEntity a1(4, 0, lcad::Point2D(0, 0), 2.0, 0.0, M_PI / 2);
+    lcad::ArcEntity a2(5, 0, lcad::Point2D(0, 0), 2.0, 0.0, M_PI / 2); // duplicate
+    lcad::PolylineEntity p1(6, 0, {{0, 0}, {1, 0}, {1, 1}}, false);
+    lcad::PolylineEntity p2(7, 0, {{0, 0}, {1, 0}, {1, 1}}, false); // duplicate
+    lcad::PolylineEntity p3(8, 0, {{0, 0}, {1, 0}, {1, 1}}, true);  // closed instead of open: not a duplicate
+
+    const std::vector<const lcad::Entity*> entities{&c1, &c2, &c3, &a1, &a2, &p1, &p2, &p3};
+    const auto duplicates = lcad::findDuplicateEntities(entities);
+    REQUIRE(duplicates == std::vector<std::size_t>{1, 4, 6});
+}
+
+TEST_CASE("findDuplicateEntities never flags a solo entity or mismatched types", "[modifyops][overkill]") {
+    lcad::LineEntity line(1, 0, lcad::Point2D(0, 0), lcad::Point2D(10, 0));
+    lcad::CircleEntity circle(2, 0, lcad::Point2D(0, 0), 5.0);
+    const std::vector<const lcad::Entity*> entities{&line, &circle};
+    REQUIRE(lcad::findDuplicateEntities(entities).empty());
+}
