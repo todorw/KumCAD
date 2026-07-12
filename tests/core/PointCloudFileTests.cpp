@@ -3,6 +3,8 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 
@@ -16,9 +18,76 @@ struct TempXyzPath {
     ~TempXyzPath() { std::filesystem::remove(path); }
 };
 
+struct TempLasPath {
+    std::filesystem::path path =
+        std::filesystem::temp_directory_path() / ("kumcad_las_test_" + std::to_string(std::rand()) + ".las");
+    ~TempLasPath() { std::filesystem::remove(path); }
+};
+
 void writeFile(const std::filesystem::path& path, const std::string& content) {
     std::ofstream out(path, std::ios::binary);
     out << content;
+}
+
+void putU16(std::string& out, std::uint16_t v) {
+    out.push_back(static_cast<char>(v & 0xFF));
+    out.push_back(static_cast<char>((v >> 8) & 0xFF));
+}
+
+void putU32(std::string& out, std::uint32_t v) {
+    for (int i = 0; i < 4; ++i) out.push_back(static_cast<char>((v >> (8 * i)) & 0xFF));
+}
+
+void putI32(std::string& out, std::int32_t v) { putU32(out, static_cast<std::uint32_t>(v)); }
+
+void putF64(std::string& out, double v) {
+    std::uint64_t bits = 0;
+    std::memcpy(&bits, &v, sizeof(bits));
+    for (int i = 0; i < 8; ++i) out.push_back(static_cast<char>((bits >> (8 * i)) & 0xFF));
+}
+
+// Builds a minimal, spec-accurate LAS 1.2 file: a 227-byte header followed
+// by point-format-0 records (20 bytes each -- 12 for X/Y/Z, 8 padding for
+// intensity/flags/classification/scan angle/user data/point source ID).
+std::string buildLasFile(const std::vector<std::pair<std::int32_t, std::int32_t>>& rawXY, double scale = 0.01,
+                          double offsetX = 0.0, double offsetY = 0.0) {
+    std::string h;
+    h += "LASF";                  // 0: signature
+    putU16(h, 0);                 // 4: file source ID
+    putU16(h, 0);                 // 6: global encoding
+    putU32(h, 0);                 // 8: GUID data 1
+    putU16(h, 0);                 // 12: GUID data 2
+    putU16(h, 0);                 // 14: GUID data 3
+    h.append(8, '\0');            // 16: GUID data 4
+    h.push_back(1);               // 24: version major
+    h.push_back(2);               // 25: version minor
+    h.append(32, '\0');           // 26: system identifier
+    h.append(32, '\0');           // 58: generating software
+    putU16(h, 0);                 // 90: creation day
+    putU16(h, 0);                 // 92: creation year
+    putU16(h, 227);               // 94: header size
+    putU32(h, 227);               // 96: offset to point data
+    putU32(h, 0);                 // 100: number of VLRs
+    h.push_back(0);               // 104: point data format 0
+    putU16(h, 20);                // 105: point data record length
+    putU32(h, static_cast<std::uint32_t>(rawXY.size())); // 107: number of point records
+    for (int i = 0; i < 5; ++i) putU32(h, 0);            // 111: points by return
+    putF64(h, scale);             // 131: X scale
+    putF64(h, scale);             // 139: Y scale
+    putF64(h, 1.0);               // 147: Z scale
+    putF64(h, offsetX);           // 155: X offset
+    putF64(h, offsetY);           // 163: Y offset
+    putF64(h, 0.0);               // 171: Z offset
+    for (int i = 0; i < 6; ++i) putF64(h, 0.0); // 179: max/min X/Y/Z (unused by the reader)
+    REQUIRE(h.size() == 227);
+
+    for (const auto& [rx, ry] : rawXY) {
+        putI32(h, rx);
+        putI32(h, ry);
+        putI32(h, 0); // Z
+        h.append(8, '\0'); // intensity/flags/classification/scan angle/user data/point source ID
+    }
+    return h;
 }
 
 } // namespace
@@ -57,4 +126,54 @@ TEST_CASE("readPointCloudXyz returns empty for a missing or unparsable file", "[
     TempXyzPath temp;
     writeFile(temp.path, "not a number\nalso not\n");
     REQUIRE(lcad::readPointCloudXyz(temp.path.string()).empty());
+}
+
+TEST_CASE("readPointCloudLas descales X/Y through the header's scale and offset", "[pointcloud][las]") {
+    TempLasPath temp;
+    // Raw integers 100/200 with scale 0.01 and offset 5.0/-3.0 -> (6.0, -1.0).
+    const std::string las = buildLasFile({{100, 200}, {300, -400}}, 0.01, 5.0, -3.0);
+    writeFile(temp.path, las);
+
+    const auto points = lcad::readPointCloudLas(temp.path.string());
+    REQUIRE(points.size() == 2);
+    REQUIRE(points[0].x == Approx(6.0));
+    REQUIRE(points[0].y == Approx(-1.0));
+    REQUIRE(points[1].x == Approx(8.0));
+    REQUIRE(points[1].y == Approx(-7.0));
+}
+
+TEST_CASE("readPointCloudLas decimates evenly when over the cap", "[pointcloud][las]") {
+    TempLasPath temp;
+    std::vector<std::pair<std::int32_t, std::int32_t>> raw;
+    for (int i = 0; i < 1000; ++i) raw.emplace_back(i, 0);
+    writeFile(temp.path, buildLasFile(raw));
+
+    const auto points = lcad::readPointCloudLas(temp.path.string(), 100);
+    REQUIRE(points.size() <= 101);
+    REQUIRE(points.size() >= 90);
+    REQUIRE(points.front().x == Approx(0.0));
+    REQUIRE(points[1].x > points[0].x);
+}
+
+TEST_CASE("readPointCloudLas rejects files without a valid LASF signature", "[pointcloud][las]") {
+    REQUIRE(lcad::readPointCloudLas("/no/such/file.las").empty());
+
+    TempLasPath temp;
+    writeFile(temp.path, "not a las file, way too short");
+    REQUIRE(lcad::readPointCloudLas(temp.path.string()).empty());
+}
+
+TEST_CASE("readPointCloudFile dispatches by extension", "[pointcloud]") {
+    TempLasPath lasTemp;
+    writeFile(lasTemp.path, buildLasFile({{100, 200}}, 0.01, 0.0, 0.0));
+    const auto lasPoints = lcad::readPointCloudFile(lasTemp.path.string());
+    REQUIRE(lasPoints.size() == 1);
+    REQUIRE(lasPoints[0].x == Approx(1.0));
+
+    TempXyzPath xyzTemp;
+    writeFile(xyzTemp.path, "1.0 2.0 3.0\n");
+    const auto xyzPoints = lcad::readPointCloudFile(xyzTemp.path.string());
+    REQUIRE(xyzPoints.size() == 1);
+    REQUIRE(xyzPoints[0].x == Approx(1.0));
+    REQUIRE(xyzPoints[0].y == Approx(2.0));
 }

@@ -511,7 +511,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             made = std::make_unique<TableEntity>(id, layerId, p10, tableRowHeights, tableColWidths, tableCells,
                                                  tableTextHeight);
         } else if (curEntityType == "POINTCLOUD" && !pointCloudPath.empty()) {
-            made = std::make_unique<PointCloudEntity>(id, layerId, pointCloudPath, readPointCloudXyz(pointCloudPath));
+            made = std::make_unique<PointCloudEntity>(id, layerId, pointCloudPath, readPointCloudFile(pointCloudPath));
         } else if (curEntityType == "IMAGE" && !imagePath.empty() && imageWidth > 1e-9 && imageHeight > 1e-9) {
             made = std::make_unique<ImageEntity>(id, layerId, imagePath, p10, imageWidth, imageHeight,
                                                  imageRotationDeg * M_PI / 180.0);

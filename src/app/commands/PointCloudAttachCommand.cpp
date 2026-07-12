@@ -11,9 +11,9 @@ std::optional<QString> PointCloudAttachCommand::onText(const QString& text) {
         return QStringLiteral("*Cancelled*");
     }
 
-    std::vector<lcad::Point2D> points = lcad::readPointCloudXyz(path.toStdString());
+    std::vector<lcad::Point2D> points = lcad::readPointCloudFile(path.toStdString());
     if (points.empty()) {
-        return QStringLiteral("*Could not read any points from \"%1\"*\nEnter XYZ file path:").arg(path);
+        return QStringLiteral("*Could not read any points from \"%1\"*\nEnter XYZ or LAS file path:").arg(path);
     }
 
     auto cloud = std::make_unique<lcad::PointCloudEntity>(m_document.reserveEntityId(), m_document.currentLayer(),
