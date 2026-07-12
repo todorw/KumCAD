@@ -3,6 +3,7 @@
 #include "commands/DrawCommand.h"
 #include "core/document/Document.h"
 #include "core/geometry/Point2D.h"
+#include "core/lisp/LispInterpreter.h"
 
 #include <QObject>
 #include <QString>
@@ -76,4 +77,10 @@ private:
     bool m_recording = false;
     QStringList m_recordingBuffer;
     QStringList m_lastMacro;
+
+    // A scoped-down AutoLISP interpreter (see LispInterpreter.h for what's
+    // not implemented): input starting with '(' at the top-level command
+    // prompt is evaluated as AutoLISP, matching real AutoCAD's command line.
+    // Its (command ...) sink re-enters handleCommandText.
+    lcad::LispInterpreter m_lisp;
 };

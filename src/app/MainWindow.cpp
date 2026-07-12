@@ -109,7 +109,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         "More: DIMLINEAR/ALIGNED/RADIUS/DIAMETER/ANGULAR, DIMSTYLE, STYLE, BLOCK, INSERT, ATTDEF, XREF, GROUP, "
         "DIVIDE, MEASURE, LAYOUT, PAGESETUP, MVIEW, LWEIGHT, LWDISPLAY, PURGE, OSNAP, POLARANG, DIST, AREA, ID."));
     m_commandLine->appendLine(QStringLiteral(
-        "F3 Object Snap / F8 Ortho / F9 Grid Snap / F10 Polar / F11 Snap Tracking toggle the drafting aids below."));
+        "Also: TABLE, TABLEDIT, MLEADER, MLEADERSTYLE, GRADIENT, ANNOSCALE, BPARAMETER, QSELECT, FIND, QUICKCALC "
+        "(CAL), ACTRECORD/ACTSTOP/PLAY. Type AutoLISP directly, e.g. (+ 1 2) or (load \"script.lsp\")."));
+    m_commandLine->appendLine(QStringLiteral(
+        "F3 Object Snap / F8 Ortho / F9 Grid Snap / F10 Polar / F11 Snap Tracking / F12 Dynamic Input toggle the "
+        "drafting aids below."));
     m_commandLine->appendLine(QStringLiteral("Command:"));
     m_commandLine->input()->setFocus();
 

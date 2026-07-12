@@ -49,6 +49,8 @@ add_library(lcad_core STATIC
     geometry/BoundaryTrace.cpp
     util/Expr.h
     util/Expr.cpp
+    lisp/LispInterpreter.h
+    lisp/LispInterpreter.cpp
     document/Layer.h
     document/Layout.h
     document/LineType.h

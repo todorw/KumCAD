@@ -69,10 +69,14 @@
 #include "core/geometry/Line.h"
 #include "core/geometry/Polyline.h"
 
+#include <QFile>
+#include <QIODevice>
+#include <QRegularExpression>
 #include <QStringList>
 
 CommandDispatcher::CommandDispatcher(lcad::Document& document, CommandLine& commandLine, QObject* parent)
-    : QObject(parent), m_document(document), m_commandLine(commandLine) {
+    : QObject(parent), m_document(document), m_commandLine(commandLine),
+      m_lisp([this](const std::string& s) { handleCommandText(QString::fromStdString(s)); }) {
     connect(&m_commandLine, &CommandLine::commandEntered, this, &CommandDispatcher::handleCommandText);
 }
 
@@ -159,6 +163,36 @@ void CommandDispatcher::handleCommandText(const QString& text) {
             }
         }
         m_commandLine.appendLine(QStringLiteral("*Invalid input, expected x,y or a number*"));
+        return;
+    }
+
+    if (trimmed.startsWith(QLatin1Char('('))) {
+        const auto report = [this](const lcad::LispInterpreter::RunResult& result) {
+            if (!result.output.empty()) m_commandLine.appendLine(QString::fromStdString(result.output));
+            if (result.ok) {
+                m_commandLine.appendLine(QStringLiteral("*= %1*").arg(QString::fromStdString(result.resultText)));
+            } else {
+                m_commandLine.appendLine(
+                    QStringLiteral("*AutoLISP error: %1*").arg(QString::fromStdString(result.error)));
+            }
+            emit documentChanged();
+        };
+
+        // (load "path") is the idiomatic way to bring in a script; read the
+        // file and run its contents instead of evaluating the call itself.
+        static const QRegularExpression loadPattern(QStringLiteral(R"RX(^\(\s*load\s+"([^"]*)"\s*\)$)RX"),
+                                                     QRegularExpression::CaseInsensitiveOption);
+        if (const auto match = loadPattern.match(trimmed); match.hasMatch()) {
+            QFile file(match.captured(1));
+            if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                m_commandLine.appendLine(QStringLiteral("*Cannot open \"%1\"*").arg(match.captured(1)));
+                return;
+            }
+            report(m_lisp.run(QString::fromUtf8(file.readAll()).toStdString()));
+            return;
+        }
+
+        report(m_lisp.run(trimmed.toStdString()));
         return;
     }
 
