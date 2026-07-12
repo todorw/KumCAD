@@ -95,6 +95,14 @@ void CommandDispatcher::finishCommand() {
 void CommandDispatcher::handleCommandText(const QString& text) {
     const QString trimmed = text.trimmed();
 
+    if (m_recording) {
+        // ACTSTOP itself (typed at the top-level prompt, not mid-command)
+        // ends the recording rather than becoming part of it.
+        const bool isActstop =
+            !m_activeCommand && trimmed.compare(QLatin1String("ACTSTOP"), Qt::CaseInsensitive) == 0;
+        if (!isActstop) m_recordingBuffer << text;
+    }
+
     if (m_activeCommand) {
         if (m_activeCommand->wantsTextInput()) {
             // Free-text stage (e.g. TEXT's "Enter text:"): route everything here,
@@ -119,7 +127,7 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         }
         lcad::Point2D pt;
         if (tryParsePoint(trimmed, pt)) {
-            handlePointPicked(pt);
+            handlePointPicked(pt, std::nullopt, false); // raw text already recorded above
             return;
         }
         bool isNumber = false;
@@ -326,6 +334,36 @@ void CommandDispatcher::handleCommandText(const QString& text) {
     } else if (cmd == QLatin1String("REGEN") || cmd == QLatin1String("RE")) {
         emit documentChanged();
         m_commandLine.appendLine(QStringLiteral("*Regenerated*"));
+    } else if (cmd == QLatin1String("ACTRECORD")) {
+        if (m_activeCommand) {
+            m_commandLine.appendLine(QStringLiteral("*Finish the active command first*"));
+        } else if (m_recording) {
+            m_commandLine.appendLine(QStringLiteral("*Already recording -- ACTSTOP to finish*"));
+        } else {
+            m_recording = true;
+            m_recordingBuffer.clear();
+            m_commandLine.appendLine(QStringLiteral("*Recording started -- type commands, then ACTSTOP*"));
+        }
+    } else if (cmd == QLatin1String("ACTSTOP")) {
+        if (!m_recording) {
+            m_commandLine.appendLine(QStringLiteral("*Not recording*"));
+        } else {
+            m_recording = false;
+            m_lastMacro = m_recordingBuffer;
+            m_recordingBuffer.clear();
+            m_commandLine.appendLine(
+                QStringLiteral("*Recording stopped: %1 step(s). PLAY to replay.*").arg(m_lastMacro.size()));
+        }
+    } else if (cmd == QLatin1String("PLAY")) {
+        if (m_activeCommand) {
+            m_commandLine.appendLine(QStringLiteral("*Finish the active command first*"));
+        } else if (m_lastMacro.isEmpty()) {
+            m_commandLine.appendLine(QStringLiteral("*No recorded macro yet -- ACTRECORD/ACTSTOP first*"));
+        } else {
+            const QStringList steps = m_lastMacro;
+            m_commandLine.appendLine(QStringLiteral("*Playing %1 step(s)*").arg(steps.size()));
+            for (const QString& step : steps) handleCommandText(step);
+        }
     } else if (cmd == QLatin1String("XREF") || cmd == QLatin1String("XR")) {
         startCommand(std::make_unique<XrefCommand>(m_document), QStringLiteral("XREF"));
     } else if (cmd == QLatin1String("EXPLODE") || cmd == QLatin1String("X")) {
@@ -380,8 +418,12 @@ void CommandDispatcher::handleCommandText(const QString& text) {
     }
 }
 
-void CommandDispatcher::handlePointPicked(const lcad::Point2D& pt, const std::optional<lcad::SnapRef>& snapRef) {
+void CommandDispatcher::handlePointPicked(const lcad::Point2D& pt, const std::optional<lcad::SnapRef>& snapRef,
+                                          bool recordClick) {
     if (!m_activeCommand) return;
+    if (m_recording && recordClick) {
+        m_recordingBuffer << QStringLiteral("%1,%2").arg(pt.x, 0, 'g', 15).arg(pt.y, 0, 'g', 15);
+    }
     m_activeCommand->onSnapContext(snapRef);
     const std::optional<QString> prompt = m_activeCommand->onPoint(pt);
     if (m_activeCommand->isFinished()) {

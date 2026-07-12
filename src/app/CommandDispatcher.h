@@ -6,6 +6,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QStringList>
 
 #include <memory>
 #include <vector>
@@ -29,7 +30,11 @@ public:
 
     // snapRef carries the osnap hit the point came from (nullopt for typed
     // coordinates or free clicks), for commands that record associativity.
-    void handlePointPicked(const lcad::Point2D& pt, const std::optional<lcad::SnapRef>& snapRef = std::nullopt);
+    // recordClick is false for the internal re-dispatch from a typed "x,y"
+    // coordinate (handleCommandText already records the raw text), true for
+    // a genuine mouse click, so ACTRECORD doesn't double up on typed points.
+    void handlePointPicked(const lcad::Point2D& pt, const std::optional<lcad::SnapRef>& snapRef = std::nullopt,
+                           bool recordClick = true);
     void handleMouseMoved(const lcad::Point2D& pt);
     void handleFinishRequested();
     void handleEscape();
@@ -64,4 +69,11 @@ private:
     CommandLine& m_commandLine;
     DrawingView* m_view = nullptr;
     std::unique_ptr<DrawCommand> m_activeCommand;
+
+    // ACTRECORD/ACTSTOP/PLAY: a simplified action recorder -- one
+    // last-recorded macro (not AutoCAD's named, saved-to-disk .actm files),
+    // replayed by feeding its lines back through handleCommandText().
+    bool m_recording = false;
+    QStringList m_recordingBuffer;
+    QStringList m_lastMacro;
 };
