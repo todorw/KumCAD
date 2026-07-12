@@ -1,5 +1,14 @@
 #include "core/lisp/LispInterpreter.h"
 
+#include "core/document/Document.h"
+#include "core/geometry/Arc.h"
+#include "core/geometry/Circle.h"
+#include "core/geometry/Insert.h"
+#include "core/geometry/Line.h"
+#include "core/geometry/PointEnt.h"
+#include "core/geometry/Polyline.h"
+#include "core/geometry/Text.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -196,6 +205,41 @@ private:
     }
 };
 
+// The DXF group-0 type name entget/ssget filters key on -- matches DxfWriter's
+// naming, but this is a separate, smaller mapping local to the interpreter.
+const char* dxfTypeName(EntityType type) {
+    switch (type) {
+    case EntityType::Line: return "LINE";
+    case EntityType::Circle: return "CIRCLE";
+    case EntityType::Arc: return "ARC";
+    case EntityType::Polyline: return "LWPOLYLINE";
+    case EntityType::Ellipse: return "ELLIPSE";
+    case EntityType::Spline: return "SPLINE";
+    case EntityType::Text: return "TEXT";
+    case EntityType::MText: return "MTEXT";
+    case EntityType::Dimension: return "DIMENSION";
+    case EntityType::Leader: return "LEADER";
+    case EntityType::MLeader: return "MULTILEADER";
+    case EntityType::Hatch: return "HATCH";
+    case EntityType::Insert: return "INSERT";
+    case EntityType::Point: return "POINT";
+    case EntityType::ConstructionLine: return "XLINE";
+    case EntityType::AttDef: return "ATTDEF";
+    case EntityType::Table: return "ACAD_TABLE";
+    case EntityType::Image: return "IMAGE";
+    case EntityType::PointCloud: return "POINTCLOUD";
+    }
+    return "UNKNOWN";
+}
+
+// One entget entry: (code value) for a scalar, or (code x y) for a point.
+Value assocEntry(int code, const Value& value) {
+    return listFromVector({Value::num(code), value});
+}
+Value assocPoint(int code, double x, double y) {
+    return listFromVector({Value::num(code), Value::num(x), Value::num(y)});
+}
+
 } // namespace
 
 const Value* LispInterpreter::Env::find(const std::string& name) const {
@@ -220,8 +264,8 @@ void LispInterpreter::Env::set(const std::string& name, Value v) {
     }
 }
 
-LispInterpreter::LispInterpreter(std::function<void(const std::string&)> commandSink)
-    : m_commandSink(std::move(commandSink)) {}
+LispInterpreter::LispInterpreter(std::function<void(const std::string&)> commandSink, Document* document)
+    : m_commandSink(std::move(commandSink)), m_document(document) {}
 
 LispInterpreter::RunResult LispInterpreter::run(const std::string& source) {
     RunResult result;
@@ -259,6 +303,142 @@ Value LispInterpreter::callLambda(const LambdaDef& fn, std::vector<Value>& args)
     for (std::size_t i = 0; i < fn.params.size(); ++i) local.define(fn.params[i], args[i]);
     for (const std::string& name : fn.locals) local.define(name, Value::nil());
     return evalBody(fn.body, local);
+}
+
+Value LispInterpreter::entityToAssocList(EntityId id) const {
+    if (!m_document) return Value::nil();
+    const Entity* e = m_document->findEntity(id);
+    if (!e) return Value::nil();
+
+    std::vector<Value> entries;
+    entries.push_back(assocEntry(0, Value::str(dxfTypeName(e->type()))));
+    std::string layerName = "0";
+    if (const Layer* layer = m_document->findLayer(e->layer())) layerName = layer->name;
+    entries.push_back(assocEntry(8, Value::str(layerName)));
+
+    switch (e->type()) {
+    case EntityType::Line: {
+        const auto* line = static_cast<const LineEntity*>(e);
+        entries.push_back(assocPoint(10, line->start().x, line->start().y));
+        entries.push_back(assocPoint(11, line->end().x, line->end().y));
+        break;
+    }
+    case EntityType::Circle: {
+        const auto* circle = static_cast<const CircleEntity*>(e);
+        entries.push_back(assocPoint(10, circle->center().x, circle->center().y));
+        entries.push_back(assocEntry(40, Value::num(circle->radius())));
+        break;
+    }
+    case EntityType::Arc: {
+        const auto* arc = static_cast<const ArcEntity*>(e);
+        entries.push_back(assocPoint(10, arc->center().x, arc->center().y));
+        entries.push_back(assocEntry(40, Value::num(arc->radius())));
+        entries.push_back(assocEntry(50, Value::num(arc->startAngle() * 180.0 / M_PI)));
+        entries.push_back(assocEntry(51, Value::num(arc->endAngle() * 180.0 / M_PI)));
+        break;
+    }
+    case EntityType::Text: {
+        const auto* text = static_cast<const TextEntity*>(e);
+        entries.push_back(assocPoint(10, text->position().x, text->position().y));
+        entries.push_back(assocEntry(1, Value::str(text->text())));
+        entries.push_back(assocEntry(40, Value::num(text->height())));
+        entries.push_back(assocEntry(50, Value::num(text->rotation() * 180.0 / M_PI)));
+        break;
+    }
+    case EntityType::Point: {
+        const auto* point = static_cast<const PointEntity*>(e);
+        entries.push_back(assocPoint(10, point->position().x, point->position().y));
+        break;
+    }
+    case EntityType::Polyline: {
+        const auto* pl = static_cast<const PolylineEntity*>(e);
+        for (const Point2D& v : pl->vertices()) entries.push_back(assocPoint(10, v.x, v.y));
+        entries.push_back(assocEntry(70, Value::num(pl->closed() ? 1 : 0)));
+        break;
+    }
+    case EntityType::Insert: {
+        const auto* insert = static_cast<const InsertEntity*>(e);
+        entries.push_back(assocEntry(2, Value::str(insert->blockName())));
+        entries.push_back(assocPoint(10, insert->position().x, insert->position().y));
+        entries.push_back(assocEntry(41, Value::num(insert->scaleFactor())));
+        entries.push_back(assocEntry(50, Value::num(insert->rotation() * 180.0 / M_PI)));
+        break;
+    }
+    default:
+        // Other types round-trip through (0 . type) and (8 . layer) only.
+        break;
+    }
+    return listFromVector(entries);
+}
+
+Value LispInterpreter::builtinGetvar(std::vector<Value>& args) {
+    if (args.size() != 1 || args[0].kind != Kind::String) throw LispError("getvar expects a string name");
+    std::string name = args[0].text;
+    std::transform(name.begin(), name.end(), name.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+    if (name == "CLAYER" && m_document) {
+        if (const Layer* layer = m_document->findLayer(m_document->currentLayer())) return Value::str(layer->name);
+        return Value::str("0");
+    }
+    const auto it = m_sysvars.find(name);
+    return it != m_sysvars.end() ? it->second : Value::nil();
+}
+
+Value LispInterpreter::builtinSetvar(std::vector<Value>& args) {
+    if (args.size() != 2 || args[0].kind != Kind::String) throw LispError("setvar expects a string name and value");
+    std::string name = args[0].text;
+    std::transform(name.begin(), name.end(), name.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+    if (name == "CLAYER" && m_document && args[1].kind == Kind::String) {
+        for (const Layer& layer : m_document->layers()) {
+            if (layer.name == args[1].text) {
+                m_document->setCurrentLayer(layer.id);
+                break;
+            }
+        }
+        return args[1];
+    }
+    m_sysvars[name] = args[1];
+    return args[1];
+}
+
+Value LispInterpreter::builtinEntget(std::vector<Value>& args) {
+    if (args.size() != 1 || args[0].kind != Kind::Number) throw LispError("entget expects an entity name");
+    return entityToAssocList(static_cast<EntityId>(std::llround(args[0].number)));
+}
+
+Value LispInterpreter::builtinSsget(std::vector<Value>& args) {
+    // Only the non-interactive "select everything, optionally filtered"
+    // form is supported; a bare (ssget) prompting for a pick isn't (see the
+    // getpoint limitation in LispInterpreter.h).
+    if (!m_document) return Value::nil();
+    if (args.empty() || args[0].kind != Kind::String || args[0].text != "X") return Value::nil();
+
+    std::optional<std::string> typeFilter;
+    std::optional<std::string> layerFilter;
+    if (args.size() >= 2) {
+        // Filter entries are proper 2-element lists (code value), like
+        // entget's entries -- this reader has no dotted-pair (a . b) syntax,
+        // unlike real AutoLISP's ssget filter lists.
+        for (const Value& pair : vectorFromList(args[1])) {
+            const std::vector<Value> fields = vectorFromList(pair);
+            if (fields.size() != 2 || fields[0].kind != Kind::Number || fields[1].kind != Kind::String) continue;
+            const int code = static_cast<int>(fields[0].number);
+            if (code == 0) typeFilter = fields[1].text;
+            else if (code == 8) layerFilter = fields[1].text;
+        }
+    }
+
+    std::vector<Value> ids;
+    for (const Entity* e : m_document->entities()) {
+        if (typeFilter && *typeFilter != dxfTypeName(e->type())) continue;
+        if (layerFilter) {
+            const Layer* layer = m_document->findLayer(e->layer());
+            if (!layer || layer->name != *layerFilter) continue;
+        }
+        ids.push_back(Value::num(static_cast<double>(e->id())));
+    }
+    return listFromVector(ids);
 }
 
 Value LispInterpreter::eval(const Value& form, Env& env) {
@@ -584,6 +764,44 @@ Value LispInterpreter::callBuiltin(const std::string& name, std::vector<Value>& 
             if (m_commandSink) m_commandSink(toCommandText(v));
         }
         return Value::nil();
+    }
+    if (name == "GETVAR") return builtinGetvar(a);
+    if (name == "SETVAR") return builtinSetvar(a);
+    if (name == "ENTGET") return builtinEntget(a);
+    if (name == "SSGET") return builtinSsget(a);
+    if (name == "ASSOC") {
+        if (a.size() != 2) throw LispError("assoc expects a key and an association list");
+        for (const Value& entry : vectorFromList(a[1])) {
+            if (entry.kind == Kind::Cons && valuesEqual(entry.cell->car, a[0])) return entry;
+        }
+        return Value::nil();
+    }
+    // A selection set is just a plain list of entity names (see
+    // LispInterpreter.h), so these are thin wrappers over list ops.
+    if (name == "SSLENGTH") {
+        if (a.size() != 1) throw LispError("sslength expects one selection set");
+        return Value::num(static_cast<double>(vectorFromList(a[0]).size()));
+    }
+    if (name == "SSNAME") {
+        if (a.size() != 2 || a[1].kind != Kind::Number) throw LispError("ssname expects a selection set and index");
+        const auto items = vectorFromList(a[0]);
+        const auto idx = static_cast<std::size_t>(a[1].number);
+        return idx < items.size() ? items[idx] : Value::nil();
+    }
+    if (name == "SSADD") {
+        if (a.empty()) return Value::nil(); // new empty selection set
+        const Value ss = a.size() >= 2 ? a[1] : Value::nil();
+        auto items = vectorFromList(ss);
+        items.push_back(a[0]);
+        return listFromVector(items);
+    }
+    if (name == "SSDEL") {
+        if (a.size() != 2) throw LispError("ssdel expects an entity name and a selection set");
+        auto items = vectorFromList(a[1]);
+        items.erase(std::remove_if(items.begin(), items.end(),
+                                   [&](const Value& v) { return valuesEqual(v, a[0]); }),
+                   items.end());
+        return listFromVector(items);
     }
 
     handled = false;

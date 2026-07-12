@@ -1,5 +1,9 @@
 #include "core/lisp/LispInterpreter.h"
 
+#include "core/document/Document.h"
+#include "core/geometry/Circle.h"
+#include "core/geometry/Line.h"
+
 #include <catch2/catch_test_macros.hpp>
 
 namespace {
@@ -94,6 +98,62 @@ TEST_CASE("LispInterpreter's (command ...) drives the embedder's sink as text", 
     const auto r = interp.run("(command \"LINE\" (list 0 0) (list 10 10) \"\")");
     REQUIRE(r.ok);
     REQUIRE(sink == std::vector<std::string>{"LINE", "0,0", "10,10", ""});
+}
+
+TEST_CASE("LispInterpreter's getvar/setvar reads and writes document state", "[lisp]") {
+    lcad::Document doc;
+    const lcad::LayerId wallsLayer = doc.addLayer("Walls", lcad::Color{200, 50, 50});
+    doc.setCurrentLayer(wallsLayer);
+
+    lcad::LispInterpreter interp([](const std::string&) {}, &doc);
+    auto r = interp.run("(getvar \"CLAYER\")");
+    REQUIRE(r.ok);
+    REQUIRE(r.resultText == "\"Walls\"");
+
+    r = interp.run("(setvar \"CLAYER\" \"0\")");
+    REQUIRE(r.ok);
+    REQUIRE(doc.currentLayer() == 0);
+
+    // Unknown names are a plain in-memory store, not a real sysvar.
+    r = interp.run("(setvar \"MYVAR\" 42) (getvar \"MYVAR\")");
+    REQUIRE(r.ok);
+    REQUIRE(r.resultText == "42");
+}
+
+TEST_CASE("LispInterpreter's entget returns a DXF-style association list", "[lisp]") {
+    lcad::Document doc;
+    const lcad::EntityId lineId =
+        doc.reserveEntityId();
+    doc.addEntity(std::make_unique<lcad::LineEntity>(lineId, doc.currentLayer(), lcad::Point2D(1, 2),
+                                                      lcad::Point2D(3, 4)));
+
+    lcad::LispInterpreter interp([](const std::string&) {}, &doc);
+    const auto r = interp.run("(setq e (entget " + std::to_string(lineId) +
+                              ")) (assoc 0 e)");
+    REQUIRE(r.ok);
+    REQUIRE(r.resultText == "(0 \"LINE\")");
+
+    const auto r2 = interp.run("(assoc 10 e)");
+    REQUIRE(r2.ok);
+    REQUIRE(r2.resultText == "(10 1 2)");
+}
+
+TEST_CASE("LispInterpreter's ssget selects and filters entities", "[lisp]") {
+    lcad::Document doc;
+    doc.addEntity(
+        std::make_unique<lcad::LineEntity>(doc.reserveEntityId(), doc.currentLayer(), lcad::Point2D(0, 0),
+                                           lcad::Point2D(1, 1)));
+    doc.addEntity(std::make_unique<lcad::CircleEntity>(doc.reserveEntityId(), doc.currentLayer(),
+                                                        lcad::Point2D(0, 0), 5.0));
+
+    lcad::LispInterpreter interp([](const std::string&) {}, &doc);
+    auto r = interp.run("(sslength (ssget \"X\"))");
+    REQUIRE(r.ok);
+    REQUIRE(r.resultText == "2");
+
+    r = interp.run("(sslength (ssget \"X\" (list (list 0 \"CIRCLE\"))))");
+    REQUIRE(r.ok);
+    REQUIRE(r.resultText == "1");
 }
 
 TEST_CASE("LispInterpreter reports errors instead of crashing", "[lisp]") {

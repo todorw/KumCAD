@@ -80,7 +80,7 @@
 
 CommandDispatcher::CommandDispatcher(lcad::Document& document, CommandLine& commandLine, QObject* parent)
     : QObject(parent), m_document(document), m_commandLine(commandLine),
-      m_lisp([this](const std::string& s) { handleCommandText(QString::fromStdString(s)); }) {
+      m_lisp([this](const std::string& s) { handleCommandText(QString::fromStdString(s)); }, &m_document) {
     connect(&m_commandLine, &CommandLine::commandEntered, this, &CommandDispatcher::handleCommandText);
 }
 

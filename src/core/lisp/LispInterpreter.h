@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/Ids.h"
+
 #include <functional>
 #include <memory>
 #include <string>
@@ -7,6 +9,8 @@
 #include <vector>
 
 namespace lcad {
+
+class Document;
 
 // A real, but deliberately scoped-down, AutoLISP interpreter: variables
 // (setq), control flow (if/cond/while/progn/and/or), user-defined functions
@@ -16,10 +20,23 @@ namespace lcad {
 // to the text AutoCAD's command line would see and fed to whatever sink the
 // embedder supplies (CommandDispatcher::handleCommandText in the app).
 //
+// When constructed with a Document, also supports getvar/setvar (CLAYER is
+// wired to the document's current layer; any other name is a plain in-memory
+// variable, not a real AutoCAD system variable), entget (a DXF-group-code
+// association list, covering LINE/CIRCLE/ARC/TEXT/POINT/LWPOLYLINE/INSERT --
+// other types return just their (0 "type") and (8 "layer") entries), and
+// ssget ("X" selects everything, optionally filtered by a DXF-style
+// ((0 "LINE") (8 "layer")) list -- proper 2-element lists rather than real
+// AutoLISP's dotted (0 . "LINE") pairs, since this reader has no dotted-pair
+// syntax; the interactive point-picking ssget forms aren't supported, like
+// getpoint below). A selection set is just a plain list of entity names (see
+// below), so sslength/ssname/ssadd/ssdel work on it via ordinary list
+// operations. An "entity name" is simply its EntityId as a Lisp number, not
+// an opaque handle like real AutoLISP's ename type.
+//
 // Not implemented, disclosed: interactive input (getpoint/getreal/getstring/
 // getkword -- these suspend AutoCAD's command line waiting for a pick or
-// keystroke, which this synchronous embedding doesn't support), entity/
-// selection-set access (entget/ssget and friends), getvar/setvar, and DCL
+// keystroke, which this synchronous embedding doesn't support) and DCL
 // dialogs. Scripts drive existing commands with literal or computed
 // arguments rather than prompting the user interactively.
 class LispInterpreter {
@@ -95,7 +112,7 @@ public:
 
     // commandSink receives each (command ...) argument as text, in order,
     // exactly as if it had been typed at the command line.
-    explicit LispInterpreter(std::function<void(const std::string&)> commandSink);
+    explicit LispInterpreter(std::function<void(const std::string&)> commandSink, Document* document = nullptr);
 
     struct RunResult {
         bool ok = false;
@@ -114,7 +131,15 @@ private:
     Env m_global;
     std::unordered_map<std::string, std::shared_ptr<LambdaDef>> m_functions;
     std::function<void(const std::string&)> m_commandSink;
+    Document* m_document;
+    std::unordered_map<std::string, Value> m_sysvars; // getvar/setvar, for names not backed by real state
     std::string m_output;
+
+    Value builtinGetvar(std::vector<Value>& args);
+    Value builtinSetvar(std::vector<Value>& args);
+    Value builtinEntget(std::vector<Value>& args);
+    Value builtinSsget(std::vector<Value>& args);
+    Value entityToAssocList(EntityId id) const;
 
     Value eval(const Value& form, Env& env);
     Value evalBody(const std::vector<Value>& body, Env& env);
