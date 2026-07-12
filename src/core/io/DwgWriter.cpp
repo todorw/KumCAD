@@ -3,6 +3,7 @@
 #ifdef LCAD_HAS_DWG
 
 #include "core/geometry/Arc.h"
+#include "core/geometry/AttDef.h"
 #include "core/geometry/Circle.h"
 #include "core/geometry/ConstructionLine.h"
 #include "core/geometry/PointEnt.h"
@@ -202,9 +203,50 @@ struct DwgExport {
         case EntityType::Insert: {
             const auto& insert = static_cast<const InsertEntity&>(e);
             const dwg_point_3d p = pt3(insert.position());
-            applyCommon(dwg_add_INSERT(blkhdr, &p, insert.blockName().c_str(), insert.scaleFactor(),
-                                       insert.scaleFactor(), insert.scaleFactor(), insert.rotation()),
-                        e);
+            Dwg_Entity_INSERT* made =
+                dwg_add_INSERT(blkhdr, &p, insert.blockName().c_str(), insert.scaleFactor(), insert.scaleFactor(),
+                               insert.scaleFactor(), insert.rotation());
+            applyCommon(made, e);
+            if (made && insert.block()) {
+                // Walk the block's own ATTDEFs (not insert.attributes()) so
+                // each ATTRIB lands at its definition's transformed position
+                // and height, the same placement instantiate() uses to
+                // render resolved attribute text.
+                bool anyAttrib = false;
+                for (const auto& child : insert.block()->entities) {
+                    if (child->type() != EntityType::AttDef) continue;
+                    const auto& attdef = static_cast<const AttDefEntity&>(*child);
+                    const std::string* value = insert.attributeValue(attdef.tag());
+                    const std::string& text = value ? *value : attdef.defaultValue();
+                    if (text.empty()) continue;
+                    const Point2D world =
+                        insert.position() +
+                        rotateAround(attdef.position() * insert.scaleFactor(), Point2D(), insert.rotation());
+                    const dwg_point_3d ap = pt3(world);
+                    if (dwg_add_ATTRIB(made, attdef.height() * insert.scaleFactor(), 0, &ap, attdef.tag().c_str(),
+                                       text.c_str())) {
+                        anyAttrib = true;
+                    } else {
+                        ++skipped;
+                    }
+                }
+                // The attrib sub-entity chain (like a POLYLINE's vertices)
+                // needs its own SEQEND to close it out, or readers see the
+                // "attributes follow" flag with no attributes behind it.
+                if (anyAttrib) dwg_add_SEQEND(reinterpret_cast<dwg_ent_generic*>(made));
+            }
+            return true;
+        }
+        case EntityType::AttDef: {
+            const auto& attdef = static_cast<const AttDefEntity&>(e);
+            const dwg_point_3d p = pt3(attdef.position());
+            Dwg_Entity_ATTDEF* made = dwg_add_ATTDEF(blkhdr, attdef.height(), /*mode=*/0, attdef.prompt().c_str(),
+                                                     &p, attdef.tag().c_str(), attdef.defaultValue().c_str());
+            if (made) {
+                made->rotation = attdef.rotation();
+                reinterpret_cast<dwg_ent_generic*>(made)->parent->entmode = 2;
+            }
+            applyCommon(made, e);
             return true;
         }
         case EntityType::Point: {
@@ -250,19 +292,42 @@ struct DwgExport {
             return any;
         }
         case EntityType::Hatch: {
-            // Boundary outline only, no fill pattern: HATCH's add API wants
-            // its boundary as references to real boundary entities (an
-            // associative hatch), which risks leaving a stray visible
-            // polyline behind it; an outline reads closer to the original
-            // than silently dropping the entity.
+            // HATCH's add API derives its boundary path from a real geometry
+            // object (line/polyline/circle/ellipse/spline), so a boundary
+            // LWPOLYLINE is created first and referenced non-associatively;
+            // it stays in the drawing as visible geometry (the same outcome
+            // AutoCAD leaves behind with "retain boundaries" on), but the
+            // HATCH itself now carries a real fill pattern instead of being
+            // dropped to outline-only.
             const auto& hatch = static_cast<const HatchEntity&>(e);
             if (hatch.vertices().size() < 3) return false;
             std::vector<dwg_point_2d> pts;
             pts.reserve(hatch.vertices().size());
             for (const Point2D& v : hatch.vertices()) pts.push_back(dwg_point_2d{v.x, v.y});
-            Dwg_Entity_LWPOLYLINE* made = dwg_add_LWPOLYLINE(blkhdr, static_cast<int>(pts.size()), pts.data());
-            if (made) made->flag |= 512; // closed
-            applyCommon(made, e);
+            Dwg_Entity_LWPOLYLINE* boundary = dwg_add_LWPOLYLINE(blkhdr, static_cast<int>(pts.size()), pts.data());
+            if (!boundary) {
+                ++skipped;
+                return true;
+            }
+            boundary->flag |= 512; // closed
+            applyCommon(boundary, e);
+
+            int err = 0;
+            Dwg_Object* boundaryObj = dwg_ent_generic_to_object(boundary, &err);
+            if (err || !boundaryObj) return true; // boundary alone still reads as the hatch shape
+
+            const bool solid = !hatch.isGradient() && hatch.pattern() == HatchPattern::Solid;
+            const std::string name = solid ? "SOLID" : hatchPatternName(hatch.pattern());
+            const Dwg_Object* pathobjs[1] = {boundaryObj};
+            Dwg_Entity_HATCH* made =
+                dwg_add_HATCH(blkhdr, /*pattern_type=*/1 /* user-defined/predefined */, name.c_str(),
+                              /*is_associative=*/false, 1, pathobjs);
+            if (made) {
+                made->is_solid_fill = solid;
+                made->angle = hatch.patternAngle();
+                made->scale_spacing = hatch.patternScale();
+                applyCommon(made, e);
+            }
             return true;
         }
         case EntityType::Table: {
@@ -305,7 +370,7 @@ struct DwgExport {
             return true;
         }
         default:
-            return false; // attdefs: not expressible via the add API yet
+            return false;
         }
     }
 };
@@ -336,16 +401,28 @@ bool writeDwg(const Document& document, const std::string& path, std::string* er
     }
     exporter.mspace = mspaceObj->tio.object->tio.BLOCK_HEADER;
 
-    // Block definitions first so INSERTs can reference them by name.
+    // Block definitions first so INSERTs can reference them by name. A
+    // dedicated BLOCK_HEADER (block table entry) must exist before adding
+    // its BLOCK begin-marker and children -- dwg_add_BLOCK() alone only
+    // inserts a BLOCK entity into whatever header it's given (previously
+    // this passed mspace directly, which silently merged every block's
+    // entities into model space instead of defining a separate block).
     for (const auto& block : document.blocks()) {
-        Dwg_Entity_BLOCK* header = dwg_add_BLOCK(exporter.mspace, block->name.c_str());
-        Dwg_Object_BLOCK_HEADER* owner = header ? dwg_entity_owner(header) : nullptr;
-        if (!owner) {
+        Dwg_Object_BLOCK_HEADER* owner = dwg_add_BLOCK_HEADER(&dwg, block->name.c_str());
+        if (!owner || !dwg_add_BLOCK(owner, block->name.c_str())) {
             exporter.skipped += static_cast<int>(block->entities.size());
             continue;
         }
+        // ATTDEFs must be converted before anything else in a fresh block:
+        // dwg_add_ATTDEF doesn't splice into an already-non-empty
+        // owned-entity chain (verified against LibreDWG 0.13.3 -- it's
+        // silently dropped from get_next_owned_entity()'s walk on read-back
+        // unless it's the very first entity added to the header).
         for (const auto& child : block->entities) {
-            if (!exporter.convert(*child, owner)) ++exporter.skipped;
+            if (child->type() == EntityType::AttDef && !exporter.convert(*child, owner)) ++exporter.skipped;
+        }
+        for (const auto& child : block->entities) {
+            if (child->type() != EntityType::AttDef && !exporter.convert(*child, owner)) ++exporter.skipped;
         }
         dwg_add_ENDBLK(owner);
     }
@@ -354,40 +431,54 @@ bool writeDwg(const Document& document, const std::string& path, std::string* er
         if (!exporter.convert(*e, exporter.mspace)) ++exporter.skipped;
     }
 
-    // Only the first layout's paper space is exported: dwg_add_Document
-    // sets up exactly one default paper-space block, and LibreDWG's add API
-    // (as of this writing) has no way to create additional ones. Later
-    // layouts' entities are counted as skipped so the UI stays honest.
-    if (!document.layouts().empty()) {
-        if (Dwg_Object* pspaceObj = dwg_paper_space_object(&dwg)) {
-            Dwg_Object_BLOCK_HEADER* pspace = pspaceObj->tio.object->tio.BLOCK_HEADER;
-            const Layout& layout = document.layouts().front();
-            for (const Viewport& vp : layout.viewports) {
-                if (vp.viewScale < 1e-12) continue;
-                Dwg_Entity_VIEWPORT* made = dwg_add_VIEWPORT(pspace, "*Active");
-                if (made) {
-                    made->center.x = vp.paperCenter.x;
-                    made->center.y = vp.paperCenter.y;
-                    made->center.z = 0.0;
-                    made->width = vp.paperWidth;
-                    made->height = vp.paperHeight;
-                    made->VIEWCTR.x = vp.modelCenter.x;
-                    made->VIEWCTR.y = vp.modelCenter.y;
-                    made->VIEWSIZE = vp.paperHeight / vp.viewScale;
-                    made->on_off = 1;
-                } else {
-                    ++exporter.skipped;
-                }
-            }
-            for (EntityId id : layout.entityIds) {
-                const Entity* e = document.findEntity(id);
-                if (!e || !exporter.convert(*e, pspace)) ++exporter.skipped;
+    // Every layout gets its own paper-space block: the first reuses the
+    // default paper space dwg_add_Document() already set up, and later ones
+    // get a fresh BLOCK_HEADER plus a LAYOUT object (dwg_add_LAYOUT, which
+    // also registers it in the ACAD_LAYOUT dictionary so it shows up as a
+    // tab) -- dwg_add_BLOCK_HEADER's general table-entry API turns out to
+    // work fine here even though LibreDWG has no dedicated
+    // "add another paper space" call.
+    for (std::size_t i = 0; i < document.layouts().size(); ++i) {
+        const Layout& layout = document.layouts()[i];
+        Dwg_Object_BLOCK_HEADER* pspace = nullptr;
+        if (i == 0) {
+            if (Dwg_Object* pspaceObj = dwg_paper_space_object(&dwg)) {
+                pspace = pspaceObj->tio.object->tio.BLOCK_HEADER;
             }
         } else {
-            for (const Layout& layout : document.layouts()) exporter.skipped += static_cast<int>(layout.entityIds.size());
+            const std::string blockName = "*Paper_Space" + std::to_string(i);
+            pspace = dwg_add_BLOCK_HEADER(&dwg, blockName.c_str());
+            if (pspace) {
+                int err = 0;
+                if (Dwg_Object* pspaceObj = dwg_obj_generic_to_object(pspace, &err); !err && pspaceObj) {
+                    dwg_add_LAYOUT(pspaceObj, layout.name.c_str(), "");
+                }
+            }
         }
-        for (std::size_t i = 1; i < document.layouts().size(); ++i) {
-            exporter.skipped += static_cast<int>(document.layouts()[i].entityIds.size());
+        if (!pspace) {
+            exporter.skipped += static_cast<int>(layout.entityIds.size());
+            continue;
+        }
+        for (const Viewport& vp : layout.viewports) {
+            if (vp.viewScale < 1e-12) continue;
+            Dwg_Entity_VIEWPORT* made = dwg_add_VIEWPORT(pspace, "*Active");
+            if (made) {
+                made->center.x = vp.paperCenter.x;
+                made->center.y = vp.paperCenter.y;
+                made->center.z = 0.0;
+                made->width = vp.paperWidth;
+                made->height = vp.paperHeight;
+                made->VIEWCTR.x = vp.modelCenter.x;
+                made->VIEWCTR.y = vp.modelCenter.y;
+                made->VIEWSIZE = vp.paperHeight / vp.viewScale;
+                made->on_off = 1;
+            } else {
+                ++exporter.skipped;
+            }
+        }
+        for (EntityId id : layout.entityIds) {
+            const Entity* e = document.findEntity(id);
+            if (!e || !exporter.convert(*e, pspace)) ++exporter.skipped;
         }
     }
 

@@ -3,9 +3,11 @@
 #ifdef LCAD_HAS_DWG
 
 #include "core/geometry/Arc.h"
+#include "core/geometry/AttDef.h"
 #include "core/geometry/Circle.h"
 #include "core/geometry/Dimension.h"
 #include "core/geometry/Ellipse.h"
+#include "core/geometry/Hatch.h"
 #include "core/geometry/Insert.h"
 #include "core/geometry/Leader.h"
 #include "core/geometry/Line.h"
@@ -214,6 +216,47 @@ struct DwgImport {
                                                      Point2D(dim->xline2_pt.x, dim->xline2_pt.y),
                                                      Point2D(dim->def_pt.x, dim->def_pt.y),
                                                      Point2D(dim->center_pt.x, dim->center_pt.y));
+            break;
+        }
+        case DWG_TYPE_HATCH: {
+            const auto* hatch = obj->tio.entity->tio.HATCH;
+            if (hatch->num_paths < 1) break;
+            // Only the straight-line-loop case round-trips (matches what our
+            // own writer emits); arcs/splines/multi-loop hatches are skipped
+            // rather than approximated.
+            const Dwg_HATCH_Path& path = hatch->paths[0];
+            if (path.flag & 2) break; // polyline path form not handled yet
+            std::vector<Point2D> verts;
+            verts.reserve(path.num_segs_or_paths);
+            for (BITCODE_BL i = 0; i < path.num_segs_or_paths; ++i) {
+                if (path.segs[i].curve_type != 1) { verts.clear(); break; }
+                verts.emplace_back(path.segs[i].first_endpoint.x, path.segs[i].first_endpoint.y);
+            }
+            if (verts.size() < 3) break;
+            const std::string name = hatch->name ? hatch->name : "";
+            const HatchPattern pattern =
+                hatch->is_solid_fill ? HatchPattern::Solid : hatchPatternFromName(name).value_or(HatchPattern::Solid);
+            made = std::make_unique<HatchEntity>(id, layer, std::move(verts), pattern, hatch->scale_spacing,
+                                                 hatch->angle);
+            break;
+        }
+        case DWG_TYPE_ATTDEF: {
+            auto* attdef = obj->tio.entity->tio.ATTDEF;
+            char* tag = nullptr;
+            char* prompt = nullptr;
+            char* defaultValue = nullptr;
+            int isNewTag = 0, isNewPrompt = 0, isNewDefault = 0;
+            dwg_dynapi_entity_utf8text(attdef, "ATTDEF", "tag", &tag, &isNewTag, nullptr);
+            dwg_dynapi_entity_utf8text(attdef, "ATTDEF", "prompt", &prompt, &isNewPrompt, nullptr);
+            dwg_dynapi_entity_utf8text(attdef, "ATTDEF", "default_value", &defaultValue, &isNewDefault, nullptr);
+            if (tag && *tag) {
+                made = std::make_unique<AttDefEntity>(id, layer, Point2D(attdef->ins_pt.x, attdef->ins_pt.y), tag,
+                                                      prompt ? prompt : "", defaultValue ? defaultValue : "",
+                                                      attdef->height, attdef->rotation);
+            }
+            if (isNewTag) free(tag);
+            if (isNewPrompt) free(prompt);
+            if (isNewDefault) free(defaultValue);
             break;
         }
         case DWG_TYPE_INSERT: {

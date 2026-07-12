@@ -22,6 +22,19 @@ add_executable(lcad_core_tests
 )
 target_link_libraries(lcad_core_tests PRIVATE lcad_core Catch2::Catch2WithMain)
 
+# DwgIoTests.cpp digs into raw LibreDWG objects for cases readDwg() can't
+# yet reconstruct on its own (e.g. paper-space layouts); mirror lcad_core's
+# own (private) LibreDWG detection here rather than exposing it publicly.
+if(LCAD_ENABLE_DWG)
+    find_path(LIBREDWG_INCLUDE_DIR dwg_api.h HINTS $ENV{HOME}/.local/include)
+    find_library(LIBREDWG_LIBRARY redwg HINTS $ENV{HOME}/.local/lib)
+    if(LIBREDWG_INCLUDE_DIR AND LIBREDWG_LIBRARY)
+        target_include_directories(lcad_core_tests PRIVATE ${LIBREDWG_INCLUDE_DIR})
+        target_link_libraries(lcad_core_tests PRIVATE ${LIBREDWG_LIBRARY})
+        target_compile_definitions(lcad_core_tests PRIVATE LCAD_HAS_DWG)
+    endif()
+endif()
+
 include(CTest)
 include(Catch)
 catch_discover_tests(lcad_core_tests)
