@@ -33,6 +33,9 @@ public:
     QPointF worldToScreen(const lcad::Point2D& world) const;
 
     void zoomExtents();
+    // Centers the view on one entity (and selects it), e.g. jumping to a
+    // note from the Markup Set panel. No-op if the id doesn't exist.
+    void zoomToEntity(lcad::EntityId id);
     void eraseSelection();
     void selectAll();
     // Replaces the selection wholesale (QSELECT/FIND), dropping ids on

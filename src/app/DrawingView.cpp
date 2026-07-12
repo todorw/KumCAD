@@ -62,6 +62,22 @@ void DrawingView::zoomExtents() {
     update();
 }
 
+void DrawingView::zoomToEntity(lcad::EntityId id) {
+    lcad::Entity* e = m_document.findEntity(id);
+    if (!e) return;
+    const lcad::BoundingBox box = e->boundingBox();
+    if (!box.isValid()) return;
+    const double w = std::max(box.max.x - box.min.x, 1.0);
+    const double h = std::max(box.max.y - box.min.y, 1.0);
+    m_viewCenter = lcad::Point2D((box.min.x + box.max.x) / 2.0, (box.min.y + box.max.y) / 2.0);
+    const double margin = 3.0; // generous, so a small annotation isn't edge-to-edge
+    m_scale = std::min(width() / (w * margin), height() / (h * margin));
+    m_selection.clear();
+    m_selection.insert(id);
+    emit selectionChanged();
+    update();
+}
+
 std::vector<lcad::Entity*> DrawingView::spaceEntities() const {
     return inLayoutMode() ? m_document.paperEntities(m_layoutIndex) : m_document.entities();
 }

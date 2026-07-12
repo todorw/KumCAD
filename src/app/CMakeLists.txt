@@ -28,6 +28,8 @@ add_executable(kumcad
     SheetSetPanel.cpp
     DesignCenterPanel.h
     DesignCenterPanel.cpp
+    MarkupSetPanel.h
+    MarkupSetPanel.cpp
     commands/DrawCommand.h
     commands/LineCommand.h
     commands/LineCommand.cpp

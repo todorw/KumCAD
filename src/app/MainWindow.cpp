@@ -10,6 +10,7 @@
 #include "ToolPalette.h"
 #include "SheetSetPanel.h"
 #include "DesignCenterPanel.h"
+#include "MarkupSetPanel.h"
 #include "core/io/DwgReader.h"
 #include "core/io/DwgWriter.h"
 #include "core/io/DxfReader.h"
@@ -192,6 +193,16 @@ void MainWindow::setupDocks() {
     designCenterDock->setWidget(m_designCenterPanel);
     addDockWidget(Qt::RightDockWidgetArea, designCenterDock);
     tabifyDockWidget(sheetSetDock, designCenterDock);
+
+    m_markupSetPanel = new MarkupSetPanel(m_document, *m_view, this);
+    connect(m_dispatcher, &CommandDispatcher::documentChanged, m_markupSetPanel, &MarkupSetPanel::refresh);
+    connect(m_view, &DrawingView::documentEdited, m_markupSetPanel, &MarkupSetPanel::refresh);
+
+    auto* markupSetDock = new QDockWidget(QStringLiteral("Markup Set"), this);
+    markupSetDock->setObjectName(QStringLiteral("MarkupSetDock"));
+    markupSetDock->setWidget(m_markupSetPanel);
+    addDockWidget(Qt::RightDockWidgetArea, markupSetDock);
+    tabifyDockWidget(designCenterDock, markupSetDock);
 
     layerDock->raise();
 }
