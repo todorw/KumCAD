@@ -86,6 +86,7 @@ CommandDispatcher::CommandDispatcher(lcad::Document& document, CommandLine& comm
           [this](const std::string& prompt, const std::vector<std::string>& keywords, bool isPoint) {
               return waitForLispInput(prompt, keywords, isPoint);
           }) {
+    m_aliases.load();
     connect(&m_commandLine, &CommandLine::commandEntered, this, &CommandDispatcher::handleCommandText);
 }
 
@@ -250,7 +251,8 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         return;
     }
 
-    const QString cmd = trimmed.toUpper();
+    QString cmd = trimmed.toUpper();
+    if (const auto custom = m_aliases.resolve(cmd)) cmd = *custom;
     if (cmd == QLatin1String("LINE") || cmd == QLatin1String("L")) {
         startCommand(std::make_unique<LineCommand>(m_document), QStringLiteral("LINE"));
     } else if (cmd == QLatin1String("CIRCLE") || cmd == QLatin1String("C")) {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "CommandAliases.h"
 #include "commands/DrawCommand.h"
 #include "core/document/Document.h"
 #include "core/geometry/Point2D.h"
@@ -27,6 +28,10 @@ public:
 
     // Needed so MOVE/COPY/ROTATE/SCALE/ERASE can act on the current selection.
     void setView(DrawingView* view) { m_view = view; }
+
+    // Exposed so a "Customize Aliases..." dialog can edit the live table
+    // (edits apply to the next command typed, no restart needed).
+    CommandAliases& commandAliases() { return m_aliases; }
 
     bool hasActiveCommand() const { return m_activeCommand != nullptr; }
     DrawCommand* activeDrawCommand() const { return m_activeCommand.get(); }
@@ -78,6 +83,7 @@ private:
     CommandLine& m_commandLine;
     DrawingView* m_view = nullptr;
     std::unique_ptr<DrawCommand> m_activeCommand;
+    CommandAliases m_aliases;
 
     // ACTRECORD/ACTSTOP/PLAY: a simplified action recorder -- one
     // last-recorded macro (not AutoCAD's named, saved-to-disk .actm files),

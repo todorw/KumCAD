@@ -18,6 +18,10 @@ add_executable(kumcad
     CommandDispatcher.cpp
     IconFactory.h
     IconFactory.cpp
+    CommandAliases.h
+    CommandAliases.cpp
+    CommandAliasDialog.h
+    CommandAliasDialog.cpp
     LayerPanel.h
     LayerPanel.cpp
     LayerStatesDialog.h

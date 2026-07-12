@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 
+#include "CommandAliasDialog.h"
 #include "CommandDispatcher.h"
 #include "CommandLine.h"
 #include "DrawingView.h"
@@ -272,6 +273,12 @@ void MainWindow::setupMenusAndToolbar() {
     polarAction->setChecked(m_view->polarEnabled());
     otrackAction->setChecked(m_view->otrackEnabled());
     dynAction->setChecked(m_view->dynamicInputEnabled());
+
+    QMenu* toolsMenu = menuBar()->addMenu(QStringLiteral("&Tools"));
+    toolsMenu->addAction(QStringLiteral("Customize Command &Aliases..."), this, [this]() {
+        CommandAliasDialog dialog(m_dispatcher->commandAliases(), this);
+        dialog.exec();
+    });
 
     QToolBar* toolbar = addToolBar(QStringLiteral("Draw"));
     toolbar->setIconSize(QSize(22, 22));
