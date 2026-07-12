@@ -235,6 +235,9 @@ void MainWindow::setupMenusAndToolbar() {
     editMenu->addSeparator();
     editMenu->addAction(QStringLiteral("Select &All"), QKeySequence::SelectAll, m_view, &DrawingView::selectAll);
     editMenu->addAction(QStringLiteral("&Erase Selected"), QKeySequence::Delete, m_view, &DrawingView::eraseSelection);
+    editMenu->addSeparator();
+    editMenu->addAction(QStringLiteral("Paste as &Image"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_V), this,
+                        [this]() { m_dispatcher->handleCommandText(QStringLiteral("PASTECLIP")); });
 
     QMenu* viewMenu = menuBar()->addMenu(QStringLiteral("&View"));
     viewMenu->addAction(QStringLiteral("Zoom &Extents"), this, [this]() { m_view->zoomExtents(); });

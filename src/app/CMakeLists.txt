@@ -140,6 +140,8 @@ add_executable(kumcad
     commands/DimCommand.cpp
     commands/DimRadialCommand.h
     commands/DimRadialCommand.cpp
+    commands/ClipboardPasteCommand.h
+    commands/ClipboardPasteCommand.cpp
     commands/DataLinkCommand.h
     commands/DataLinkCommand.cpp
     commands/LayerStateCommand.h
