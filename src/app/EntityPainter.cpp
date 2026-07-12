@@ -83,12 +83,15 @@ QFont styledFont(const QPainter& painter, const lcad::Document* document, const 
 }
 
 // Simplified annotative scaling: an Annotative TextStyle's objects render at
-// height * document->annotationScale() instead of their nominal height, so
-// they read the same physical size once the scale matches your plot scale.
-double annotationMultiplier(const lcad::Document* document, const std::string& styleName) {
+// height * multiplier instead of their nominal height, so they read the
+// same physical size once the multiplier matches the relevant plot scale.
+// override, when positive, wins over document->annotationScale() -- see
+// EntityPainter::paint's header comment for why (per-viewport scale).
+double annotationMultiplier(const lcad::Document* document, const std::string& styleName, double override) {
     if (!document) return 1.0;
     const lcad::TextStyle* style = document->findTextStyle(styleName);
-    return (style && style->annotative) ? document->annotationScale() : 1.0;
+    if (!style || !style->annotative) return 1.0;
+    return override > 1e-9 ? override : document->annotationScale();
 }
 
 // Builds the QBrush for a GRADIENT hatch. Approximates AutoCAD's nine named
@@ -151,7 +154,7 @@ QBrush gradientBrush(lcad::GradientPreset preset, const QColor& color1, const QC
 
 void paint(QPainter& painter, const lcad::Entity& entity, const WorldToScreen& toScreen, double scale,
            const QColor& color, double penWidth, lcad::LineType linetype, double ltScale,
-           const lcad::Document* document) {
+           const lcad::Document* document, double annotationScaleOverride) {
     painter.setPen(makePen(color, penWidth, linetype, ltScale, scale));
 
     switch (entity.type()) {
@@ -295,8 +298,9 @@ void paint(QPainter& painter, const lcad::Entity& entity, const WorldToScreen& t
     }
     case lcad::EntityType::Text: {
         const auto& text = static_cast<const lcad::TextEntity&>(entity);
-        const QFont font =
-            styledFont(painter, document, text.styleName(), text.height() * scale * annotationMultiplier(document, text.styleName()));
+        const QFont font = styledFont(painter, document, text.styleName(),
+                                      text.height() * scale *
+                                          annotationMultiplier(document, text.styleName(), annotationScaleOverride));
         painter.save();
         painter.setFont(font);
         painter.translate(toScreen(text.position()));
@@ -363,7 +367,7 @@ void paint(QPainter& painter, const lcad::Entity& entity, const WorldToScreen& t
     }
     case lcad::EntityType::MText: {
         const auto& mtext = static_cast<const lcad::MTextEntity&>(entity);
-        const double annoScale = annotationMultiplier(document, mtext.styleName());
+        const double annoScale = annotationMultiplier(document, mtext.styleName(), annotationScaleOverride);
         const QFont font = styledFont(painter, document, mtext.styleName(), mtext.height() * scale * annoScale);
         painter.save();
         painter.setFont(font);

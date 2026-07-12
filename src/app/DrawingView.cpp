@@ -445,8 +445,13 @@ void DrawingView::drawLayoutMode(QPainter& painter) {
             if (c.r > 200 && c.g > 200 && c.b > 200) color = Qt::black;
             lcad::LineType linetype = layer ? layer->linetype : lcad::LineType::Continuous;
             if (const auto& lt = e->linetypeOverride()) linetype = *lt;
+            // Each viewport gets its own annotation-scale representation
+            // (1/viewScale) instead of the document-wide "current" scale,
+            // so annotative text reads correctly sized in every viewport
+            // simultaneously regardless of that viewport's own plot scale.
+            const double annoOverride = vp.viewScale > 1e-9 ? 1.0 / vp.viewScale : 0.0;
             EntityPainter::paint(painter, *e, toScreen, effScale, color, 1.0, linetype,
-                                 m_document.lineTypeScale(), &m_document);
+                                 m_document.lineTypeScale(), &m_document, annoOverride);
         }
         painter.restore();
 

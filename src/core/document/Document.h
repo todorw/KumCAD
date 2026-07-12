@@ -67,9 +67,14 @@ struct TextStyle {
     double obliqueDeg = 0.0;   // DXF 50
     // AutoCAD's ANNOTATIVE object property, simplified: annotative status
     // lives on the text style (matching how AutoCAD's own Annotative text
-    // styles work) rather than per-instance, and there's one document-wide
-    // annotation scale (Document::annotationScale()) rather than the several
-    // simultaneous per-viewport scale representations AutoCAD supports.
+    // styles work) rather than per-instance. Simultaneous per-viewport scale
+    // representations do work -- EntityPainter derives each paper-space
+    // viewport's own multiplier from 1/viewport.viewScale when painting
+    // through it (DrawingView's layout-tab render, and PrintRenderer) -- but
+    // model space itself only has the one "current" representation you're
+    // editing at (Document::annotationScale(), a simplified CANNOSCALE),
+    // not AutoCAD's list of several simultaneously-visible representations
+    // toggled per object.
     bool annotative = false; // DXF 290 (this codebase's TABLES extension)
 };
 

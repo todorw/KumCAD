@@ -26,8 +26,17 @@ using WorldToScreen = std::function<QPointF(const lcad::Point2D&)>;
 // patterns in drawing units scaled by ltScale (the document's LTSCALE).
 // document, when given, resolves TEXT/MTEXT named text styles (font family,
 // width factor, oblique) — without it text renders in the default face.
+//
+// annotationScaleOverride, when positive, is the multiplier Annotative text
+// renders at instead of document->annotationScale() -- how a paper-space
+// viewport gets its own correct annotation representation (1/viewScale)
+// independent of whatever scale the user is currently editing model space
+// at, so the same annotative object reads at its true plotted size in every
+// viewport simultaneously, at whatever scale each one plots. 0 (the
+// default) means "use document->annotationScale()", matching the single
+// current representation model space itself is edited at.
 void paint(QPainter& painter, const lcad::Entity& entity, const WorldToScreen& toScreen, double scale,
            const QColor& color, double penWidth, lcad::LineType linetype = lcad::LineType::Continuous,
-           double ltScale = 1.0, const lcad::Document* document = nullptr);
+           double ltScale = 1.0, const lcad::Document* document = nullptr, double annotationScaleOverride = 0.0);
 
 } // namespace EntityPainter
