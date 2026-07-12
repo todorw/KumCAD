@@ -26,6 +26,8 @@ add_executable(kumcad
     ToolPalette.cpp
     SheetSetPanel.h
     SheetSetPanel.cpp
+    DesignCenterPanel.h
+    DesignCenterPanel.cpp
     commands/DrawCommand.h
     commands/LineCommand.h
     commands/LineCommand.cpp

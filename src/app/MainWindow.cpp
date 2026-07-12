@@ -9,6 +9,7 @@
 #include "PropertiesPanel.h"
 #include "ToolPalette.h"
 #include "SheetSetPanel.h"
+#include "DesignCenterPanel.h"
 #include "core/io/DwgReader.h"
 #include "core/io/DwgWriter.h"
 #include "core/io/DxfReader.h"
@@ -177,6 +178,20 @@ void MainWindow::setupDocks() {
     sheetSetDock->setWidget(m_sheetSetPanel);
     addDockWidget(Qt::RightDockWidgetArea, sheetSetDock);
     tabifyDockWidget(toolPaletteDock, sheetSetDock);
+
+    m_designCenterPanel = new DesignCenterPanel(m_document, this);
+    connect(m_designCenterPanel, &DesignCenterPanel::documentImported, this, [this]() {
+        m_layerPanel->refresh();
+        m_toolPalette->refresh();
+        markDirty();
+        m_view->update();
+    });
+
+    auto* designCenterDock = new QDockWidget(QStringLiteral("Design Center"), this);
+    designCenterDock->setObjectName(QStringLiteral("DesignCenterDock"));
+    designCenterDock->setWidget(m_designCenterPanel);
+    addDockWidget(Qt::RightDockWidgetArea, designCenterDock);
+    tabifyDockWidget(sheetSetDock, designCenterDock);
 
     layerDock->raise();
 }

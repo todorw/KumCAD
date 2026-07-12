@@ -13,6 +13,7 @@ class LayerPanel;
 class PropertiesPanel;
 class ToolPalette;
 class SheetSetPanel;
+class DesignCenterPanel;
 class QLabel;
 class QPrinter;
 class QTabBar;
@@ -73,6 +74,7 @@ private:
     PropertiesPanel* m_propertiesPanel = nullptr;
     ToolPalette* m_toolPalette = nullptr;
     SheetSetPanel* m_sheetSetPanel = nullptr;
+    DesignCenterPanel* m_designCenterPanel = nullptr;
     QTabBar* m_spaceTabs = nullptr;
     QLabel* m_coordLabel = nullptr;
     QLabel* m_osnapLabel = nullptr;
