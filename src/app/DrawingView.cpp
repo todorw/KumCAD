@@ -722,6 +722,19 @@ void DrawingView::selectAll() {
     update();
 }
 
+void DrawingView::setSelection(const std::vector<lcad::EntityId>& ids) {
+    m_selection.clear();
+    for (lcad::EntityId id : ids) {
+        const lcad::Entity* e = m_document.findEntity(id);
+        if (!e) continue;
+        const lcad::Layer* layer = m_document.findLayer(e->layer());
+        if (layer && (!layer->visible || layer->locked)) continue;
+        m_selection.insert(id);
+    }
+    emit selectionChanged();
+    update();
+}
+
 void DrawingView::pruneSelectionForLayerState() {
     bool changed = false;
     for (auto it = m_selection.begin(); it != m_selection.end();) {

@@ -35,6 +35,9 @@ public:
     void zoomExtents();
     void eraseSelection();
     void selectAll();
+    // Replaces the selection wholesale (QSELECT/FIND), dropping ids on
+    // hidden/locked layers or that no longer exist, same rule as selectAll().
+    void setSelection(const std::vector<lcad::EntityId>& ids);
 
     // Paper-space layout mode: -1 shows model space, >= 0 the document's
     // layout at that index (paper sheet + viewports). Model editing tools are

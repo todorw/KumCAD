@@ -21,6 +21,7 @@ public:
 
     const Point2D& position() const { return m_position; }
     const std::string& text() const { return m_text; }
+    void setText(std::string text) { m_text = std::move(text); }
     double height() const { return m_height; }
     double rotation() const { return m_rotation; }
 

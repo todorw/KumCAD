@@ -71,6 +71,11 @@ public:
     // measured result). Queried by the dispatcher after requestFinish().
     virtual std::optional<QString> resultMessage() const { return std::nullopt; }
 
+    // Entities the command wants selected once it finishes (e.g. QSELECT's
+    // filter matches, FIND's search hits). Queried once, when the command
+    // ends. Default: don't touch the current selection.
+    virtual std::optional<std::vector<lcad::EntityId>> resultSelection() const { return std::nullopt; }
+
     virtual bool isFinished() const = 0;
     virtual void cancel() = 0;
 };

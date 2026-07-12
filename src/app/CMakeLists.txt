@@ -104,6 +104,10 @@ add_executable(kumcad
     commands/ExtendCommand.cpp
     commands/FilletCommand.h
     commands/FilletCommand.cpp
+    commands/FindCommand.h
+    commands/FindCommand.cpp
+    commands/QSelectCommand.h
+    commands/QSelectCommand.cpp
     commands/HatchCommand.h
     commands/HatchCommand.cpp
     commands/DimCommand.h

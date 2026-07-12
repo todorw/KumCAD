@@ -21,6 +21,7 @@
 #include "commands/EllipseCommand.h"
 #include "commands/ExtendCommand.h"
 #include "commands/FilletCommand.h"
+#include "commands/FindCommand.h"
 #include "commands/GradientCommand.h"
 #include "commands/GroupCommand.h"
 #include "commands/IdCommand.h"
@@ -40,6 +41,7 @@
 #include "commands/PolarAngCommand.h"
 #include "commands/PointCommands.h"
 #include "commands/MTextCommand.h"
+#include "commands/QSelectCommand.h"
 #include "commands/MirrorCommand.h"
 #include "commands/MviewCommand.h"
 #include "commands/MoveCommand.h"
@@ -80,6 +82,9 @@ void CommandDispatcher::startCommand(std::unique_ptr<DrawCommand> command, const
 }
 
 void CommandDispatcher::finishCommand() {
+    if (m_view) {
+        if (auto selection = m_activeCommand->resultSelection()) m_view->setSelection(*selection);
+    }
     m_activeCommand.reset();
     m_commandLine.appendLine(QStringLiteral("Command:"));
     emit documentChanged();
@@ -324,6 +329,10 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         startCommand(std::make_unique<XrefCommand>(m_document), QStringLiteral("XREF"));
     } else if (cmd == QLatin1String("EXPLODE") || cmd == QLatin1String("X")) {
         explodeSelection();
+    } else if (cmd == QLatin1String("QSELECT") || cmd == QLatin1String("QSE")) {
+        startCommand(std::make_unique<QSelectCommand>(m_document), QStringLiteral("QSELECT"));
+    } else if (cmd == QLatin1String("FIND")) {
+        startCommand(std::make_unique<FindCommand>(m_document), QStringLiteral("FIND"));
     } else if (cmd == QLatin1String("AREA") || cmd == QLatin1String("AA")) {
         startCommand(std::make_unique<AreaCommand>(), QStringLiteral("AREA"));
     } else if (cmd == QLatin1String("DIST") || cmd == QLatin1String("DI")) {
