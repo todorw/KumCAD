@@ -9,6 +9,8 @@
 #include "core/geometry/Hatch.h"
 #include "core/geometry/Image.h"
 #include "core/geometry/Insert.h"
+#include "core/geometry/PointCloud.h"
+#include "core/io/PointCloudFile.h"
 #include "core/geometry/Leader.h"
 #include "core/geometry/Line.h"
 #include "core/geometry/MLeader.h"
@@ -289,6 +291,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
     std::vector<double> tableRowHeights;
     std::vector<double> tableColWidths;
     std::vector<std::string> tableCells;
+    std::string pointCloudPath;      // POINTCLOUD group 1
     std::string imagePath;           // IMAGE group 1
     double imageWidth = 0.0;         // IMAGE group 40
     double imageHeight = 0.0;        // IMAGE group 41
@@ -444,6 +447,8 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             tableCells.resize(static_cast<std::size_t>(tableRows) * tableCols);
             made = std::make_unique<TableEntity>(id, layerId, p10, tableRowHeights, tableColWidths, tableCells,
                                                  tableTextHeight);
+        } else if (curEntityType == "POINTCLOUD" && !pointCloudPath.empty()) {
+            made = std::make_unique<PointCloudEntity>(id, layerId, pointCloudPath, readPointCloudXyz(pointCloudPath));
         } else if (curEntityType == "IMAGE" && !imagePath.empty() && imageWidth > 1e-9 && imageHeight > 1e-9) {
             made = std::make_unique<ImageEntity>(id, layerId, imagePath, p10, imageWidth, imageHeight,
                                                  imageRotationDeg * M_PI / 180.0);
@@ -537,6 +542,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
         tableRowHeights.clear();
         tableColWidths.clear();
         tableCells.clear();
+        pointCloudPath.clear();
         imagePath.clear();
         imageWidth = 0.0;
         imageHeight = 0.0;
@@ -961,6 +967,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
                 curEntityType == "ATTRIB") textContent = g.value;
             else if (curEntityType == "ACAD_TABLE") tableCells.push_back(g.value);
             else if (curEntityType == "IMAGE") imagePath = g.value;
+            else if (curEntityType == "POINTCLOUD") pointCloudPath = g.value;
             break;
         case 3:
             if (curEntityType == "MTEXT") mtextChunks += g.value;

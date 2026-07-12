@@ -49,6 +49,8 @@ add_library(lcad_core STATIC
     geometry/BoundaryTrace.cpp
     geometry/Image.h
     geometry/Image.cpp
+    geometry/PointCloud.h
+    geometry/PointCloud.cpp
     util/Expr.h
     util/Expr.cpp
     lisp/LispInterpreter.h
@@ -77,6 +79,8 @@ add_library(lcad_core STATIC
     io/Xref.cpp
     io/Csv.h
     io/Csv.cpp
+    io/PointCloudFile.h
+    io/PointCloudFile.cpp
 )
 
 target_include_directories(lcad_core PUBLIC ${CMAKE_SOURCE_DIR}/src)

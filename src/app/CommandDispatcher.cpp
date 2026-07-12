@@ -42,6 +42,7 @@
 #include "commands/OsnapCommand.h"
 #include "commands/PageSetupCommand.h"
 #include "commands/PolarAngCommand.h"
+#include "commands/PointCloudAttachCommand.h"
 #include "commands/PointCommands.h"
 #include "commands/MTextCommand.h"
 #include "commands/QSelectCommand.h"
@@ -368,6 +369,8 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         startCommand(std::make_unique<ImageAttachCommand>(m_document), QStringLiteral("IMAGEATTACH"));
     } else if (cmd == QLatin1String("GEOGRAPHICLOCATION") || cmd == QLatin1String("GEO")) {
         startCommand(std::make_unique<GeoLocationCommand>(m_document), QStringLiteral("GEOGRAPHICLOCATION"));
+    } else if (cmd == QLatin1String("POINTCLOUDATTACH") || cmd == QLatin1String("PCATTACH")) {
+        startCommand(std::make_unique<PointCloudAttachCommand>(m_document), QStringLiteral("POINTCLOUDATTACH"));
     } else if (cmd == QLatin1String("PURGE") || cmd == QLatin1String("PU")) {
         const lcad::Document::PurgeResult purged = m_document.purge();
         m_commandLine.appendLine(QStringLiteral("*Purged %1 block(s) and %2 layer(s)*")

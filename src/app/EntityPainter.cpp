@@ -9,6 +9,7 @@
 #include "core/geometry/Hatch.h"
 #include "core/geometry/Image.h"
 #include "core/geometry/Insert.h"
+#include "core/geometry/PointCloud.h"
 #include "core/geometry/Leader.h"
 #include "core/geometry/Line.h"
 #include "core/geometry/MLeader.h"
@@ -387,6 +388,11 @@ void paint(QPainter& painter, const lcad::Entity& entity, const WorldToScreen& t
             painter.drawLine(target.topRight(), target.bottomLeft());
         }
         painter.restore();
+        break;
+    }
+    case lcad::EntityType::PointCloud: {
+        const auto& cloud = static_cast<const lcad::PointCloudEntity&>(entity);
+        for (const lcad::Point2D& p : cloud.points()) painter.drawPoint(toScreen(p));
         break;
     }
     case lcad::EntityType::Hatch: {

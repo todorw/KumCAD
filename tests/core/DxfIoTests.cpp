@@ -9,6 +9,7 @@
 #include "core/geometry/Hatch.h"
 #include "core/geometry/Image.h"
 #include "core/geometry/Insert.h"
+#include "core/geometry/PointCloud.h"
 #include "core/geometry/Leader.h"
 #include "core/geometry/Line.h"
 #include "core/geometry/MLeader.h"
@@ -20,6 +21,7 @@
 #include "core/io/DxfColors.h"
 #include "core/io/DxfReader.h"
 #include "core/io/DxfWriter.h"
+#include "core/io/PointCloudFile.h"
 #include "core/io/Xref.h"
 
 #include <catch2/catch_approx.hpp>
@@ -422,6 +424,35 @@ TEST_CASE("DXF geographic location round-trips", "[dxf][geo]") {
     lcad::Document loadedPlain;
     REQUIRE(lcad::readDxf(loadedPlain, temp2.path.string()));
     REQUIRE_FALSE(loadedPlain.geoLocation().has_value());
+}
+
+TEST_CASE("DXF point cloud round-trips by re-reading its source file", "[dxf][pointcloud]") {
+    TempDxfPath temp;
+    const std::filesystem::path xyzPath =
+        std::filesystem::temp_directory_path() / ("kumcad_pc_test_" + std::to_string(std::rand()) + ".xyz");
+    {
+        std::ofstream out(xyzPath, std::ios::binary);
+        out << "1 2 0\n3 4 0\n5 6 0\n";
+    }
+
+    lcad::Document doc;
+    doc.addEntity(std::make_unique<lcad::PointCloudEntity>(
+        doc.reserveEntityId(), doc.currentLayer(), xyzPath.string(), lcad::readPointCloudXyz(xyzPath.string())));
+
+    REQUIRE(lcad::writeDxf(doc, temp.path.string()));
+    lcad::Document loaded;
+    REQUIRE(lcad::readDxf(loaded, temp.path.string()));
+
+    const auto entities = loaded.entities();
+    REQUIRE(entities.size() == 1);
+    REQUIRE(entities[0]->type() == lcad::EntityType::PointCloud);
+    const auto* cloud = static_cast<const lcad::PointCloudEntity*>(entities[0]);
+    REQUIRE(cloud->path() == xyzPath.string());
+    REQUIRE(cloud->points().size() == 3);
+    REQUIRE(cloud->points()[1].x == Approx(3.0));
+    REQUIRE(cloud->points()[1].y == Approx(4.0));
+
+    std::filesystem::remove(xyzPath);
 }
 
 TEST_CASE("DXF image underlay round-trips", "[dxf][image]") {

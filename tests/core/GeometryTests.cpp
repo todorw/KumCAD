@@ -7,6 +7,7 @@
 #include "core/geometry/Hatch.h"
 #include "core/geometry/Image.h"
 #include "core/geometry/Insert.h"
+#include "core/geometry/PointCloud.h"
 #include "core/geometry/Intersect.h"
 #include "core/geometry/Line.h"
 #include "core/geometry/MText.h"
@@ -491,6 +492,23 @@ TEST_CASE("ImageEntity hit-tests, rotates, and scales its rectangle", "[geometry
     // Rotated 90 degrees CCW about its own corner: the rectangle now
     // extends up the +Y axis instead of along +X.
     REQUIRE(rotated.distanceTo(lcad::Point2D(-2, 2)) == Approx(0.0));
+}
+
+TEST_CASE("PointCloudEntity hit-tests by bounding box and moves as one via its single grip", "[geometry][pointcloud]") {
+    std::vector<lcad::Point2D> pts{{0, 0}, {10, 0}, {5, 5}};
+    lcad::PointCloudEntity cloud(1, 0, "scan.xyz", pts);
+
+    REQUIRE(cloud.boundingBox().min.x == Approx(0.0));
+    REQUIRE(cloud.boundingBox().max.x == Approx(10.0));
+    REQUIRE(cloud.distanceTo(lcad::Point2D(5, 2)) == Approx(0.0)); // inside the bbox
+    REQUIRE(cloud.distanceTo(lcad::Point2D(20, 0)) == Approx(10.0));
+
+    REQUIRE(cloud.gripPoints().size() == 1);
+    const lcad::Point2D grip = cloud.gripPoints().front();
+    cloud.moveGripPoint(0, grip + lcad::Point2D(3, 4));
+    REQUIRE(cloud.points()[0].x == Approx(3.0));
+    REQUIRE(cloud.points()[0].y == Approx(4.0));
+    REQUIRE(cloud.points()[1].x == Approx(13.0));
 }
 
 TEST_CASE("InsertEntity transforms its block's children", "[geometry][block]") {

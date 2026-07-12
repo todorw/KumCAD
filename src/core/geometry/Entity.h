@@ -32,6 +32,7 @@ enum class EntityType {
     AttDef,           // attribute definition inside a block
     Table,            // TABLE grid of cell text
     Image,            // IMAGE raster underlay
+    PointCloud,       // POINTCLOUD scan point set
 };
 
 // Object-snap candidate kinds, mirroring AutoCAD's OSNAP markers. The first

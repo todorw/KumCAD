@@ -79,6 +79,8 @@ add_executable(kumcad
     commands/PageSetupCommand.cpp
     commands/XrefCommand.h
     commands/XrefCommand.cpp
+    commands/PointCloudAttachCommand.h
+    commands/PointCloudAttachCommand.cpp
     commands/PointCommands.h
     commands/PointCommands.cpp
     commands/XlineCommand.h

@@ -9,6 +9,7 @@
 #include "core/geometry/Hatch.h"
 #include "core/geometry/Image.h"
 #include "core/geometry/Insert.h"
+#include "core/geometry/PointCloud.h"
 #include "core/geometry/Leader.h"
 #include "core/geometry/Line.h"
 #include "core/geometry/MLeader.h"
@@ -305,6 +306,19 @@ void writeEntity(std::ofstream& out, const Document& document, const Entity& e) 
         writeGroup(out, 40, image.width());
         writeGroup(out, 41, image.height());
         writeGroup(out, 50, image.rotation() * 180.0 / M_PI);
+        break;
+    }
+    case EntityType::PointCloud: {
+        // Path only, like a real POINTCLOUD's reference to an external
+        // .rcs/.rcp file: with realistic cloud sizes, embedding every point
+        // as DXF group codes (the way LWPOLYLINE embeds its vertices) would
+        // make the file enormous. readDxf re-reads the source XYZ file when
+        // it's reachable; if not, the cloud round-trips with no points
+        // rather than XREF's cached-snapshot fallback.
+        const auto& cloud = static_cast<const PointCloudEntity&>(e);
+        writeGroup(out, 0, "POINTCLOUD");
+        writeCommon(out, document, e);
+        writeGroup(out, 1, cloud.path());
         break;
     }
     case EntityType::MText: {
