@@ -22,6 +22,8 @@ add_executable(kumcad
     LayerPanel.cpp
     PropertiesPanel.h
     PropertiesPanel.cpp
+    ToolPalette.h
+    ToolPalette.cpp
     commands/DrawCommand.h
     commands/LineCommand.h
     commands/LineCommand.cpp

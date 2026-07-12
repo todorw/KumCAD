@@ -7,6 +7,7 @@
 #include "IconFactory.h"
 #include "LayerPanel.h"
 #include "PropertiesPanel.h"
+#include "ToolPalette.h"
 #include "core/io/DwgReader.h"
 #include "core/io/DwgWriter.h"
 #include "core/io/DxfReader.h"
@@ -153,6 +154,15 @@ void MainWindow::setupDocks() {
     propertiesDock->setWidget(m_propertiesPanel);
     addDockWidget(Qt::RightDockWidgetArea, propertiesDock);
     tabifyDockWidget(layerDock, propertiesDock);
+
+    m_toolPalette = new ToolPalette(m_document, *m_dispatcher, this);
+    connect(m_dispatcher, &CommandDispatcher::documentChanged, m_toolPalette, &ToolPalette::refresh);
+
+    auto* toolPaletteDock = new QDockWidget(QStringLiteral("Tool Palette"), this);
+    toolPaletteDock->setObjectName(QStringLiteral("ToolPaletteDock"));
+    toolPaletteDock->setWidget(m_toolPalette);
+    addDockWidget(Qt::RightDockWidgetArea, toolPaletteDock);
+    tabifyDockWidget(propertiesDock, toolPaletteDock);
     layerDock->raise();
 }
 

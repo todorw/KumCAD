@@ -11,6 +11,7 @@ class CommandLine;
 class CommandDispatcher;
 class LayerPanel;
 class PropertiesPanel;
+class ToolPalette;
 class QLabel;
 class QPrinter;
 class QTabBar;
@@ -58,6 +59,7 @@ private:
     CommandDispatcher* m_dispatcher = nullptr;
     LayerPanel* m_layerPanel = nullptr;
     PropertiesPanel* m_propertiesPanel = nullptr;
+    ToolPalette* m_toolPalette = nullptr;
     QTabBar* m_spaceTabs = nullptr;
     QLabel* m_coordLabel = nullptr;
     QLabel* m_osnapLabel = nullptr;
