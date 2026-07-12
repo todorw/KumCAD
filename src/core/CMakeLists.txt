@@ -73,6 +73,8 @@ add_library(lcad_core STATIC
     io/DwgWriter.cpp
     io/Xref.h
     io/Xref.cpp
+    io/Csv.h
+    io/Csv.cpp
 )
 
 target_include_directories(lcad_core PUBLIC ${CMAKE_SOURCE_DIR}/src)

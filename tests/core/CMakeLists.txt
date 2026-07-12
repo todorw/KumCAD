@@ -16,6 +16,7 @@ add_executable(lcad_core_tests
     ModifyOpsTests.cpp
     ExprTests.cpp
     LispTests.cpp
+    CsvTests.cpp
 )
 target_link_libraries(lcad_core_tests PRIVATE lcad_core Catch2::Catch2WithMain)
 

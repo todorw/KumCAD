@@ -118,6 +118,8 @@ add_executable(kumcad
     commands/DimCommand.cpp
     commands/DimRadialCommand.h
     commands/DimRadialCommand.cpp
+    commands/DataLinkCommand.h
+    commands/DataLinkCommand.cpp
     commands/DimAngularCommand.h
     commands/DimAngularCommand.cpp
     commands/DimStyleCommand.h
