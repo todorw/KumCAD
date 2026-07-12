@@ -38,6 +38,19 @@ public:
     double dynamicStretch() const { return m_dynamicStretch; }
     void setDynamicStretch(double stretch) { m_dynamicStretch = stretch; }
 
+    // Per-instance state for the block's other dynamic parameter kinds (see
+    // Block.h) -- each independent, like dynamicStretch above.
+    bool dynamicFlipped() const { return m_dynamicFlipped; }
+    void setDynamicFlipped(bool flipped) { m_dynamicFlipped = flipped; }
+    double dynamicRotationAngle() const { return m_dynamicRotationAngle; }
+    void setDynamicRotationAngle(double radians) { m_dynamicRotationAngle = radians; }
+    int dynamicArrayCount() const { return m_dynamicArrayCount; }
+    void setDynamicArrayCount(int count) { m_dynamicArrayCount = count; }
+    const std::string& visibilityState() const { return m_visibilityState; }
+    void setVisibilityState(std::string state) { m_visibilityState = std::move(state); }
+    const std::string& lookupValue() const { return m_lookupValue; }
+    void setLookupValue(std::string value) { m_lookupValue = std::move(value); }
+
     // The block's children transformed into world space (scale, then rotate,
     // then translate) -- what rendering, hit-testing, and explode all share.
     std::vector<std::unique_ptr<Entity>> instantiate() const;
@@ -62,6 +75,11 @@ private:
     double m_scale;
     double m_rotation;
     double m_dynamicStretch = 0.0;
+    bool m_dynamicFlipped = false;
+    double m_dynamicRotationAngle = 0.0;
+    int m_dynamicArrayCount = 1;
+    std::string m_visibilityState;
+    std::string m_lookupValue;
     std::vector<std::pair<std::string, std::string>> m_attributes;
 };
 

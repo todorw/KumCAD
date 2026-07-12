@@ -27,6 +27,7 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 
@@ -395,6 +396,69 @@ TEST_CASE("DXF dynamic block linear parameter round-trips", "[dxf][block][dynami
     // starts at the block's default (unstretched) shape.
     REQUIRE(loaded.entities().size() == 1);
     REQUIRE(loaded.entities().front()->type() == lcad::EntityType::Insert);
+}
+
+TEST_CASE("DXF dynamic block flip/rotation/array/lookup/visibility parameters round-trip",
+          "[dxf][block][dynamic]") {
+    TempDxfPath temp;
+
+    lcad::Document doc;
+    std::vector<std::unique_ptr<lcad::Entity>> children;
+    const lcad::EntityId lineId = doc.reserveEntityId();
+    children.push_back(
+        std::make_unique<lcad::LineEntity>(lineId, 0, lcad::Point2D(0, 0), lcad::Point2D(10, 0)));
+    const lcad::EntityId circleId = doc.reserveEntityId();
+    children.push_back(std::make_unique<lcad::CircleEntity>(circleId, 0, lcad::Point2D(5, 5), 2.0));
+    doc.addBlock("multi", std::move(children));
+    lcad::BlockDefinition* block = doc.findBlock("multi");
+
+    block->dynamicFlip = lcad::DynamicFlipParameter{lcad::Point2D(0, 0), lcad::Point2D(0, 10)};
+    block->dynamicRotation = lcad::DynamicRotationParameter{lcad::Point2D(1, 1), 7.5};
+    block->dynamicArray = lcad::DynamicArrayParameter{lcad::Point2D(0, 0), lcad::Point2D(1, 0), 4.0, 1};
+    block->dynamicLookup = lcad::DynamicLookupParameter{"Lookup1", {{"Small", 0.5}, {"Large", 2.0}}};
+    lcad::DynamicVisibilityParameter vp;
+    vp.states = {"Open", "Closed"};
+    vp.visibleIds["Open"] = {lineId};
+    vp.visibleIds["Closed"] = {circleId};
+    block->dynamicVisibility = vp;
+
+    REQUIRE(lcad::writeDxf(doc, temp.path.string()));
+    lcad::Document loaded;
+    REQUIRE(lcad::readDxf(loaded, temp.path.string()));
+
+    const lcad::BlockDefinition* loadedBlock = loaded.findBlock("multi");
+    REQUIRE(loadedBlock != nullptr);
+    REQUIRE(loadedBlock->isDynamic());
+
+    REQUIRE(loadedBlock->dynamicFlip.has_value());
+    REQUIRE(loadedBlock->dynamicFlip->endPoint.y == Approx(10.0));
+
+    REQUIRE(loadedBlock->dynamicRotation.has_value());
+    REQUIRE(loadedBlock->dynamicRotation->basePoint.x == Approx(1.0));
+    REQUIRE(loadedBlock->dynamicRotation->defaultRadius == Approx(7.5));
+
+    REQUIRE(loadedBlock->dynamicArray.has_value());
+    REQUIRE(loadedBlock->dynamicArray->spacing == Approx(4.0));
+    REQUIRE(loadedBlock->dynamicArray->direction.x == Approx(1.0));
+
+    REQUIRE(loadedBlock->dynamicLookup.has_value());
+    REQUIRE(loadedBlock->dynamicLookup->presets.size() == 2);
+    REQUIRE(loadedBlock->dynamicLookup->presets[0].first == "Small");
+    REQUIRE(loadedBlock->dynamicLookup->presets[0].second == Approx(0.5));
+    REQUIRE(loadedBlock->dynamicLookup->presets[1].second == Approx(2.0));
+
+    REQUIRE(loadedBlock->dynamicVisibility.has_value());
+    REQUIRE(loadedBlock->dynamicVisibility->states.size() == 2);
+    REQUIRE(loadedBlock->entities.size() == 2);
+    // Reloaded entities get fresh ids, but write/read order is preserved, so
+    // entities[0] is the line ("Open") and entities[1] is the circle
+    // ("Closed") -- the indices the visibility parameter was keyed on.
+    const lcad::EntityId newLineId = loadedBlock->entities[0]->id();
+    const lcad::EntityId newCircleId = loadedBlock->entities[1]->id();
+    const auto& openIds = loadedBlock->dynamicVisibility->visibleIds.at("Open");
+    const auto& closedIds = loadedBlock->dynamicVisibility->visibleIds.at("Closed");
+    REQUIRE(std::find(openIds.begin(), openIds.end(), newLineId) != openIds.end());
+    REQUIRE(std::find(closedIds.begin(), closedIds.end(), newCircleId) != closedIds.end());
 }
 
 TEST_CASE("DXF geographic location round-trips", "[dxf][geo]") {

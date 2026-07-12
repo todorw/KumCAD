@@ -634,6 +634,62 @@ bool writeDxf(const Document& document, const std::string& path, std::string* er
                     writeGroup(out, 40, v);
                 }
             }
+            // The other dynamic parameter kinds each get their own group
+            // codes (unused elsewhere in a BLOCK header) so they can coexist
+            // with the linear parameter above and with each other.
+            if (block->dynamicFlip) {
+                const auto& fp = *block->dynamicFlip;
+                writeGroup(out, 41, fp.basePoint.x);
+                writeGroup(out, 42, fp.basePoint.y);
+                writeGroup(out, 43, fp.endPoint.x);
+                writeGroup(out, 44, fp.endPoint.y);
+            }
+            if (block->dynamicRotation) {
+                const auto& rp = *block->dynamicRotation;
+                writeGroup(out, 45, rp.basePoint.x);
+                writeGroup(out, 46, rp.basePoint.y);
+                writeGroup(out, 47, rp.defaultRadius);
+            }
+            if (block->dynamicArray) {
+                const auto& ap = *block->dynamicArray;
+                writeGroup(out, 48, ap.basePoint.x);
+                writeGroup(out, 49, ap.basePoint.y);
+                writeGroup(out, 50, ap.direction.x);
+                writeGroup(out, 51, ap.direction.y);
+                writeGroup(out, 52, ap.spacing);
+                writeGroup(out, 73, ap.minCount);
+            }
+            if (block->dynamicLookup) {
+                // Each preset is a (4, 53) pair: label string then its scale
+                // factor, written adjacently so the reader can zip them back.
+                for (const auto& [label, factor] : block->dynamicLookup->presets) {
+                    writeGroup(out, 4, label);
+                    writeGroup(out, 53, factor);
+                }
+            }
+            if (block->dynamicVisibility) {
+                // Each state is a (6, name) marker followed by zero or more
+                // 74 child-index ints (positions within block->entities, not
+                // EntityIds -- those aren't stable across a reload) that
+                // belong to it, up to the next 6 marker or ENDBLK. (Group 6
+                // is a real DXF code -- linetype name -- but never appears
+                // in a BLOCK header, only on entities, so it's safe to reuse
+                // here; group 5, the block's own handle, is not, since real
+                // AutoCAD files carry one there.)
+                for (const std::string& state : block->dynamicVisibility->states) {
+                    writeGroup(out, 6, state);
+                    const auto it = block->dynamicVisibility->visibleIds.find(state);
+                    if (it == block->dynamicVisibility->visibleIds.end()) continue;
+                    for (EntityId id : it->second) {
+                        for (std::size_t idx = 0; idx < block->entities.size(); ++idx) {
+                            if (block->entities[idx]->id() == id) {
+                                writeGroup(out, 74, static_cast<int>(idx));
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
             for (const auto& child : block->entities) writeEntity(out, document, *child);
             writeGroup(out, 0, "ENDBLK");
             writeGroup(out, 8, "0");

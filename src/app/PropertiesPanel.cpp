@@ -336,6 +336,44 @@ void PropertiesPanel::refresh() {
         addRow(QStringLiteral("Position Y:"), formatNumber(insert->position().y));
         addRow(QStringLiteral("Scale:"), formatNumber(insert->scaleFactor()));
         addRow(QStringLiteral("Rotation:"), formatDegrees(insert->rotation()));
+        if (const lcad::BlockDefinition* block = insert->block()) {
+            const lcad::EntityId insertId = insert->id();
+            if (block->dynamicVisibility) {
+                auto* combo = new QComboBox(this);
+                for (const std::string& state : block->dynamicVisibility->states) {
+                    combo->addItem(QString::fromStdString(state));
+                }
+                const QString current = QString::fromStdString(insert->visibilityState());
+                const int idx = combo->findText(current);
+                combo->setCurrentIndex(idx >= 0 ? idx : 0);
+                connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+                        [this, combo, insertId](int index) {
+                            if (m_updating || index < 0) return;
+                            m_document.commandStack().execute(std::make_unique<lcad::SetInsertVisibilityStateCommand>(
+                                m_document, insertId, combo->currentText().toStdString()));
+                            emit documentChanged();
+                        });
+                m_fieldsForm->addRow(QStringLiteral("Visibility:"), combo);
+            }
+            if (block->dynamicLookup) {
+                auto* combo = new QComboBox(this);
+                for (const auto& [label, factor] : block->dynamicLookup->presets) {
+                    (void)factor;
+                    combo->addItem(QString::fromStdString(label));
+                }
+                const QString current = QString::fromStdString(insert->lookupValue());
+                const int idx = combo->findText(current);
+                combo->setCurrentIndex(idx >= 0 ? idx : 0);
+                connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+                        [this, combo, insertId](int index) {
+                            if (m_updating || index < 0) return;
+                            m_document.commandStack().execute(std::make_unique<lcad::SetInsertLookupCommand>(
+                                m_document, insertId, combo->currentText().toStdString()));
+                            emit documentChanged();
+                        });
+                m_fieldsForm->addRow(QStringLiteral("Lookup:"), combo);
+            }
+        }
         break;
     }
     case lcad::EntityType::MText: {

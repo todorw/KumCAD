@@ -4,6 +4,7 @@
 #include "core/document/Document.h"
 #include "core/document/Layout.h"
 #include "core/geometry/Entity.h"
+#include "core/geometry/Insert.h"
 
 #include <memory>
 #include <optional>
@@ -353,6 +354,60 @@ private:
     std::vector<EntityId> m_ids;
     LayerId m_newLayer;
     std::vector<std::pair<EntityId, LayerId>> m_oldLayers;
+};
+
+// Undoable change of a single INSERT's dynamic visibility state (see
+// DynamicVisibilityParameter), e.g. from the Properties panel's combo.
+class SetInsertVisibilityStateCommand : public Command {
+public:
+    SetInsertVisibilityStateCommand(Document& document, EntityId id, std::string newState)
+        : m_document(document), m_id(id), m_newState(std::move(newState)) {}
+
+    void execute() override {
+        if (auto* insert = dynamic_cast<InsertEntity*>(m_document.findEntity(m_id))) {
+            m_oldState = insert->visibilityState();
+            insert->setVisibilityState(m_newState);
+        }
+    }
+    void undo() override {
+        if (auto* insert = dynamic_cast<InsertEntity*>(m_document.findEntity(m_id))) {
+            insert->setVisibilityState(m_oldState);
+        }
+    }
+    std::string description() const override { return "Change Visibility State"; }
+
+private:
+    Document& m_document;
+    EntityId m_id;
+    std::string m_newState;
+    std::string m_oldState;
+};
+
+// Undoable change of a single INSERT's dynamic lookup value (see
+// DynamicLookupParameter), e.g. from the Properties panel's combo.
+class SetInsertLookupCommand : public Command {
+public:
+    SetInsertLookupCommand(Document& document, EntityId id, std::string newValue)
+        : m_document(document), m_id(id), m_newValue(std::move(newValue)) {}
+
+    void execute() override {
+        if (auto* insert = dynamic_cast<InsertEntity*>(m_document.findEntity(m_id))) {
+            m_oldValue = insert->lookupValue();
+            insert->setLookupValue(m_newValue);
+        }
+    }
+    void undo() override {
+        if (auto* insert = dynamic_cast<InsertEntity*>(m_document.findEntity(m_id))) {
+            insert->setLookupValue(m_oldValue);
+        }
+    }
+    std::string description() const override { return "Change Lookup Value"; }
+
+private:
+    Document& m_document;
+    EntityId m_id;
+    std::string m_newValue;
+    std::string m_oldValue;
 };
 
 // Undoable replacement of the whole layouts vector (LAYOUT New/Copy/Rename,

@@ -327,6 +327,16 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         if (!ids.empty()) startCommand(std::make_unique<BlockCommand>(m_document, ids), QStringLiteral("BLOCK"));
     } else if (cmd == QLatin1String("BPARAMETER") || cmd == QLatin1String("PAR")) {
         startCommand(std::make_unique<BlockParamCommand>(m_document), QStringLiteral("BPARAMETER"));
+    } else if (cmd == QLatin1String("BFLIP")) {
+        startCommand(std::make_unique<BlockFlipCommand>(m_document), QStringLiteral("BFLIP"));
+    } else if (cmd == QLatin1String("BROTATION")) {
+        startCommand(std::make_unique<BlockRotationCommand>(m_document), QStringLiteral("BROTATION"));
+    } else if (cmd == QLatin1String("BARRAY")) {
+        startCommand(std::make_unique<BlockArrayCommand>(m_document), QStringLiteral("BARRAY"));
+    } else if (cmd == QLatin1String("BVISIBILITY")) {
+        startCommand(std::make_unique<BlockVisibilityCommand>(m_document), QStringLiteral("BVISIBILITY"));
+    } else if (cmd == QLatin1String("BLOOKUP")) {
+        startCommand(std::make_unique<BlockLookupCommand>(m_document), QStringLiteral("BLOOKUP"));
     } else if (cmd == QLatin1String("INSERT") || cmd == QLatin1String("I")) {
         startCommand(std::make_unique<InsertCommand>(m_document), QStringLiteral("INSERT"));
     } else if (cmd == QLatin1String("ARRAY") || cmd == QLatin1String("AR")) {

@@ -183,6 +183,14 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
     std::string curBlockXrefPath;
     Point2D curBlockBase;
     std::vector<double> curBlockDynamicValues; // simplified dynamic-block linear parameter, see DxfWriter
+    std::vector<double> curBlockFlipValues;     // group 41-44, see DxfWriter
+    std::vector<double> curBlockRotationValues; // group 45-47
+    std::vector<double> curBlockArrayValues;    // group 48-52
+    int curBlockArrayMinCount = 1;              // group 73
+    std::vector<std::pair<std::string, double>> curBlockLookupPresets; // groups 4 + 53, zipped by adjacency
+    std::string curBlockPendingLookupLabel;
+    std::vector<std::string> curBlockVisibilityStates;             // group 5
+    std::vector<std::vector<int>> curBlockVisibilityIndices;       // group 74, appended to the last state
     std::vector<std::unique_ptr<Entity>> curBlockEntities;
     int curPaperIndex = -1; // >= 0 while inside a *Paper_Space block
 
@@ -210,6 +218,14 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             curBlockXrefPath.clear();
             curBlockBase = Point2D();
             curBlockDynamicValues.clear();
+            curBlockFlipValues.clear();
+            curBlockRotationValues.clear();
+            curBlockArrayValues.clear();
+            curBlockArrayMinCount = 1;
+            curBlockLookupPresets.clear();
+            curBlockPendingLookupLabel.clear();
+            curBlockVisibilityStates.clear();
+            curBlockVisibilityIndices.clear();
             return;
         }
         // Normalize child geometry to be base-point-relative.
@@ -231,11 +247,53 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
                 dp.frameMax = Point2D(curBlockDynamicValues[6], curBlockDynamicValues[7]);
                 fresh.findBlock(curBlockName)->dynamicParam = dp;
             }
+            BlockDefinition* newBlock = fresh.findBlock(curBlockName);
+            if (curBlockFlipValues.size() == 4) {
+                newBlock->dynamicFlip = DynamicFlipParameter{Point2D(curBlockFlipValues[0], curBlockFlipValues[1]),
+                                                              Point2D(curBlockFlipValues[2], curBlockFlipValues[3])};
+            }
+            if (curBlockRotationValues.size() == 3) {
+                newBlock->dynamicRotation = DynamicRotationParameter{
+                    Point2D(curBlockRotationValues[0], curBlockRotationValues[1]), curBlockRotationValues[2]};
+            }
+            if (curBlockArrayValues.size() == 5) {
+                newBlock->dynamicArray =
+                    DynamicArrayParameter{Point2D(curBlockArrayValues[0], curBlockArrayValues[1]),
+                                          Point2D(curBlockArrayValues[2], curBlockArrayValues[3]),
+                                          curBlockArrayValues[4], curBlockArrayMinCount};
+            }
+            if (!curBlockLookupPresets.empty()) {
+                newBlock->dynamicLookup = DynamicLookupParameter{"Lookup1", curBlockLookupPresets};
+            }
+            if (!curBlockVisibilityStates.empty()) {
+                DynamicVisibilityParameter vp;
+                vp.states = curBlockVisibilityStates;
+                for (std::size_t s = 0; s < curBlockVisibilityStates.size(); ++s) {
+                    std::vector<EntityId> ids;
+                    if (s < curBlockVisibilityIndices.size()) {
+                        for (int idx : curBlockVisibilityIndices[s]) {
+                            if (idx >= 0 && static_cast<std::size_t>(idx) < newBlock->entities.size()) {
+                                ids.push_back(newBlock->entities[static_cast<std::size_t>(idx)]->id());
+                            }
+                        }
+                    }
+                    vp.visibleIds[curBlockVisibilityStates[s]] = std::move(ids);
+                }
+                newBlock->dynamicVisibility = vp;
+            }
         }
         curBlockEntities.clear();
         curBlockName.clear();
         curBlockXrefPath.clear();
         curBlockBase = Point2D();
+        curBlockFlipValues.clear();
+        curBlockRotationValues.clear();
+        curBlockArrayValues.clear();
+        curBlockArrayMinCount = 1;
+        curBlockLookupPresets.clear();
+        curBlockPendingLookupLabel.clear();
+        curBlockVisibilityStates.clear();
+        curBlockVisibilityIndices.clear();
         curBlockDynamicValues.clear();
     };
 
@@ -780,6 +838,18 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             else if (g.code == 20) curBlockBase.y = toDouble(g.value);
             else if (g.code == 1) curBlockXrefPath = g.value; // xref file path
             else if (g.code == 40) curBlockDynamicValues.push_back(toDouble(g.value));
+            else if (g.code >= 41 && g.code <= 44) curBlockFlipValues.push_back(toDouble(g.value));
+            else if (g.code >= 45 && g.code <= 47) curBlockRotationValues.push_back(toDouble(g.value));
+            else if (g.code >= 48 && g.code <= 52) curBlockArrayValues.push_back(toDouble(g.value));
+            else if (g.code == 73) curBlockArrayMinCount = toInt(g.value, 1);
+            else if (g.code == 4) curBlockPendingLookupLabel = g.value; // paired with the 53 that follows
+            else if (g.code == 53) curBlockLookupPresets.emplace_back(curBlockPendingLookupLabel, toDouble(g.value));
+            else if (g.code == 6) {
+                curBlockVisibilityStates.push_back(g.value);
+                curBlockVisibilityIndices.emplace_back();
+            } else if (g.code == 74 && !curBlockVisibilityIndices.empty()) {
+                curBlockVisibilityIndices.back().push_back(toInt(g.value));
+            }
             continue;
         }
 
