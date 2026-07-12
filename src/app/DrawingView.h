@@ -135,6 +135,12 @@ private:
     std::vector<lcad::Entity*> spaceEntities() const;
 
     lcad::Entity* hitTestEntity(const lcad::Point2D& worldPt) const;
+    // Click-to-select version of hitTestEntity: when several entities are
+    // within pick tolerance, repeated clicks at (about) the same screen spot
+    // step through them nearest-first instead of always returning the
+    // closest one (AutoCAD's selection cycling by repeated clicking, no
+    // popup needed). Any other click resets the cycle.
+    lcad::Entity* hitTestEntityCycling(const lcad::Point2D& worldPt, const QPointF& screenPos);
     std::optional<std::pair<lcad::EntityId, std::size_t>> hitTestGrip(const QPointF& screenPt) const;
     double gridSpacing() const;
 
@@ -176,6 +182,10 @@ private:
 
     std::unordered_set<lcad::EntityId> m_selection;
     std::optional<lcad::EntityId> m_hoverEntityId;
+
+    // Selection cycling state (see hitTestEntityCycling).
+    QPointF m_lastPickScreenPos{-1e9, -1e9};
+    std::size_t m_pickCycleIndex = 0;
 
     std::optional<lcad::Point2D> m_lastMouseWorld;
 

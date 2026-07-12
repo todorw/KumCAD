@@ -82,6 +82,30 @@ lcad::Entity* DrawingView::hitTestEntity(const lcad::Point2D& worldPt) const {
     return best;
 }
 
+lcad::Entity* DrawingView::hitTestEntityCycling(const lcad::Point2D& worldPt, const QPointF& screenPos) {
+    const double tol = pickToleranceWorld();
+    std::vector<std::pair<double, lcad::Entity*>> candidates;
+    for (lcad::Entity* e : spaceEntities()) {
+        const lcad::Layer* layer = m_document.findLayer(e->layer());
+        if (layer && (!layer->visible || layer->locked)) continue;
+        const double d = e->distanceTo(worldPt);
+        if (d <= tol) candidates.emplace_back(d, e);
+    }
+    if (candidates.empty()) {
+        m_pickCycleIndex = 0;
+        return nullptr;
+    }
+    std::sort(candidates.begin(), candidates.end(),
+             [](const auto& a, const auto& b) { return a.first < b.first; });
+
+    constexpr double kRepeatPickPx = 4.0;
+    const QPointF d = screenPos - m_lastPickScreenPos;
+    const bool samePick = (d.x() * d.x() + d.y() * d.y()) <= kRepeatPickPx * kRepeatPickPx;
+    m_pickCycleIndex = samePick ? (m_pickCycleIndex + 1) % candidates.size() : 0;
+    m_lastPickScreenPos = screenPos;
+    return candidates[m_pickCycleIndex].second;
+}
+
 std::optional<std::pair<lcad::EntityId, std::size_t>> DrawingView::hitTestGrip(const QPointF& screenPt) const {
     constexpr double kGripPickPx = 8.0;
     for (lcad::EntityId id : m_selection) {
@@ -813,7 +837,7 @@ void DrawingView::mousePressEvent(QMouseEvent* event) {
             return;
         }
 
-        lcad::Entity* hit = hitTestEntity(worldPt);
+        lcad::Entity* hit = hitTestEntityCycling(worldPt, event->position());
         const bool shift = event->modifiers() & Qt::ShiftModifier;
         if (hit) {
             const bool alreadySelected = m_selection.count(hit->id()) > 0;
