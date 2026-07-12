@@ -81,6 +81,8 @@ add_library(lcad_core STATIC
     io/Csv.cpp
     io/PointCloudFile.h
     io/PointCloudFile.cpp
+    io/Zip.h
+    io/Zip.cpp
 )
 
 target_include_directories(lcad_core PUBLIC ${CMAKE_SOURCE_DIR}/src)

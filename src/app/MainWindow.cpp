@@ -11,14 +11,18 @@
 #include "SheetSetPanel.h"
 #include "DesignCenterPanel.h"
 #include "MarkupSetPanel.h"
+#include "core/geometry/Image.h"
+#include "core/geometry/PointCloud.h"
 #include "core/io/DwgReader.h"
 #include "core/io/DwgWriter.h"
 #include "core/io/DxfReader.h"
 #include "core/io/DxfWriter.h"
 #include "core/io/Xref.h"
+#include "core/io/Zip.h"
 
 #include <QAction>
 #include <QCloseEvent>
+#include <QDir>
 #include <QDockWidget>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -31,12 +35,15 @@
 #include <QPainter>
 #include <QPrintDialog>
 #include <QPrinter>
+#include <QSet>
 #include <QStatusBar>
 #include <QTabBar>
 #include <QVBoxLayout>
 #include <QToolBar>
 
 #include <algorithm>
+#include <fstream>
+#include <sstream>
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     resize(1280, 800);
@@ -217,6 +224,7 @@ void MainWindow::setupMenusAndToolbar() {
     fileMenu->addSeparator();
     fileMenu->addAction(QStringLiteral("&Print..."), QKeySequence::Print, this, &MainWindow::printDocument);
     fileMenu->addAction(QStringLiteral("Export P&DF..."), this, &MainWindow::exportPdf);
+    fileMenu->addAction(QStringLiteral("eTransmit..."), this, &MainWindow::eTransmit);
     fileMenu->addSeparator();
     fileMenu->addAction(QStringLiteral("E&xit"), QKeySequence::Quit, this, &QWidget::close);
 
@@ -482,6 +490,78 @@ void MainWindow::exportPdf() {
     printer.setOutputFileName(path);
     renderDrawing(printer);
     statusBar()->showMessage(QStringLiteral("Exported %1").arg(QFileInfo(path).fileName()), 3000);
+}
+
+void MainWindow::eTransmit() {
+    if (m_currentFilePath.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("eTransmit"), QStringLiteral("Save the drawing first."));
+        return;
+    }
+
+    auto readFile = [](const QString& path) -> std::optional<std::string> {
+        std::ifstream in(path.toStdString(), std::ios::binary);
+        if (!in) return std::nullopt;
+        std::ostringstream oss;
+        oss << in.rdbuf();
+        return oss.str();
+    };
+
+    // Gather every xref/image/point-cloud path the drawing references,
+    // resolving relative ones against its own folder like reloadAllXrefs.
+    const QString baseDir = QFileInfo(m_currentFilePath).absolutePath();
+    const auto resolve = [&baseDir](const QString& path) {
+        QFileInfo info(path);
+        return info.isRelative() ? QDir(baseDir).filePath(path) : path;
+    };
+
+    QStringList dependencyPaths;
+    for (const auto& block : m_document.blocks()) {
+        if (block->isXref()) dependencyPaths << resolve(QString::fromStdString(block->xrefPath));
+    }
+    auto collectFrom = [&](const std::vector<lcad::Entity*>& entities) {
+        for (const lcad::Entity* e : entities) {
+            if (e->type() == lcad::EntityType::Image) {
+                dependencyPaths << resolve(QString::fromStdString(static_cast<const lcad::ImageEntity*>(e)->path()));
+            } else if (e->type() == lcad::EntityType::PointCloud) {
+                dependencyPaths
+                    << resolve(QString::fromStdString(static_cast<const lcad::PointCloudEntity*>(e)->path()));
+            }
+        }
+    };
+    collectFrom(m_document.entities());
+    for (std::size_t i = 0; i < m_document.layouts().size(); ++i) {
+        collectFrom(m_document.paperEntities(static_cast<int>(i)));
+    }
+
+    const QString suggested = QFileInfo(m_currentFilePath).completeBaseName() + QStringLiteral("_transmit.zip");
+    const QString zipPath =
+        QFileDialog::getSaveFileName(this, QStringLiteral("eTransmit"), suggested, QStringLiteral("Zip Files (*.zip)"));
+    if (zipPath.isEmpty()) return;
+
+    std::vector<std::pair<std::string, std::string>> entries;
+    QSet<QString> usedNames;
+    int missing = 0;
+    const auto addEntry = [&](const QString& sourcePath) {
+        const QString name = QFileInfo(sourcePath).fileName();
+        if (name.isEmpty() || usedNames.contains(name)) return; // silently skips same-named duplicates
+        usedNames.insert(name);
+        if (const auto content = readFile(sourcePath)) {
+            entries.emplace_back(name.toStdString(), *content);
+        } else {
+            ++missing;
+        }
+    };
+    addEntry(m_currentFilePath);
+    for (const QString& dep : dependencyPaths) addEntry(dep);
+
+    if (!lcad::writeZip(zipPath.toStdString(), entries)) {
+        QMessageBox::warning(this, QStringLiteral("eTransmit"), QStringLiteral("Could not write the zip file."));
+        return;
+    }
+
+    QString message = QStringLiteral("Packaged %1 file(s) into %2").arg(entries.size()).arg(QFileInfo(zipPath).fileName());
+    if (missing > 0) message += QStringLiteral(" (%1 dependency file(s) not found and skipped)").arg(missing);
+    statusBar()->showMessage(message, 5000);
 }
 
 void MainWindow::renderLayout(QPrinter& printer, const lcad::Layout& layout) {

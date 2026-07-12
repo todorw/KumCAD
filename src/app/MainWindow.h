@@ -61,6 +61,11 @@ private:
 
     void printDocument();
     void exportPdf();
+    // eTransmit: packages the current DXF plus every xref/image/point-cloud
+    // file it references into one zip. Requires the drawing to already be
+    // saved (so there's a base path to resolve relative dependencies
+    // against and a file to package in the first place).
+    void eTransmit();
     // Fit-to-page rendering onto paper (white background, near-white colors
     // mapped to black): model extents in model space, or the active layout's
     // sheet with its viewports when a layout tab is current.
