@@ -156,6 +156,68 @@ TEST_CASE("LispInterpreter's ssget selects and filters entities", "[lisp]") {
     REQUIRE(r.resultText == "1");
 }
 
+TEST_CASE("LispInterpreter's interactive input builtins call the embedder's sink", "[lisp]") {
+    std::vector<std::string> prompts;
+    lcad::LispInterpreter interp(
+        [](const std::string&) {}, nullptr,
+        [&prompts](const std::string& prompt, const std::vector<std::string>& keywords,
+                   bool /*isPoint*/) -> std::optional<std::string> {
+            prompts.push_back(prompt);
+            if (prompt == "Pick a point: ") return "3,4";
+            if (prompt == "Enter radius: ") return "2.5";
+            if (prompt == "Enter name: ") return "hello world";
+            if (!keywords.empty()) return keywords.front();
+            return std::nullopt;
+        });
+
+    auto r = interp.run("(getpoint \"Pick a point: \")");
+    REQUIRE(r.ok);
+    REQUIRE(r.resultText == "(3 4)");
+
+    r = interp.run("(getreal \"Enter radius: \")");
+    REQUIRE(r.ok);
+    REQUIRE(r.resultText == "2.5");
+
+    r = interp.run("(getstring \"Enter name: \")");
+    REQUIRE(r.ok);
+    REQUIRE(r.resultText == "\"hello world\"");
+
+    r = interp.run("(getkword \"Yes or no? \" (list \"Yes\" \"No\"))");
+    REQUIRE(r.ok);
+    REQUIRE(r.resultText == "\"Yes\"");
+
+    REQUIRE(prompts.size() == 4);
+}
+
+TEST_CASE("LispInterpreter's interactive input returns nil without an embedder sink or on cancel", "[lisp]") {
+    // No sink at all (e.g. a headless run): getpoint/getreal/getstring/
+    // getkword degrade to nil instead of crashing.
+    REQUIRE(run("(getpoint)").resultText == "nil");
+    REQUIRE(run("(getreal)").resultText == "nil");
+    REQUIRE(run("(getstring)").resultText == "nil");
+    REQUIRE(run("(getkword \"pick\" (list \"A\" \"B\"))").resultText == "nil");
+
+    // A sink that reports cancellation (nullopt) also degrades to nil.
+    lcad::LispInterpreter cancelling([](const std::string&) {}, nullptr,
+                                     [](const std::string&, const std::vector<std::string>&, bool) { return std::nullopt; });
+    REQUIRE(cancelling.run("(getpoint)").resultText == "nil");
+}
+
+TEST_CASE("LispInterpreter's getpoint result feeds into (command ...) via setq", "[lisp]") {
+    // The documented idiom (LispInterpreter.h): resolve points with setq
+    // first, then pass them to command, since command isn't a special form
+    // and would otherwise prompt before "LINE" itself had been sent.
+    std::vector<std::string> sink;
+    lcad::LispInterpreter interp(
+        [&sink](const std::string& s) { sink.push_back(s); }, nullptr,
+        [](const std::string&, const std::vector<std::string>&, bool) -> std::optional<std::string> {
+            return "5,6";
+        });
+    const auto r = interp.run("(setq p1 (getpoint)) (setq p2 (getpoint)) (command \"LINE\" p1 p2 \"\")");
+    REQUIRE(r.ok);
+    REQUIRE(sink == std::vector<std::string>{"LINE", "5,6", "5,6", ""});
+}
+
 TEST_CASE("LispInterpreter reports errors instead of crashing", "[lisp]") {
     REQUIRE_FALSE(run("(+ 1 \"a\")").ok);
     REQUIRE_FALSE(run("(undefined-fn 1)").ok);

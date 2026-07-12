@@ -264,8 +264,9 @@ void LispInterpreter::Env::set(const std::string& name, Value v) {
     }
 }
 
-LispInterpreter::LispInterpreter(std::function<void(const std::string&)> commandSink, Document* document)
-    : m_commandSink(std::move(commandSink)), m_document(document) {}
+LispInterpreter::LispInterpreter(std::function<void(const std::string&)> commandSink, Document* document,
+                                 InteractiveInputSink interactiveInput)
+    : m_commandSink(std::move(commandSink)), m_document(document), m_interactiveInput(std::move(interactiveInput)) {}
 
 LispInterpreter::RunResult LispInterpreter::run(const std::string& source) {
     RunResult result;
@@ -439,6 +440,70 @@ Value LispInterpreter::builtinSsget(std::vector<Value>& args) {
         ids.push_back(Value::num(static_cast<double>(e->id())));
     }
     return listFromVector(ids);
+}
+
+Value LispInterpreter::builtinGetPoint(std::vector<Value>& args) {
+    // (getpoint), (getpoint prompt), (getpoint basePoint), (getpoint
+    // basePoint prompt) -- basePoint is accepted for call compatibility but
+    // doesn't draw a rubber-band line to it like real AutoCAD.
+    std::string prompt = "Specify point: ";
+    for (const Value& a : args) {
+        if (a.kind == Kind::String) prompt = a.text;
+    }
+    if (!m_interactiveInput) return Value::nil();
+    const auto resp = m_interactiveInput(prompt, {}, /*isPoint=*/true);
+    if (!resp) return Value::nil();
+    const std::size_t comma = resp->find(',');
+    if (comma == std::string::npos) return Value::nil();
+    char* end = nullptr;
+    const double x = std::strtod(resp->c_str(), &end);
+    const double y = std::strtod(resp->c_str() + comma + 1, &end);
+    return listFromVector({Value::num(x), Value::num(y)});
+}
+
+Value LispInterpreter::builtinGetReal(std::vector<Value>& args) {
+    std::string prompt = "Specify a number: ";
+    for (const Value& a : args) {
+        if (a.kind == Kind::String) prompt = a.text;
+    }
+    if (!m_interactiveInput) return Value::nil();
+    const auto resp = m_interactiveInput(prompt, {}, /*isPoint=*/false);
+    if (!resp) return Value::nil();
+    char* end = nullptr;
+    const double v = std::strtod(resp->c_str(), &end);
+    if (end == resp->c_str()) return Value::nil(); // not a number
+    return Value::num(v);
+}
+
+Value LispInterpreter::builtinGetString(std::vector<Value>& args) {
+    // (getstring), (getstring cropit), (getstring prompt), (getstring cropit
+    // prompt) -- cropit (real AutoCAD's "allow embedded spaces" flag) is
+    // accepted but ignored; whatever the embedder returns is used verbatim.
+    std::string prompt = "Enter string: ";
+    for (const Value& a : args) {
+        if (a.kind == Kind::String) prompt = a.text;
+    }
+    if (!m_interactiveInput) return Value::nil();
+    const auto resp = m_interactiveInput(prompt, {}, /*isPoint=*/false);
+    if (!resp) return Value::nil();
+    return Value::str(*resp);
+}
+
+Value LispInterpreter::builtinGetKword(std::vector<Value>& args) {
+    // (getkword prompt keywordlist) -- a simplification of real AutoLISP,
+    // which validates against a global keyword set from a prior (initget)
+    // call rather than an explicit argument (initget isn't implemented).
+    if (args.empty() || args[0].kind != Kind::String) throw LispError("getkword expects a prompt string");
+    std::vector<std::string> keywords;
+    if (args.size() >= 2) {
+        for (const Value& v : vectorFromList(args[1])) {
+            if (v.kind == Kind::String) keywords.push_back(v.text);
+        }
+    }
+    if (!m_interactiveInput) return Value::nil();
+    const auto resp = m_interactiveInput(args[0].text, keywords, /*isPoint=*/false);
+    if (!resp) return Value::nil();
+    return Value::str(*resp);
 }
 
 Value LispInterpreter::eval(const Value& form, Env& env) {
@@ -765,6 +830,10 @@ Value LispInterpreter::callBuiltin(const std::string& name, std::vector<Value>& 
         }
         return Value::nil();
     }
+    if (name == "GETPOINT") return builtinGetPoint(a);
+    if (name == "GETREAL" || name == "GETDIST" || name == "GETINT") return builtinGetReal(a);
+    if (name == "GETSTRING") return builtinGetString(a);
+    if (name == "GETKWORD") return builtinGetKword(a);
     if (name == "GETVAR") return builtinGetvar(a);
     if (name == "SETVAR") return builtinSetvar(a);
     if (name == "ENTGET") return builtinEntget(a);

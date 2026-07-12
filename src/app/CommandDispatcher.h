@@ -5,11 +5,13 @@
 #include "core/geometry/Point2D.h"
 #include "core/lisp/LispInterpreter.h"
 
+#include <QEventLoop>
 #include <QObject>
 #include <QString>
 #include <QStringList>
 
 #include <memory>
+#include <optional>
 #include <vector>
 
 class CommandLine;
@@ -28,6 +30,12 @@ public:
 
     bool hasActiveCommand() const { return m_activeCommand != nullptr; }
     DrawCommand* activeDrawCommand() const { return m_activeCommand.get(); }
+    // True when a click on the canvas should be forwarded to
+    // handlePointPicked -- either a real DrawCommand is active, or AutoLISP
+    // is paused in (getpoint) waiting for one. DrawingView's mouse-press
+    // handler uses this instead of hasActiveCommand() so clicking answers a
+    // getpoint prompt the same way typing "x,y" does.
+    bool wantsPointInput() const { return hasActiveCommand() || (m_lispLoop && m_lispWaitIsPoint); }
 
     // snapRef carries the osnap hit the point came from (nullopt for typed
     // coordinates or free clicks), for commands that record associativity.
@@ -83,4 +91,20 @@ private:
     // prompt is evaluated as AutoLISP, matching real AutoCAD's command line.
     // Its (command ...) sink re-enters handleCommandText.
     lcad::LispInterpreter m_lisp;
+
+    // Backs (getpoint)/(getreal)/(getstring)/(getkword): called from deep in
+    // m_lisp.run()'s call stack, it prints the prompt and blocks on a nested
+    // QEventLoop so the UI keeps responding (repaints, the pending click or
+    // typed line) until handlePointPicked/handleCommandText see m_lispLoop
+    // is set and feed the answer back in instead of routing it as normal
+    // command input. Escape sets m_lispWaitCancelled and quits the loop too.
+    std::optional<std::string> waitForLispInput(const std::string& prompt, const std::vector<std::string>& keywords,
+                                                bool isPoint);
+
+    QEventLoop* m_lispLoop = nullptr;
+    bool m_lispWaitIsPoint = false;   // getpoint: a click resolves the wait too, not just typed text
+    bool m_lispWaitIsKeyword = false; // getkword: typed text must match m_lispKeywords
+    QStringList m_lispKeywords;
+    std::optional<std::string> m_lispInputResult;
+    bool m_lispWaitCancelled = false;
 };

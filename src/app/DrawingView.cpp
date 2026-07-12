@@ -852,7 +852,7 @@ void DrawingView::mousePressEvent(QMouseEvent* event) {
     }
 
     if (event->button() == Qt::LeftButton) {
-        if (m_dispatcher && m_dispatcher->hasActiveCommand()) {
+        if (m_dispatcher && m_dispatcher->wantsPointInput()) {
             const lcad::Point2D picked = resolvePoint(event->position());
             m_dispatcher->handlePointPicked(picked, m_currentSnapRef);
             update();

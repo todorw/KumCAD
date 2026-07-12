@@ -80,8 +80,35 @@
 
 CommandDispatcher::CommandDispatcher(lcad::Document& document, CommandLine& commandLine, QObject* parent)
     : QObject(parent), m_document(document), m_commandLine(commandLine),
-      m_lisp([this](const std::string& s) { handleCommandText(QString::fromStdString(s)); }, &m_document) {
+      m_lisp(
+          [this](const std::string& s) { handleCommandText(QString::fromStdString(s)); }, &m_document,
+          [this](const std::string& prompt, const std::vector<std::string>& keywords, bool isPoint) {
+              return waitForLispInput(prompt, keywords, isPoint);
+          }) {
     connect(&m_commandLine, &CommandLine::commandEntered, this, &CommandDispatcher::handleCommandText);
+}
+
+std::optional<std::string> CommandDispatcher::waitForLispInput(const std::string& prompt,
+                                                                const std::vector<std::string>& keywords,
+                                                                bool isPoint) {
+    m_commandLine.appendLine(QString::fromStdString(prompt));
+    m_lispWaitIsPoint = isPoint;
+    m_lispWaitIsKeyword = !keywords.empty();
+    m_lispKeywords.clear();
+    for (const std::string& k : keywords) m_lispKeywords.push_back(QString::fromStdString(k));
+    m_lispInputResult.reset();
+    m_lispWaitCancelled = false;
+
+    QEventLoop loop;
+    m_lispLoop = &loop;
+    loop.exec();
+    m_lispLoop = nullptr;
+    m_lispWaitIsPoint = false;
+    m_lispWaitIsKeyword = false;
+    m_lispKeywords.clear();
+
+    if (m_lispWaitCancelled) return std::nullopt;
+    return m_lispInputResult;
 }
 
 void CommandDispatcher::startCommand(std::unique_ptr<DrawCommand> command, const QString& name) {
@@ -109,6 +136,28 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         const bool isActstop =
             !m_activeCommand && trimmed.compare(QLatin1String("ACTSTOP"), Qt::CaseInsensitive) == 0;
         if (!isActstop) m_recordingBuffer << text;
+    }
+
+    if (m_lispLoop) {
+        if (m_lispWaitIsKeyword) {
+            const QString* match = nullptr;
+            for (const QString& kw : m_lispKeywords) {
+                if (kw.compare(trimmed, Qt::CaseInsensitive) == 0) {
+                    match = &kw;
+                    break;
+                }
+            }
+            if (!match) {
+                m_commandLine.appendLine(
+                    QStringLiteral("*Invalid option, expected one of: %1*").arg(m_lispKeywords.join(QStringLiteral("/"))));
+                return;
+            }
+            m_lispInputResult = match->toStdString();
+        } else {
+            m_lispInputResult = trimmed.toStdString();
+        }
+        m_lispLoop->quit();
+        return;
     }
 
     if (m_activeCommand) {
@@ -476,6 +525,11 @@ void CommandDispatcher::handleCommandText(const QString& text) {
 
 void CommandDispatcher::handlePointPicked(const lcad::Point2D& pt, const std::optional<lcad::SnapRef>& snapRef,
                                           bool recordClick) {
+    if (m_lispLoop && m_lispWaitIsPoint) {
+        m_lispInputResult = QStringLiteral("%1,%2").arg(pt.x, 0, 'g', 15).arg(pt.y, 0, 'g', 15).toStdString();
+        m_lispLoop->quit();
+        return;
+    }
     if (!m_activeCommand) return;
     if (m_recording && recordClick) {
         m_recordingBuffer << QStringLiteral("%1,%2").arg(pt.x, 0, 'g', 15).arg(pt.y, 0, 'g', 15);
@@ -512,6 +566,11 @@ void CommandDispatcher::handleFinishRequested() {
 }
 
 void CommandDispatcher::handleEscape() {
+    if (m_lispLoop) {
+        m_lispWaitCancelled = true;
+        m_lispLoop->quit();
+        return;
+    }
     if (!m_activeCommand) return;
     m_activeCommand->cancel();
     finishCommand();
