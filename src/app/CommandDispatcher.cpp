@@ -14,6 +14,7 @@
 #include "commands/CircleCommand.h"
 #include "commands/CopyCommand.h"
 #include "commands/DataLinkCommand.h"
+#include "commands/LayerStateCommand.h"
 #include "commands/DimAngularCommand.h"
 #include "commands/DimCommand.h"
 #include "commands/DimRadialCommand.h"
@@ -356,6 +357,8 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         startCommand(std::make_unique<MLeaderStyleCommand>(m_document), QStringLiteral("MLEADERSTYLE"));
     } else if (cmd == QLatin1String("DATALINK") || cmd == QLatin1String("DL")) {
         startCommand(std::make_unique<DataLinkCommand>(m_document), QStringLiteral("DATALINK"));
+    } else if (cmd == QLatin1String("LAYERSTATE") || cmd == QLatin1String("LAS")) {
+        startCommand(std::make_unique<LayerStateCommand>(m_document), QStringLiteral("LAYERSTATE"));
     } else if (cmd == QLatin1String("TABLE") || cmd == QLatin1String("TB")) {
         startCommand(std::make_unique<TableCommand>(m_document), QStringLiteral("TABLE"));
     } else if (cmd == QLatin1String("TABLEDIT") || cmd == QLatin1String("TED")) {

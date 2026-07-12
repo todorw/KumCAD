@@ -30,6 +30,47 @@ const Layer* Document::findLayer(LayerId id) const {
     return it != m_layers.end() ? &(*it) : nullptr;
 }
 
+LayerState Document::captureLayerState(const std::string& name) const {
+    LayerState state;
+    state.name = name;
+    state.entries.reserve(m_layers.size());
+    for (const Layer& layer : m_layers) {
+        state.entries.push_back(
+            LayerStateEntry{layer.id, layer.visible, layer.locked, layer.color, layer.linetype, layer.lineweight});
+    }
+    return state;
+}
+
+void Document::saveLayerState(LayerState state) {
+    for (LayerState& existing : m_layerStates) {
+        if (existing.name == state.name) {
+            existing = std::move(state);
+            return;
+        }
+    }
+    m_layerStates.push_back(std::move(state));
+}
+
+void Document::applyLayerState(const LayerState& state) {
+    for (const LayerStateEntry& entry : state.entries) {
+        if (Layer* layer = findLayer(entry.layerId)) {
+            layer->visible = entry.visible;
+            layer->locked = entry.locked;
+            layer->color = entry.color;
+            layer->linetype = entry.linetype;
+            layer->lineweight = entry.lineweight;
+        }
+    }
+}
+
+bool Document::deleteLayerState(const std::string& name) {
+    const auto it = std::find_if(m_layerStates.begin(), m_layerStates.end(),
+                                 [&name](const LayerState& s) { return s.name == name; });
+    if (it == m_layerStates.end()) return false;
+    m_layerStates.erase(it);
+    return true;
+}
+
 void Document::addEntity(std::unique_ptr<Entity> entity) {
     const EntityId id = entity->id();
     if (m_activeSpace >= 0 && m_activeSpace < static_cast<int>(m_layouts.size())) {

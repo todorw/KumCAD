@@ -530,6 +530,24 @@ bool writeDxf(const Document& document, const std::string& path, std::string* er
         writeGroup(out, 41, geo->longitude);
         writeGroup(out, 50, geo->northRotation * 180.0 / M_PI);
     }
+    for (const LayerState& state : document.layerStates()) {
+        // Simplified LAYERSTATE (Layer States Manager): real AutoCAD stores
+        // these in an ACAD_LAYER_STATE_DICT extension dictionary; this uses
+        // a repeatable $KUMCAD_LAYERSTATE header pseudo-variable instead,
+        // one per saved state, group 1 name then one 90/290/280/420/6/40
+        // run per captured layer -- safely skipped by other DXF readers.
+        writeGroup(out, 9, "$KUMCAD_LAYERSTATE");
+        writeGroup(out, 1, state.name);
+        writeGroup(out, 70, static_cast<int>(state.entries.size()));
+        for (const LayerStateEntry& entry : state.entries) {
+            writeGroup(out, 90, static_cast<int>(entry.layerId));
+            writeGroup(out, 290, entry.visible ? 1 : 0);
+            writeGroup(out, 280, entry.locked ? 1 : 0);
+            writeGroup(out, 420, trueColor(entry.color));
+            writeGroup(out, 6, lineTypeName(entry.linetype));
+            writeGroup(out, 40, entry.lineweight);
+        }
+    }
     writeGroup(out, 0, "ENDSEC");
 
     writeGroup(out, 0, "SECTION");

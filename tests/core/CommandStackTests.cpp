@@ -190,6 +190,31 @@ TEST_CASE("SetLayoutsCommand undo/redo round-trips", "[commands][layout]") {
     REQUIRE(doc.layouts()[1].name == "Sheet 2");
 }
 
+TEST_CASE("RestoreLayerStateCommand undo/redo round-trips", "[commands][layerstate]") {
+    lcad::Document doc;
+    const lcad::LayerId wallsLayer = doc.addLayer("Walls", lcad::Color{255, 0, 0});
+    doc.saveLayerState("Base"); // visible+unlocked
+
+    doc.findLayer(wallsLayer)->visible = false;
+    doc.findLayer(wallsLayer)->locked = true;
+    doc.saveLayerState("Off"); // hidden+locked
+
+    doc.commandStack().execute(
+        std::make_unique<lcad::RestoreLayerStateCommand>(doc, doc.layerStates()[0])); // restore "Base"
+    REQUIRE(doc.findLayer(wallsLayer)->visible);
+    REQUIRE_FALSE(doc.findLayer(wallsLayer)->locked);
+
+    // Undo puts it back exactly where it was before the restore (hidden+locked),
+    // not wherever some other named state happens to leave it.
+    doc.commandStack().undo();
+    REQUIRE_FALSE(doc.findLayer(wallsLayer)->visible);
+    REQUIRE(doc.findLayer(wallsLayer)->locked);
+
+    doc.commandStack().redo();
+    REQUIRE(doc.findLayer(wallsLayer)->visible);
+    REQUIRE_FALSE(doc.findLayer(wallsLayer)->locked);
+}
+
 TEST_CASE("DeleteLayoutCommand undo restores the layout and its entities", "[commands][layout]") {
     lcad::Document doc;
     lcad::Layout second;

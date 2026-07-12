@@ -26,6 +26,7 @@ signals:
 
 private slots:
     void onAddLayer();
+    void onLayerStates();
     void onItemChanged(QListWidgetItem* item);
     void onCurrentRowChanged(int row);
     void onContextMenuRequested(const QPoint& pos);

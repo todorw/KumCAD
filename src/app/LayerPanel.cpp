@@ -1,7 +1,10 @@
 #include "LayerPanel.h"
 
+#include "LayerStatesDialog.h"
+
 #include <QAction>
 #include <QFont>
+#include <QHBoxLayout>
 #include <QInputDialog>
 #include <QLineEdit>
 #include <QListWidget>
@@ -35,17 +38,23 @@ LayerPanel::LayerPanel(lcad::Document& document, QWidget* parent) : QWidget(pare
     m_list = new QListWidget(this);
 
     auto* addButton = new QPushButton(QStringLiteral("Add Layer"), this);
+    auto* statesButton = new QPushButton(QStringLiteral("Layer States..."), this);
     connect(addButton, &QPushButton::clicked, this, &LayerPanel::onAddLayer);
+    connect(statesButton, &QPushButton::clicked, this, &LayerPanel::onLayerStates);
     connect(m_list, &QListWidget::itemChanged, this, &LayerPanel::onItemChanged);
     connect(m_list, &QListWidget::currentRowChanged, this, &LayerPanel::onCurrentRowChanged);
 
     m_list->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_list, &QListWidget::customContextMenuRequested, this, &LayerPanel::onContextMenuRequested);
 
+    auto* buttonRow = new QHBoxLayout();
+    buttonRow->addWidget(addButton);
+    buttonRow->addWidget(statesButton);
+
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(4, 4, 4, 4);
     layout->addWidget(m_list);
-    layout->addWidget(addButton);
+    layout->addLayout(buttonRow);
 
     refresh();
 }
@@ -90,6 +99,15 @@ void LayerPanel::onAddLayer() {
     m_document.setCurrentLayer(id);
     refresh();
     emit layersChanged();
+}
+
+void LayerPanel::onLayerStates() {
+    LayerStatesDialog dialog(m_document, this);
+    connect(&dialog, &LayerStatesDialog::layerStateApplied, this, [this] {
+        refresh();
+        emit layersChanged();
+    });
+    dialog.exec();
 }
 
 void LayerPanel::onItemChanged(QListWidgetItem* item) {

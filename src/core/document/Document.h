@@ -84,6 +84,19 @@ public:
     LayerId currentLayer() const { return m_currentLayer; }
     void setCurrentLayer(LayerId id) { m_currentLayer = id; }
 
+    // Layer States Manager (AutoCAD's LAYERSTATE): named snapshots of every
+    // layer's visibility/lock/color/linetype/lineweight. captureLayerState()
+    // builds one from the current layers (for saving, or for
+    // RestoreLayerStateCommand's undo snapshot) without touching
+    // m_layerStates; saveLayerState() stores it under a name, overwriting
+    // any existing state with that name.
+    const std::vector<LayerState>& layerStates() const { return m_layerStates; }
+    LayerState captureLayerState(const std::string& name) const;
+    void saveLayerState(const std::string& name) { saveLayerState(captureLayerState(name)); }
+    void saveLayerState(LayerState state);
+    void applyLayerState(const LayerState& state);
+    bool deleteLayerState(const std::string& name);
+
     // Entities. addEntity/removeEntity are the low-level primitives that Commands
     // (see Commands.h) wrap to make every mutation undoable. New entities land
     // in the active space: model space (activeSpace() == -1) or a layout's
@@ -211,6 +224,7 @@ public:
 
 private:
     std::vector<Layer> m_layers;
+    std::vector<LayerState> m_layerStates;
     LayerId m_nextLayerId = 1;
     LayerId m_currentLayer = 0;
 

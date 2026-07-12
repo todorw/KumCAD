@@ -111,6 +111,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
     std::string pendingDimStyle;
     bool haveGeo = false;
     GeoLocation pendingGeo;
+    std::vector<LayerState> pendingLayerStates;
 
     // STYLE table entry being accumulated.
     TextStyle curTextStyle;
@@ -791,6 +792,24 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
                 else if (g.code == 40) pendingGeo.latitude = toDouble(g.value);
                 else if (g.code == 41) pendingGeo.longitude = toDouble(g.value);
                 else if (g.code == 50) pendingGeo.northRotation = toDouble(g.value) * M_PI / 180.0;
+            } else if (curHeaderVar == "$KUMCAD_LAYERSTATE") {
+                if (g.code == 1) {
+                    pendingLayerStates.push_back(LayerState{});
+                    pendingLayerStates.back().name = g.value;
+                } else if (!pendingLayerStates.empty()) {
+                    LayerState& st = pendingLayerStates.back();
+                    if (g.code == 90) {
+                        st.entries.push_back(LayerStateEntry{});
+                        st.entries.back().layerId = static_cast<LayerId>(toInt(g.value));
+                    } else if (!st.entries.empty()) {
+                        LayerStateEntry& en = st.entries.back();
+                        if (g.code == 290) en.visible = toInt(g.value) != 0;
+                        else if (g.code == 280) en.locked = toInt(g.value) != 0;
+                        else if (g.code == 420) en.color = colorFromTrueColor(toInt(g.value));
+                        else if (g.code == 6) en.linetype = lineTypeFromName(g.value).value_or(LineType::Continuous);
+                        else if (g.code == 40) en.lineweight = toDouble(g.value, 0.25);
+                    }
+                }
             }
             continue;
         }
@@ -1067,6 +1086,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
     if (!pendingTextStyle.empty()) fresh.setCurrentTextStyle(pendingTextStyle);
     if (!pendingDimStyle.empty()) fresh.setCurrentDimStyle(pendingDimStyle);
     if (haveGeo) fresh.setGeoLocation(pendingGeo);
+    for (LayerState& state : pendingLayerStates) fresh.saveLayerState(std::move(state));
 
     document = std::move(fresh);
     return true;

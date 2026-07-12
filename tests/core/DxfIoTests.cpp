@@ -1169,3 +1169,47 @@ TEST_CASE("DXF round-trips block attributes (ATTDEF + INSERT/ATTRIB)", "[dxf][at
     REQUIRE(value);
     REQUIRE(*value == "P-123");
 }
+
+TEST_CASE("DXF round-trips saved layer states", "[dxf][layerstate]") {
+    TempDxfPath temp;
+
+    lcad::Document doc;
+    const lcad::LayerId wallsLayer = doc.addLayer("Walls", lcad::Color{200, 50, 50});
+    doc.findLayer(wallsLayer)->linetype = lcad::LineType::Dashed;
+    doc.findLayer(wallsLayer)->lineweight = 0.5;
+    doc.saveLayerState("Base");
+
+    doc.findLayer(wallsLayer)->visible = false;
+    doc.findLayer(wallsLayer)->locked = true;
+    doc.saveLayerState("Off");
+
+    REQUIRE(lcad::writeDxf(doc, temp.path.string()));
+    lcad::Document loaded;
+    REQUIRE(lcad::readDxf(loaded, temp.path.string()));
+
+    REQUIRE(loaded.layerStates().size() == 2);
+    REQUIRE(loaded.layerStates()[0].name == "Base");
+    REQUIRE(loaded.layerStates()[1].name == "Off");
+
+    const auto& baseEntries = loaded.layerStates()[0].entries;
+    REQUIRE(baseEntries.size() == 2); // "0" and "Walls"
+    const auto wallsEntry =
+        std::find_if(baseEntries.begin(), baseEntries.end(), [&](const lcad::LayerStateEntry& e) { return e.layerId == wallsLayer; });
+    REQUIRE(wallsEntry != baseEntries.end());
+    REQUIRE(wallsEntry->visible);
+    REQUIRE_FALSE(wallsEntry->locked);
+    REQUIRE(wallsEntry->linetype == lcad::LineType::Dashed);
+    REQUIRE(wallsEntry->lineweight == Approx(0.5));
+
+    const auto& offEntries = loaded.layerStates()[1].entries;
+    const auto wallsOff =
+        std::find_if(offEntries.begin(), offEntries.end(), [&](const lcad::LayerStateEntry& e) { return e.layerId == wallsLayer; });
+    REQUIRE(wallsOff != offEntries.end());
+    REQUIRE_FALSE(wallsOff->visible);
+    REQUIRE(wallsOff->locked);
+
+    // Applying the round-tripped "Base" state actually restores the layer.
+    loaded.applyLayerState(loaded.layerStates()[0]);
+    REQUIRE(loaded.findLayer(wallsLayer)->visible);
+    REQUIRE_FALSE(loaded.findLayer(wallsLayer)->locked);
+}

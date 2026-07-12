@@ -410,6 +410,29 @@ private:
     std::string m_oldValue;
 };
 
+// Undoable restore of a saved LayerState (LAYERSTATE / Layer States
+// Manager): captures the current layers as its own "before" snapshot on
+// execute, so undo puts every layer's visibility/lock/color/linetype/
+// lineweight back exactly where it was, not just where the previous named
+// state left them.
+class RestoreLayerStateCommand : public Command {
+public:
+    RestoreLayerStateCommand(Document& document, LayerState target)
+        : m_document(document), m_target(std::move(target)) {}
+
+    void execute() override {
+        m_before = m_document.captureLayerState("");
+        m_document.applyLayerState(m_target);
+    }
+    void undo() override { m_document.applyLayerState(m_before); }
+    std::string description() const override { return "Restore Layer State \"" + m_target.name + "\""; }
+
+private:
+    Document& m_document;
+    LayerState m_target;
+    LayerState m_before;
+};
+
 // Undoable replacement of the whole layouts vector (LAYOUT New/Copy/Rename,
 // MVIEW, VPSCALE, PAGESETUP): simpler than fine-grained per-field commands
 // since Layout and Viewport are small copyable value types with no owned

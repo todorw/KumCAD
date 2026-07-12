@@ -20,6 +20,8 @@ add_executable(kumcad
     IconFactory.cpp
     LayerPanel.h
     LayerPanel.cpp
+    LayerStatesDialog.h
+    LayerStatesDialog.cpp
     PropertiesPanel.h
     PropertiesPanel.cpp
     ToolPalette.h
@@ -132,6 +134,8 @@ add_executable(kumcad
     commands/DimRadialCommand.cpp
     commands/DataLinkCommand.h
     commands/DataLinkCommand.cpp
+    commands/LayerStateCommand.h
+    commands/LayerStateCommand.cpp
     commands/DimAngularCommand.h
     commands/DimAngularCommand.cpp
     commands/DimStyleCommand.h

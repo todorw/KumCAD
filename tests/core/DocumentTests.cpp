@@ -165,3 +165,42 @@ TEST_CASE("Groups select together and purge drops unused blocks and layers", "[d
     REQUIRE(purged.layers == 1);
     REQUIRE(doc.findBlock("unused") == nullptr);
 }
+
+TEST_CASE("Layer states capture, save, apply, and delete", "[document][layerstate]") {
+    lcad::Document doc;
+    const lcad::LayerId wallsLayer = doc.addLayer("Walls", lcad::Color{255, 0, 0});
+    REQUIRE(doc.layerStates().empty());
+
+    doc.saveLayerState("Base");
+    REQUIRE(doc.layerStates().size() == 1);
+    REQUIRE(doc.layerStates()[0].name == "Base");
+    REQUIRE(doc.layerStates()[0].entries.size() == doc.layers().size());
+
+    // Change the layer, then apply the saved state back over it.
+    lcad::Layer* walls = doc.findLayer(wallsLayer);
+    walls->visible = false;
+    walls->locked = true;
+    doc.applyLayerState(doc.layerStates()[0]);
+    REQUIRE(doc.findLayer(wallsLayer)->visible);
+    REQUIRE_FALSE(doc.findLayer(wallsLayer)->locked);
+
+    // Saving under the same name overwrites rather than duplicating.
+    doc.saveLayerState("Base");
+    REQUIRE(doc.layerStates().size() == 1);
+
+    REQUIRE(doc.deleteLayerState("Base"));
+    REQUIRE(doc.layerStates().empty());
+    REQUIRE_FALSE(doc.deleteLayerState("Base")); // already gone
+}
+
+TEST_CASE("Applying a layer state skips entries for since-deleted layers", "[document][layerstate]") {
+    lcad::Document doc;
+    const lcad::LayerId wallsLayer = doc.addLayer("Walls", lcad::Color{255, 0, 0});
+    doc.saveLayerState("Base");
+    REQUIRE(doc.purge().layers == 1); // "Walls" is empty and unused, so purge drops it
+
+    // Applying the state must not crash or resurrect the deleted layer.
+    doc.applyLayerState(doc.layerStates()[0]);
+    REQUIRE(doc.findLayer(wallsLayer) == nullptr);
+    REQUIRE(doc.layers().size() == 1);
+}
