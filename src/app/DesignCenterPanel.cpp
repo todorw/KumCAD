@@ -16,7 +16,7 @@ DesignCenterPanel::DesignCenterPanel(lcad::Document& document, QWidget* parent) 
     connect(m_list, &QListWidget::itemDoubleClicked, this, &DesignCenterPanel::onItemDoubleClicked);
 
     auto* hint = new QLabel(
-        QStringLiteral("Browse a drawing, then double-click a block or layer to copy it into this drawing."), this);
+        QStringLiteral("Browse a drawing, then double-click an item to copy it into this drawing."), this);
     hint->setWordWrap(true);
     hint->setStyleSheet(QStringLiteral("color: #888;"));
 
@@ -66,6 +66,24 @@ void DesignCenterPanel::refreshList() {
         item->setData(Qt::UserRole, QStringLiteral("layer"));
         item->setData(Qt::UserRole + 1, QString::fromStdString(layer.name));
     }
+    for (const lcad::NamedDimStyle& style : m_source.dimStyles()) {
+        auto* item =
+            new QListWidgetItem(QStringLiteral("[Dim Style] %1").arg(QString::fromStdString(style.name)), m_list);
+        item->setData(Qt::UserRole, QStringLiteral("dimstyle"));
+        item->setData(Qt::UserRole + 1, QString::fromStdString(style.name));
+    }
+    for (const lcad::TextStyle& style : m_source.textStyles()) {
+        auto* item =
+            new QListWidgetItem(QStringLiteral("[Text Style] %1").arg(QString::fromStdString(style.name)), m_list);
+        item->setData(Qt::UserRole, QStringLiteral("textstyle"));
+        item->setData(Qt::UserRole + 1, QString::fromStdString(style.name));
+    }
+    for (const lcad::NamedMLeaderStyle& style : m_source.mleaderStyles()) {
+        auto* item = new QListWidgetItem(
+            QStringLiteral("[MLeader Style] %1").arg(QString::fromStdString(style.name)), m_list);
+        item->setData(Qt::UserRole, QStringLiteral("mleaderstyle"));
+        item->setData(Qt::UserRole + 1, QString::fromStdString(style.name));
+    }
 }
 
 void DesignCenterPanel::onItemDoubleClicked(QListWidgetItem* item) {
@@ -74,6 +92,9 @@ void DesignCenterPanel::onItemDoubleClicked(QListWidgetItem* item) {
     const std::string name = item->data(Qt::UserRole + 1).toString().toStdString();
     if (kind == QStringLiteral("block")) importBlock(name);
     else if (kind == QStringLiteral("layer")) importLayer(name);
+    else if (kind == QStringLiteral("dimstyle")) importDimStyle(name);
+    else if (kind == QStringLiteral("textstyle")) importTextStyle(name);
+    else if (kind == QStringLiteral("mleaderstyle")) importMLeaderStyle(name);
 }
 
 void DesignCenterPanel::importBlock(const std::string& name) {
@@ -109,6 +130,36 @@ void DesignCenterPanel::importLayer(const std::string& name) {
             target->linetype = source.linetype;
             target->lineweight = source.lineweight;
         }
+        break;
+    }
+    emit documentImported();
+}
+
+void DesignCenterPanel::importDimStyle(const std::string& name) {
+    if (m_document.findDimStyle(name)) return; // already present, leave it as-is
+    for (const lcad::NamedDimStyle& source : m_source.dimStyles()) {
+        if (source.name != name) continue;
+        m_document.addOrUpdateDimStyle(source.name, source.style);
+        break;
+    }
+    emit documentImported();
+}
+
+void DesignCenterPanel::importTextStyle(const std::string& name) {
+    if (m_document.findTextStyle(name)) return; // already present, leave it as-is
+    for (const lcad::TextStyle& source : m_source.textStyles()) {
+        if (source.name != name) continue;
+        m_document.addOrUpdateTextStyle(source);
+        break;
+    }
+    emit documentImported();
+}
+
+void DesignCenterPanel::importMLeaderStyle(const std::string& name) {
+    if (m_document.findMLeaderStyle(name)) return; // already present, leave it as-is
+    for (const lcad::NamedMLeaderStyle& source : m_source.mleaderStyles()) {
+        if (source.name != name) continue;
+        m_document.addOrUpdateMLeaderStyle(source.name, source.style);
         break;
     }
     emit documentImported();
