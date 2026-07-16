@@ -5,7 +5,15 @@
 #include <cstdint>
 #include <cstring>
 #include <fstream>
+#include <mutex>
 #include <sstream>
+
+#ifdef LCAD_HAS_LASZIP
+// Selects the laszip/laszip_common.h (subdirectory) include path rather than
+// the flat laszip_common.h the header falls back to otherwise.
+#define LASZIP_API_VERSION
+#include <laszip/laszip_api.h>
+#endif
 
 namespace lcad {
 
@@ -131,6 +139,80 @@ std::vector<Point2D> readPointCloudLas(const std::string& path, std::size_t maxP
     return points;
 }
 
+#ifdef LCAD_HAS_LASZIP
+
+bool lazSupportAvailable() { return true; }
+
+namespace {
+// This build's liblaszip_api dispatches every call through a function-
+// pointer table that's null until laszip_load_dll() populates it -- without
+// this, laszip_create() (and everything else) just returns failure. Safe to
+// call more than once; std::call_once keeps it to a single real call.
+void ensureLaszipLoaded() {
+    static std::once_flag loaded;
+    std::call_once(loaded, [] { laszip_load_dll(); });
+}
+} // namespace
+
+std::vector<Point2D> readPointCloudLaz(const std::string& path, std::size_t maxPoints) {
+    ensureLaszipLoaded();
+    laszip_POINTER reader = nullptr;
+    if (laszip_create(&reader) || !reader) return {};
+
+    laszip_BOOL isCompressed = 0;
+    if (laszip_open_reader(reader, path.c_str(), &isCompressed)) {
+        laszip_destroy(reader);
+        return {};
+    }
+
+    laszip_header_struct* header = nullptr;
+    laszip_point_struct* point = nullptr;
+    if (laszip_get_header_pointer(reader, &header) || !header || laszip_get_point_pointer(reader, &point) ||
+        !point) {
+        laszip_close_reader(reader);
+        laszip_destroy(reader);
+        return {};
+    }
+
+    std::uint64_t numPoints = header->number_of_point_records;
+    if (numPoints == 0) numPoints = header->extended_number_of_point_records;
+    if (numPoints == 0) {
+        laszip_close_reader(reader);
+        laszip_destroy(reader);
+        return {};
+    }
+
+    const double xScale = header->x_scale_factor;
+    const double yScale = header->y_scale_factor;
+    const double xOffset = header->x_offset;
+    const double yOffset = header->y_offset;
+    const std::size_t stride =
+        std::max<std::size_t>(1, static_cast<std::size_t>(numPoints) / std::max<std::size_t>(1, maxPoints));
+
+    std::vector<Point2D> points;
+    points.reserve(std::min<std::size_t>(static_cast<std::size_t>(numPoints), maxPoints) + 1);
+    for (std::uint64_t i = 0; i < numPoints; ++i) {
+        if (laszip_read_point(reader)) break;
+        if (i % stride == 0) points.push_back(Point2D(point->X * xScale + xOffset, point->Y * yScale + yOffset));
+    }
+
+    laszip_close_reader(reader);
+    laszip_destroy(reader);
+    return points;
+}
+
+#else // !LCAD_HAS_LASZIP
+
+bool lazSupportAvailable() { return false; }
+
+std::vector<Point2D> readPointCloudLaz(const std::string& path, std::size_t maxPoints) {
+    (void)path;
+    (void)maxPoints;
+    return {};
+}
+
+#endif // LCAD_HAS_LASZIP
+
 std::vector<Point2D> readPointCloudFile(const std::string& path, std::size_t maxPoints) {
     std::string ext;
     const auto dot = path.find_last_of('.');
@@ -138,7 +220,9 @@ std::vector<Point2D> readPointCloudFile(const std::string& path, std::size_t max
         ext = path.substr(dot + 1);
         for (char& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     }
-    return ext == "las" ? readPointCloudLas(path, maxPoints) : readPointCloudXyz(path, maxPoints);
+    if (ext == "las") return readPointCloudLas(path, maxPoints);
+    if (ext == "laz") return readPointCloudLaz(path, maxPoints);
+    return readPointCloudXyz(path, maxPoints);
 }
 
 } // namespace lcad

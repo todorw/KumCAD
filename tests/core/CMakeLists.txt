@@ -35,6 +35,19 @@ if(LCAD_ENABLE_DWG)
     endif()
 endif()
 
+# PointCloudFileTests.cpp writes a real LAZ fixture via LASzip itself (rather
+# than a checked-in binary blob) when LASzip is available; mirror lcad_core's
+# own (private) LASzip detection here for that.
+if(LCAD_ENABLE_LASZIP)
+    find_path(LASZIP_INCLUDE_DIR laszip/laszip_api.h)
+    find_library(LASZIP_LIBRARY laszip_api)
+    if(LASZIP_INCLUDE_DIR AND LASZIP_LIBRARY)
+        target_include_directories(lcad_core_tests PRIVATE ${LASZIP_INCLUDE_DIR})
+        target_link_libraries(lcad_core_tests PRIVATE ${LASZIP_LIBRARY})
+        target_compile_definitions(lcad_core_tests PRIVATE LCAD_HAS_LASZIP)
+    endif()
+endif()
+
 include(CTest)
 include(Catch)
 catch_discover_tests(lcad_core_tests)

@@ -7,6 +7,12 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
+
+#ifdef LCAD_HAS_LASZIP
+#define LASZIP_API_VERSION
+#include <laszip/laszip_api.h>
+#endif
 
 using Catch::Approx;
 
@@ -89,6 +95,56 @@ std::string buildLasFile(const std::vector<std::pair<std::int32_t, std::int32_t>
     }
     return h;
 }
+
+#ifdef LCAD_HAS_LASZIP
+struct TempLazPath {
+    std::filesystem::path path =
+        std::filesystem::temp_directory_path() / ("kumcad_laz_test_" + std::to_string(std::rand()) + ".laz");
+    ~TempLazPath() { std::filesystem::remove(path); }
+};
+
+// Writes a genuinely LZ-compressed LAZ file via LASzip itself (rather than a
+// checked-in binary fixture), so the round trip through readPointCloudLaz
+// exercises real compression/decompression, not just a header parse.
+void writeLazFile(const std::filesystem::path& path,
+                   const std::vector<std::pair<std::int32_t, std::int32_t>>& rawXY, double scale = 0.01,
+                   double offsetX = 0.0, double offsetY = 0.0) {
+    static std::once_flag loaded;
+    std::call_once(loaded, [] { laszip_load_dll(); });
+
+    laszip_POINTER writer = nullptr;
+    REQUIRE(laszip_create(&writer) == 0);
+
+    laszip_header_struct header{};
+    header.version_major = 1;
+    header.version_minor = 2;
+    header.header_size = 227;
+    header.offset_to_point_data = 227;
+    header.point_data_format = 0;
+    header.point_data_record_length = 20;
+    header.number_of_point_records = static_cast<laszip_U32>(rawXY.size());
+    header.x_scale_factor = scale;
+    header.y_scale_factor = scale;
+    header.z_scale_factor = 1.0;
+    header.x_offset = offsetX;
+    header.y_offset = offsetY;
+    REQUIRE(laszip_set_header(writer, &header) == 0);
+
+    laszip_point_struct* point = nullptr;
+    REQUIRE(laszip_get_point_pointer(writer, &point) == 0);
+    REQUIRE(laszip_open_writer(writer, path.string().c_str(), 1) == 0);
+
+    for (const auto& [rx, ry] : rawXY) {
+        point->X = rx;
+        point->Y = ry;
+        point->Z = 0;
+        REQUIRE(laszip_write_point(writer) == 0);
+    }
+
+    REQUIRE(laszip_close_writer(writer) == 0);
+    REQUIRE(laszip_destroy(writer) == 0);
+}
+#endif
 
 } // namespace
 
@@ -177,3 +233,55 @@ TEST_CASE("readPointCloudFile dispatches by extension", "[pointcloud]") {
     REQUIRE(xyzPoints[0].x == Approx(1.0));
     REQUIRE(xyzPoints[0].y == Approx(2.0));
 }
+
+#ifdef LCAD_HAS_LASZIP
+
+TEST_CASE("lazSupportAvailable reports true when built with LASzip", "[pointcloud][laz]") {
+    REQUIRE(lcad::lazSupportAvailable());
+}
+
+TEST_CASE("readPointCloudLaz descales X/Y through the header's scale and offset", "[pointcloud][laz]") {
+    TempLazPath temp;
+    // Raw integers 100/200 with scale 0.01 and offset 5.0/-3.0 -> (6.0, -1.0).
+    writeLazFile(temp.path, {{100, 200}, {300, -400}}, 0.01, 5.0, -3.0);
+
+    const auto points = lcad::readPointCloudLaz(temp.path.string());
+    REQUIRE(points.size() == 2);
+    REQUIRE(points[0].x == Approx(6.0));
+    REQUIRE(points[0].y == Approx(-1.0));
+    REQUIRE(points[1].x == Approx(8.0));
+    REQUIRE(points[1].y == Approx(-7.0));
+}
+
+TEST_CASE("readPointCloudLaz decimates evenly when over the cap", "[pointcloud][laz]") {
+    TempLazPath temp;
+    std::vector<std::pair<std::int32_t, std::int32_t>> raw;
+    for (int i = 0; i < 1000; ++i) raw.emplace_back(i, 0);
+    writeLazFile(temp.path, raw);
+
+    const auto points = lcad::readPointCloudLaz(temp.path.string(), 100);
+    REQUIRE(points.size() <= 101);
+    REQUIRE(points.size() >= 90);
+    REQUIRE(points.front().x == Approx(0.0));
+    REQUIRE(points[1].x > points[0].x);
+}
+
+TEST_CASE("readPointCloudLaz returns empty for a missing or non-LAZ file", "[pointcloud][laz]") {
+    REQUIRE(lcad::readPointCloudLaz("/no/such/file.laz").empty());
+
+    TempLazPath temp;
+    writeFile(temp.path, "not a laz file, way too short");
+    REQUIRE(lcad::readPointCloudLaz(temp.path.string()).empty());
+}
+
+TEST_CASE("readPointCloudFile dispatches .laz to the LASzip reader", "[pointcloud][laz]") {
+    TempLazPath temp;
+    writeLazFile(temp.path, {{100, 200}}, 0.01, 0.0, 0.0);
+
+    const auto points = lcad::readPointCloudFile(temp.path.string());
+    REQUIRE(points.size() == 1);
+    REQUIRE(points[0].x == Approx(1.0));
+    REQUIRE(points[0].y == Approx(2.0));
+}
+
+#endif // LCAD_HAS_LASZIP
