@@ -230,7 +230,11 @@ endif()
 if(LCAD_ENABLE_3D)
     find_package(OpenCASCADE QUIET)
     if(OpenCASCADE_FOUND)
-        target_sources(kumcad PRIVATE Viewport3D.h Viewport3D.cpp Window3D.h Window3D.cpp)
+        target_sources(kumcad PRIVATE
+            Viewport3D.h Viewport3D.cpp
+            Window3D.h Window3D.cpp
+            SketchView.h SketchView.cpp
+            SketchEditorDialog.h SketchEditorDialog.cpp)
         target_compile_definitions(kumcad PRIVATE LCAD_HAS_OCCT)
     endif()
 endif()

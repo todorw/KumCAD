@@ -151,3 +151,13 @@ TEST_CASE("solveSketch satisfies a Tangent constraint between a line and a circl
     const double radius = sketch.circles()[static_cast<std::size_t>(circle)].radius;
     REQUIRE(std::abs(c.y) == Approx(radius).margin(1e-6));
 }
+
+TEST_CASE("solveSketch dimensions a circle's radius directly", "[sketch][solver]") {
+    Sketch sketch;
+    const int center = sketch.addPoint(Point2D(5, 5), true);
+    const int circle = sketch.addCircle(center, 2.0); // starts at radius 2
+    sketch.addConstraint({SketchConstraintType::Radius, circle, -1, -1, -1, 7.5});
+
+    REQUIRE(solveSketch(sketch).converged);
+    REQUIRE(sketch.circles()[static_cast<std::size_t>(circle)].radius == Approx(7.5).margin(1e-6));
+}

@@ -7,11 +7,11 @@
 class Viewport3D;
 class QListWidget;
 
-// A minimal host window for Viewport3D plus a real (if basic) feature-tree
-// panel over Document3D -- Phase 2 Sprint 1 (primitives/booleans/undo). The
-// full feature-tree UI (parameter editing dialogs, drag-reorder, etc.) is
-// later-sprint polish; this is "prove the core works end to end from the
-// app, not just from tests."
+// A host window for Viewport3D plus a real feature-tree panel over
+// Document3D -- Phase 2 Sprints 1 (primitives/booleans/undo/param editing)
+// and 2 (sketch editor, launched from here). Drag-reorder and a richer
+// tree view are later-sprint polish; this is "prove the core works end to
+// end from the app, not just from tests."
 class Window3D : public QMainWindow {
     Q_OBJECT
 public:
@@ -20,6 +20,8 @@ public:
 private:
     void addPrimitive(lcad::FeatureType type);
     void applyBoolean(lcad::FeatureType type);
+    void editSelectedFeature();
+    void openSketchEditor();
     void undo();
     void redo();
     void refreshFeatureList();

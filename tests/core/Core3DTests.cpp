@@ -215,3 +215,19 @@ TEST_CASE("Document3D's CommandStack restores a removed feature to its exact ori
     REQUIRE(doc.isValid(0));
     REQUIRE(doc.isValid(1));
 }
+
+TEST_CASE("Document3D stores finished sketches for a later sketch-based feature to consume",
+         "[core3d][sketch]") {
+    Document3D doc;
+    REQUIRE(doc.sketches().empty());
+
+    Sketch sketch;
+    sketch.addPoint(Point2D(0, 0), true);
+    sketch.addPoint(Point2D(10, 0));
+    sketch.addLine(0, 1);
+
+    const int index = doc.addSketch(sketch);
+    REQUIRE(index == 0);
+    REQUIRE(doc.sketches().size() == 1);
+    REQUIRE(doc.sketches()[0].lines().size() == 1);
+}

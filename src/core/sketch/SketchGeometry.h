@@ -37,6 +37,7 @@ enum class SketchConstraintType {
     Perpendicular, // geomA, geomB (lines) have perpendicular directions
     Equal,        // geomA, geomB (lines) have equal length
     Tangent,      // geomA (line) is tangent to geomB (circle) -- line-circle only, not circle-circle, in this pass
+    Radius,       // geomA (circle) has radius == value -- how a circle gets dimensioned
 };
 
 struct SketchConstraint {
@@ -59,6 +60,7 @@ public:
     std::vector<Point2D>& points() { return m_points; }
     const std::vector<bool>& pointFixed() const { return m_fixed; }
     const std::vector<SketchLine>& lines() const { return m_lines; }
+    std::vector<SketchLine>& lines() { return m_lines; }
     const std::vector<SketchCircle>& circles() const { return m_circles; }
     std::vector<SketchCircle>& circles() { return m_circles; }
     const std::vector<SketchConstraint>& constraints() const { return m_constraints; }

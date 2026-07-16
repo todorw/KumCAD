@@ -2,6 +2,7 @@
 
 #include "core/core3d/Feature3D.h"
 #include "core/document/Command.h"
+#include "core/sketch/SketchGeometry.h"
 
 #include <TopoDS_Shape.hxx>
 
@@ -49,11 +50,20 @@ public:
 
     CommandStack& commandStack() { return m_commandStack; }
 
+    // Sketches finished in the sketch editor (Phase 2 Sprint 2), kept here
+    // so a later sketch-based feature (Pad/Pocket/Revolve -- Sprint 3) has
+    // something concrete to reference by index. Not undoable yet (no
+    // Command wrapper) and not itself a dependency the feature-tree
+    // recompute engine understands -- that wiring is Sprint 3's job.
+    int addSketch(Sketch sketch);
+    const std::vector<Sketch>& sketches() const { return m_sketches; }
+
 private:
     std::vector<Feature3D> m_features;
     std::vector<TopoDS_Shape> m_shapes;
     std::vector<bool> m_valid;
     CommandStack m_commandStack;
+    std::vector<Sketch> m_sketches;
 
     void recomputeOne(int index);
 };

@@ -74,6 +74,11 @@ void Document3D::insertFeatureAt(int index, Feature3D feature) {
     for (std::size_t i = static_cast<std::size_t>(index); i < m_features.size(); ++i) recomputeOne(static_cast<int>(i));
 }
 
+int Document3D::addSketch(Sketch sketch) {
+    m_sketches.push_back(std::move(sketch));
+    return static_cast<int>(m_sketches.size()) - 1;
+}
+
 const Feature3D* Document3D::findFeature(int index) const {
     if (index < 0 || index >= static_cast<int>(m_features.size())) return nullptr;
     return &m_features[static_cast<std::size_t>(index)];

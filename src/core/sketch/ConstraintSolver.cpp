@@ -137,6 +137,10 @@ std::vector<double> computeResidual(const Sketch& sketch, const VariableMap& var
             r.push_back(a1.distanceTo(a2) - b1.distanceTo(b2));
             break;
         }
+        case SketchConstraintType::Radius: {
+            r.push_back(radiusAt(sketch, vars, c.geomA, x) - c.value);
+            break;
+        }
         case SketchConstraintType::Tangent: {
             const SketchLine& line = sketch.lines()[static_cast<std::size_t>(c.geomA)];
             const SketchCircle& circle = sketch.circles()[static_cast<std::size_t>(c.geomB)];
