@@ -30,9 +30,14 @@ public:
 
     bool isAvailable() const { return m_available; }
 
-    // Displays shape in the viewer and fits the view to it. No-op if
-    // !isAvailable().
+    // Displays shape in the viewer. No-op if !isAvailable().
     void displayShape(const TopoDS_Shape& shape);
+
+    // Removes every currently displayed shape.
+    void clearShapes();
+
+    // Fits the view to whatever's currently displayed.
+    void fitAll();
 
 protected:
     QPaintEngine* paintEngine() const override { return nullptr; } // OCCT paints natively, not via QPainter

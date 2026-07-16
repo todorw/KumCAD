@@ -61,6 +61,15 @@ void Viewport3D::displayShape(const TopoDS_Shape& shape) {
     if (!m_available) return;
     Handle(AIS_Shape) presentation = new AIS_Shape(shape);
     m_context->Display(presentation, Standard_True);
+}
+
+void Viewport3D::clearShapes() {
+    if (!m_available) return;
+    m_context->RemoveAll(Standard_True);
+}
+
+void Viewport3D::fitAll() {
+    if (!m_available) return;
     m_view->FitAll();
 }
 

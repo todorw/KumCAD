@@ -183,9 +183,10 @@ if(LCAD_ENABLE_3D)
             TKPrim TKBO TKMesh TKService TKV3d TKOpenGl)
         target_compile_definitions(lcad_core PUBLIC LCAD_HAS_OCCT)
         target_sources(lcad_core PRIVATE
-            core3d/Shape3D.h
+            core3d/Feature3D.h
             core3d/Document3D.h
-            core3d/Document3D.cpp)
+            core3d/Document3D.cpp
+            core3d/Commands3D.h)
         message(STATUS "3D modeling core enabled (OpenCASCADE ${OpenCASCADE_VERSION})")
     else()
         message(STATUS "OpenCASCADE not found; building without the 3D modeling core")
