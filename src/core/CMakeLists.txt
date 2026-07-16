@@ -99,6 +99,12 @@ add_library(lcad_core STATIC
     util/Expr.cpp
     lisp/LispInterpreter.h
     lisp/LispInterpreter.cpp
+    sketch/SketchGeometry.h
+    sketch/SketchGeometry.cpp
+    sketch/LinearSolve.h
+    sketch/LinearSolve.cpp
+    sketch/ConstraintSolver.h
+    sketch/ConstraintSolver.cpp
     document/Layer.h
     document/Layout.h
     document/LineType.h
