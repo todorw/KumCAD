@@ -62,7 +62,7 @@ endif()
 if(LCAD_ENABLE_3D)
     find_package(OpenCASCADE QUIET)
     if(OpenCASCADE_FOUND)
-        target_sources(lcad_core_tests PRIVATE Core3DTests.cpp)
+        target_sources(lcad_core_tests PRIVATE Core3DTests.cpp SketchToFaceTests.cpp SketchFeatureTests.cpp)
     endif()
 endif()
 

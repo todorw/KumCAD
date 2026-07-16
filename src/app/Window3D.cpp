@@ -1,5 +1,6 @@
 #include "Window3D.h"
 #include "SketchEditorDialog.h"
+#include "SketchFeatureDialog.h"
 #include "SketchView.h"
 #include "Viewport3D.h"
 
@@ -34,6 +35,13 @@ QString typeName(FeatureType type) {
     case FeatureType::Union: return QStringLiteral("Union");
     case FeatureType::Cut: return QStringLiteral("Cut");
     case FeatureType::Intersect: return QStringLiteral("Intersect");
+    case FeatureType::Pad: return QStringLiteral("Pad");
+    case FeatureType::Revolve: return QStringLiteral("Revolve");
+    case FeatureType::Fillet: return QStringLiteral("Fillet");
+    case FeatureType::Chamfer: return QStringLiteral("Chamfer");
+    case FeatureType::LinearPattern: return QStringLiteral("Linear Pattern");
+    case FeatureType::PolarPattern: return QStringLiteral("Polar Pattern");
+    case FeatureType::Mirror: return QStringLiteral("Mirror");
     }
     return QStringLiteral("Feature");
 }
@@ -138,6 +146,7 @@ Window3D::Window3D(QWidget* parent) : QMainWindow(parent) {
     toolbar->addSeparator();
     toolbar->addAction(QStringLiteral("Edit..."), this, &Window3D::editSelectedFeature);
     toolbar->addAction(QStringLiteral("New Sketch..."), this, &Window3D::openSketchEditor);
+    toolbar->addAction(QStringLiteral("Add Sketch Feature..."), this, &Window3D::addSketchFeature);
     toolbar->addSeparator();
     toolbar->addAction(QStringLiteral("Undo"), this, &Window3D::undo);
     toolbar->addAction(QStringLiteral("Redo"), this, &Window3D::redo);
@@ -244,6 +253,15 @@ void Window3D::openSketchEditor() {
                                   .arg(sketch.circles().size()),
                               6000);
     refreshFeatureList();
+}
+
+void Window3D::addSketchFeature() {
+    SketchFeatureDialog dialog(m_document, this);
+    if (dialog.exec() != QDialog::Accepted) return;
+
+    m_document.commandStack().execute(std::make_unique<AddFeature3DCommand>(m_document, dialog.result()));
+    refreshFeatureList();
+    refreshViewport();
 }
 
 void Window3D::undo() {

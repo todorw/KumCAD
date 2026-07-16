@@ -234,7 +234,8 @@ if(LCAD_ENABLE_3D)
             Viewport3D.h Viewport3D.cpp
             Window3D.h Window3D.cpp
             SketchView.h SketchView.cpp
-            SketchEditorDialog.h SketchEditorDialog.cpp)
+            SketchEditorDialog.h SketchEditorDialog.cpp
+            SketchFeatureDialog.h SketchFeatureDialog.cpp)
         target_compile_definitions(kumcad PRIVATE LCAD_HAS_OCCT)
     endif()
 endif()

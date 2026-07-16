@@ -22,6 +22,7 @@ private:
     void applyBoolean(lcad::FeatureType type);
     void editSelectedFeature();
     void openSketchEditor();
+    void addSketchFeature();
     void undo();
     void redo();
     void refreshFeatureList();
