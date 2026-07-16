@@ -4,7 +4,10 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
-add_executable(kumcad
+# WIN32 has no effect except when actually targeting Windows (e.g. the mingw
+# cross-compile in packaging/windows/) -- it builds a GUI subsystem exe there
+# instead of a console one, so kumcad.exe doesn't pop a console window.
+add_executable(kumcad WIN32
     main.cpp
     MainWindow.h
     MainWindow.cpp
@@ -172,6 +175,22 @@ add_executable(kumcad
 
 target_include_directories(kumcad PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(kumcad PRIVATE lcad_core Qt6::Widgets Qt6::OpenGLWidgets Qt6::PrintSupport)
+
+if(MINGW)
+    # Qt's prebuilt static EntryPoint (WinMain wrapper, needed since kumcad is
+    # a WIN32 executable) references __argc as a plain imported data symbol,
+    # which only the "-os" msvcrt import lib provides -- the generic
+    # libmsvcrt.a this toolchain links by default only exposes the
+    # __p___argc() accessor. Qt's own finalizer appends its EntryPoint
+    # dependency to the link line *after* anything this file's
+    # target_link_libraries() calls add, so a plain "-lmsvcrt-os" here would
+    # sit before it on the command line and never get rescanned by ld once
+    # EntryPoint's undefined reference shows up later. Wrapping the whole
+    # <LINK_LIBRARIES> set in --start-group/--end-group makes ld keep
+    # rescanning until everything resolves, regardless of order.
+    string(REPLACE "<LINK_LIBRARIES>" "-Wl,--start-group <LINK_LIBRARIES> -lmsvcrt-os -Wl,--end-group"
+           CMAKE_CXX_LINK_EXECUTABLE "${CMAKE_CXX_LINK_EXECUTABLE}")
+endif()
 
 # Optional PDF underlay (PDFATTACH) via Poppler's Qt6 binding.
 option(LCAD_ENABLE_PDF "Enable PDF underlay rasterization via Poppler-Qt6 if available" ON)

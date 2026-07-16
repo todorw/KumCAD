@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=KumCAD
+Comment=Free, DXF/DWG-compatible 2D CAD application
+Exec=kumcad %f
+Icon=kumcad
+Categories=Graphics;Engineering;2DGraphics;
+Terminal=false
