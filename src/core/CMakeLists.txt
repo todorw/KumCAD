@@ -187,7 +187,7 @@ if(LCAD_ENABLE_3D)
         target_link_libraries(lcad_core PUBLIC
             TKernel TKMath TKG2d TKG3d TKGeomBase TKGeomAlgo TKBRep TKTopAlgo
             TKPrim TKBO TKMesh TKService TKV3d TKOpenGl TKFillet
-            TKDESTEP TKDEIGES TKXSBase)
+            TKDESTEP TKDEIGES TKXSBase TKHLR)
         target_compile_definitions(lcad_core PUBLIC LCAD_HAS_OCCT)
         target_sources(lcad_core PRIVATE
             core3d/Feature3D.h
@@ -201,7 +201,11 @@ if(LCAD_ENABLE_3D)
             core3d/Persistence3D.h
             core3d/Persistence3D.cpp
             core3d/Assembly.h
-            core3d/Assembly.cpp)
+            core3d/Assembly.cpp
+            core3d/TechDraw.h
+            core3d/TechDraw.cpp
+            core3d/SheetMetal.h
+            core3d/SheetMetal.cpp)
         message(STATUS "3D modeling core enabled (OpenCASCADE ${OpenCASCADE_VERSION})")
     else()
         message(STATUS "OpenCASCADE not found; building without the 3D modeling core")

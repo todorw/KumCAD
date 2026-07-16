@@ -68,7 +68,9 @@ if(LCAD_ENABLE_3D)
             SketchFeatureTests.cpp
             StepIgesTests.cpp
             Persistence3DTests.cpp
-            AssemblyTests.cpp)
+            AssemblyTests.cpp
+            TechDrawTests.cpp
+            SheetMetalTests.cpp)
     endif()
 endif()
 

@@ -8,6 +8,12 @@
 #include "core/core3d/Commands3D.h"
 #include "core/core3d/Persistence3D.h"
 #include "core/core3d/StepIges.h"
+#include "core/core3d/TechDraw.h"
+#include "core/document/Document.h"
+#include "core/io/DxfWriter.h"
+
+#include <Bnd_Box.hxx>
+#include <BRepBndLib.hxx>
 
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -16,6 +22,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
+#include <QLineEdit>
 #include <QListWidget>
 #include <QMenu>
 #include <QMenuBar>
@@ -127,6 +134,80 @@ private:
     std::vector<QDoubleSpinBox*> m_posSpins;
 };
 
+// Flat lengths/bend angles are entered as comma-separated numbers rather
+// than an interactive strip editor -- consistent with this sprint's own
+// "no face/edge picking in the still-unverified viewport" scope cut.
+class SheetMetalDialog : public QDialog {
+public:
+    explicit SheetMetalDialog(QWidget* parent = nullptr) : QDialog(parent) {
+        setWindowTitle(QStringLiteral("Add Sheet Metal Part"));
+        auto* form = new QFormLayout(this);
+
+        m_width = new QDoubleSpinBox(this);
+        m_width->setRange(0.1, 1e6);
+        m_width->setValue(20.0);
+        form->addRow(QStringLiteral("Width:"), m_width);
+
+        m_thickness = new QDoubleSpinBox(this);
+        m_thickness->setRange(0.01, 1e6);
+        m_thickness->setDecimals(3);
+        m_thickness->setValue(2.0);
+        form->addRow(QStringLiteral("Thickness:"), m_thickness);
+
+        m_bendRadius = new QDoubleSpinBox(this);
+        m_bendRadius->setRange(0.0, 1e6);
+        m_bendRadius->setDecimals(3);
+        m_bendRadius->setValue(1.0);
+        form->addRow(QStringLiteral("Bend Radius:"), m_bendRadius);
+
+        m_kFactor = new QDoubleSpinBox(this);
+        m_kFactor->setRange(0.0, 1.0);
+        m_kFactor->setDecimals(3);
+        m_kFactor->setValue(0.44);
+        form->addRow(QStringLiteral("K-Factor:"), m_kFactor);
+
+        m_flatLengths = new QLineEdit(QStringLiteral("30, 25"), this);
+        form->addRow(QStringLiteral("Flat Lengths (comma-separated):"), m_flatLengths);
+
+        m_bendAngles = new QLineEdit(QStringLiteral("90"), this);
+        form->addRow(QStringLiteral("Bend Angles, degrees (comma-separated, one fewer than flats):"), m_bendAngles);
+
+        auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+        connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+        form->addRow(buttons);
+    }
+
+    lcad::SheetMetalPart result() const {
+        lcad::SheetMetalPart part;
+        part.width = m_width->value();
+        part.thickness = m_thickness->value();
+        part.bendRadius = m_bendRadius->value();
+        part.kFactor = m_kFactor->value();
+        part.flatLengths = parseNumbers(m_flatLengths->text());
+        part.bendAngles = parseNumbers(m_bendAngles->text());
+        return part;
+    }
+
+private:
+    static std::vector<double> parseNumbers(const QString& text) {
+        std::vector<double> values;
+        for (const QString& token : text.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+            bool ok = false;
+            const double value = token.trimmed().toDouble(&ok);
+            if (ok) values.push_back(value);
+        }
+        return values;
+    }
+
+    QDoubleSpinBox* m_width;
+    QDoubleSpinBox* m_thickness;
+    QDoubleSpinBox* m_bendRadius;
+    QDoubleSpinBox* m_kFactor;
+    QLineEdit* m_flatLengths;
+    QLineEdit* m_bendAngles;
+};
+
 } // namespace
 
 Window3D::Window3D(QWidget* parent) : QMainWindow(parent) {
@@ -144,6 +225,11 @@ Window3D::Window3D(QWidget* parent) : QMainWindow(parent) {
     fileMenu->addAction(QStringLiteral("Open .kcad3d..."), this, &Window3D::openKcad3dFile);
     fileMenu->addSeparator();
     fileMenu->addAction(QStringLiteral("New Assembly Window..."), this, &Window3D::openAssemblyWindow);
+    fileMenu->addSeparator();
+    fileMenu->addAction(QStringLiteral("Generate Drawing Views..."), this, &Window3D::generateDrawingViews);
+    fileMenu->addSeparator();
+    fileMenu->addAction(QStringLiteral("Add Sheet Metal Part..."), this, &Window3D::addSheetMetalPart);
+    fileMenu->addAction(QStringLiteral("Export Flat Pattern..."), this, &Window3D::exportFlatPattern);
 
     m_viewport = new Viewport3D(this);
     setCentralWidget(m_viewport);
@@ -395,6 +481,107 @@ void Window3D::openAssemblyWindow() {
     auto* window = new AssemblyWindow(nullptr);
     window->setAttribute(Qt::WA_DeleteOnClose);
     window->show();
+}
+
+void Window3D::generateDrawingViews() {
+    // Same "tip feature" definition as StepIges.h: a valid feature nothing
+    // else consumes as its own input.
+    std::vector<bool> consumed(m_document.features().size(), false);
+    for (const auto& f : m_document.features()) {
+        if (f.inputA >= 0) consumed[static_cast<std::size_t>(f.inputA)] = true;
+        if (f.inputB >= 0) consumed[static_cast<std::size_t>(f.inputB)] = true;
+    }
+    std::vector<TopoDS_Shape> tips;
+    for (int i = 0; i < static_cast<int>(m_document.features().size()); ++i) {
+        if (!consumed[static_cast<std::size_t>(i)] && m_document.isValid(i)) tips.push_back(m_document.shapeAt(i));
+    }
+    if (tips.empty()) {
+        statusBar()->showMessage(QStringLiteral("No solids to draw yet"), 3000);
+        return;
+    }
+
+    const QString path = QFileDialog::getSaveFileName(this, QStringLiteral("Generate Drawing Views"), QString(),
+                                                        QStringLiteral("DXF Files (*.dxf)"));
+    if (path.isEmpty()) return;
+
+    Bnd_Box bounds;
+    for (const TopoDS_Shape& shape : tips) BRepBndLib::Add(shape, bounds);
+    double xmin = 0, ymin = 0, zmin = 0, xmax = 0, ymax = 0, zmax = 0;
+    bounds.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+    const double spacing = std::max({xmax - xmin, ymax - ymin, zmax - zmin, 10.0}) * 1.5;
+
+    lcad::Document doc2d;
+    struct ViewSpec {
+        lcad::ViewDirection direction;
+        double offsetX;
+        double offsetY;
+    };
+    const ViewSpec specs[] = {
+        {lcad::ViewDirection::Front, 0.0, 0.0},
+        {lcad::ViewDirection::Top, 0.0, -spacing},
+        {lcad::ViewDirection::Right, spacing, 0.0},
+        {lcad::ViewDirection::Iso, spacing, -spacing},
+    };
+    for (const ViewSpec& spec : specs) {
+        for (const TopoDS_Shape& shape : tips) {
+            const lcad::TechDrawView view = lcad::projectView(shape, spec.direction);
+            lcad::insertViewIntoDocument(doc2d, view, spec.offsetX, spec.offsetY);
+        }
+    }
+
+    std::string error;
+    if (!lcad::writeDxf(doc2d, path.toStdString(), &error)) {
+        QMessageBox::warning(this, QStringLiteral("Export Failed"), QString::fromStdString(error));
+        return;
+    }
+    statusBar()->showMessage(QStringLiteral("Drawing views (Front/Top/Right/Iso) written to %1").arg(path), 4000);
+}
+
+void Window3D::addSheetMetalPart() {
+    SheetMetalDialog dialog(this);
+    if (dialog.exec() != QDialog::Accepted) return;
+
+    const lcad::SheetMetalPart part = dialog.result();
+    const TopoDS_Shape shape = lcad::buildSheetMetalSolid(part);
+    if (shape.IsNull()) {
+        QMessageBox::warning(this, QStringLiteral("Invalid Part"),
+                              QStringLiteral("That combination of lengths/angles/thickness didn't produce a valid "
+                                            "solid -- check flat-length count is one more than bend-angle count, "
+                                            "and that no bend angle reaches 180 degrees."));
+        return;
+    }
+
+    m_lastSheetMetalPart = part;
+    m_hasSheetMetalPart = true;
+
+    const int importIdx = m_document.addImportedShape(shape);
+    Feature3D feature;
+    feature.type = FeatureType::Imported;
+    feature.name = "SheetMetal";
+    feature.importIndex = importIdx;
+    m_document.commandStack().execute(std::make_unique<AddFeature3DCommand>(m_document, feature));
+    refreshFeatureList();
+    refreshViewport();
+}
+
+void Window3D::exportFlatPattern() {
+    if (!m_hasSheetMetalPart) {
+        statusBar()->showMessage(QStringLiteral("Add a sheet metal part first"), 3000);
+        return;
+    }
+    const QString path = QFileDialog::getSaveFileName(this, QStringLiteral("Export Flat Pattern"), QString(),
+                                                        QStringLiteral("DXF Files (*.dxf)"));
+    if (path.isEmpty()) return;
+
+    lcad::Document doc2d;
+    lcad::insertFlatPatternIntoDocument(doc2d, m_lastSheetMetalPart, 0.0, 0.0);
+
+    std::string error;
+    if (!lcad::writeDxf(doc2d, path.toStdString(), &error)) {
+        QMessageBox::warning(this, QStringLiteral("Export Failed"), QString::fromStdString(error));
+        return;
+    }
+    statusBar()->showMessage(QStringLiteral("Flat pattern written to %1").arg(path), 3000);
 }
 
 void Window3D::refreshFeatureList() {
