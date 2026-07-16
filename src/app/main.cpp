@@ -1,6 +1,9 @@
 #include "IconFactory.h"
 #include "MainWindow.h"
 #include "WelcomeScreen.h"
+#ifdef LCAD_HAS_OCCT
+#include "Window3D.h"
+#endif
 
 #include <QApplication>
 #include <QPalette>
@@ -49,6 +52,14 @@ int main(int argc, char** argv) {
 
     WelcomeScreen welcome;
     if (welcome.exec() != QDialog::Accepted) return 0;
+
+#ifdef LCAD_HAS_OCCT
+    if (welcome.choice() == WelcomeScreen::Choice::New3D) {
+        Window3D window3d;
+        window3d.show();
+        return app.exec();
+    }
+#endif
 
     MainWindow window;
     if (welcome.choice() == WelcomeScreen::Choice::OpenExisting) {

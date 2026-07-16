@@ -222,3 +222,15 @@ if(LCAD_ENABLE_PDF)
         message(STATUS "Poppler-Qt6 not found; building without PDF underlay support")
     endif()
 endif()
+
+# Viewport3D/Window3D (3D modeling core UI) need OCCT headers directly, so
+# they're only compiled when it's available -- OpenCASCADE_FOUND doesn't
+# cross the add_subdirectory() boundary from src/core's scope, so it's
+# re-detected here (cheap, CMake's own package cache makes this a no-op).
+if(LCAD_ENABLE_3D)
+    find_package(OpenCASCADE QUIET)
+    if(OpenCASCADE_FOUND)
+        target_sources(kumcad PRIVATE Viewport3D.h Viewport3D.cpp Window3D.h Window3D.cpp)
+        target_compile_definitions(kumcad PRIVATE LCAD_HAS_OCCT)
+    endif()
+endif()

@@ -164,3 +164,30 @@ if(LCAD_ENABLE_LASZIP)
         message(STATUS "LASzip not found; building without LAZ point cloud reading")
     endif()
 endif()
+
+# Optional 3D modeling core (Phase 2 of the mega-roadmap) via OpenCASCADE
+# (OCCT, https://dev.opencascade.org/) -- a real B-rep kernel, not something
+# reasonable to write from scratch (unlike this codebase's other
+# from-scratch algorithmic tools: ZIP writer, AutoLISP, Delaunay TIN...).
+# core3d/ sources are only added to the build when OCCT is actually found,
+# so the 2D-only build stays unaffected on a machine without it.
+option(LCAD_ENABLE_3D "Enable the 3D modeling core via OpenCASCADE (OCCT) if available" ON)
+if(LCAD_ENABLE_3D)
+    find_package(OpenCASCADE QUIET)
+    if(OpenCASCADE_FOUND)
+        target_include_directories(lcad_core PUBLIC ${OpenCASCADE_INCLUDE_DIR})
+        # Foundations only need a modest subset of OCCT's ~70 toolkits; later
+        # 3D sprints (STEP/IGES, assembly) will extend this list.
+        target_link_libraries(lcad_core PUBLIC
+            TKernel TKMath TKG2d TKG3d TKGeomBase TKGeomAlgo TKBRep TKTopAlgo
+            TKPrim TKBO TKMesh TKService TKV3d TKOpenGl)
+        target_compile_definitions(lcad_core PUBLIC LCAD_HAS_OCCT)
+        target_sources(lcad_core PRIVATE
+            core3d/Shape3D.h
+            core3d/Document3D.h
+            core3d/Document3D.cpp)
+        message(STATUS "3D modeling core enabled (OpenCASCADE ${OpenCASCADE_VERSION})")
+    else()
+        message(STATUS "OpenCASCADE not found; building without the 3D modeling core")
+    endif()
+endif()

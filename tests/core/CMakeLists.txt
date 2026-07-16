@@ -54,6 +54,17 @@ if(LCAD_ENABLE_LASZIP)
     endif()
 endif()
 
+# Core3DTests.cpp exercises OpenCASCADE directly (BRepPrimAPI_MakeBox,
+# BRepGProp) -- OpenCASCADE_FOUND doesn't cross the add_subdirectory()
+# boundary from src/core's scope, so it's re-detected here (cheap, CMake's
+# own package cache makes this a no-op the second time).
+if(LCAD_ENABLE_3D)
+    find_package(OpenCASCADE QUIET)
+    if(OpenCASCADE_FOUND)
+        target_sources(lcad_core_tests PRIVATE Core3DTests.cpp)
+    endif()
+endif()
+
 include(CTest)
 include(Catch)
 catch_discover_tests(lcad_core_tests)

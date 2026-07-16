@@ -53,17 +53,29 @@ WelcomeScreen::WelcomeScreen(QWidget* parent) : QDialog(parent) {
     connect(mode2D, &QToolButton::clicked, this, &WelcomeScreen::pickNewDrawing);
     modeGrid->addWidget(mode2D, 0, 0);
 
+#ifdef LCAD_HAS_OCCT
+    // The 3D kernel core is real (see core/core3d/Document3D.h) as of Phase
+    // 2 foundations, but the viewport itself is unverified in whatever
+    // environment built this -- see Viewport3D.h's own disclosure.
+    auto* mode3D = makeModeButton(IconFactory::mode3DIcon(), QStringLiteral("3D Modeling"),
+                                  QStringLiteral("Early preview"), true);
+    connect(mode3D, &QToolButton::clicked, this, [this] {
+        m_choice = Choice::New3D;
+        accept();
+    });
+#else
     auto* mode3D =
         makeModeButton(IconFactory::mode3DIcon(), QStringLiteral("3D Modeling"), QStringLiteral("Coming soon"), true);
     connect(mode3D, &QToolButton::clicked, this, [this] { showComingSoon(QStringLiteral("3D Modeling")); });
+#endif
     modeGrid->addWidget(mode3D, 0, 1);
 
-    // Schematic capture (symbols/pins, wires, junctions, no-connects, net
-    // labels -- see core/schematic/Netlist.h) is real, so this opens the
-    // same drawing window as 2D Drafting rather than a "coming soon" notice.
-    // PCB board layout/routing/Gerber export don't exist yet.
+    // Schematic capture and PCB layout/routing/Gerber export (see
+    // core/schematic/Netlist.h, core/pcb/GerberWriter.h) are both real, so
+    // this opens the same drawing window as 2D Drafting rather than a
+    // "coming soon" notice.
     auto* modePcb =
-        makeModeButton(IconFactory::modePcbIcon(), QStringLiteral("PCB Design"), QStringLiteral("Schematic capture"), true);
+        makeModeButton(IconFactory::modePcbIcon(), QStringLiteral("PCB Design"), QString(), true);
     connect(modePcb, &QToolButton::clicked, this, &WelcomeScreen::pickNewDrawing);
     modeGrid->addWidget(modePcb, 0, 2);
 
