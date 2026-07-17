@@ -26,11 +26,11 @@ struct TechDrawView {
 
 // Projects shape's visible and hidden edges (via OCCT's HLRBRep_Algo, the
 // same hidden-line-removal engine FreeCAD's own TechDraw workbench uses)
-// into a flat 2D view. Curved edges are flattened to their endpoints only
-// -- a real, disclosed simplification (a circle's silhouette becomes a
-// single chord rather than a tessellated arc); good enough to prove the
-// 3D-to-2D projection pipeline works, not a full drafting-quality curve
-// projector.
+// into a flat 2D view. Curved edges are tessellated into many straight
+// chords (see TechDraw.cpp's kCurveSegments) rather than exact conics --
+// this codebase's 2D engine represents baked-in geometry as LineEntity
+// segments here regardless, so a fine tessellation is the honest ceiling,
+// not a full drafting-quality curve projector emitting real arcs/splines.
 TechDrawView projectView(const TopoDS_Shape& shape, ViewDirection direction);
 
 // Bakes view into doc2d as LineEntity objects on a dedicated "TECHDRAW"

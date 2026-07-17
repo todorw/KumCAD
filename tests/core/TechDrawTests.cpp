@@ -3,6 +3,8 @@
 #include "core/geometry/Line.h"
 
 #include <BRepPrimAPI_MakeBox.hxx>
+#include <BRepPrimAPI_MakeCylinder.hxx>
+#include <cmath>
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -117,4 +119,26 @@ TEST_CASE("insertViewIntoDocument gives hidden edges a Hidden linetype override"
 TEST_CASE("projectView on a null shape returns no edges", "[core3d][techdraw]") {
     const TechDrawView view = projectView(TopoDS_Shape(), ViewDirection::Front);
     REQUIRE(view.edges.empty());
+}
+
+TEST_CASE("projectView tessellates a cylinder's curved silhouette into multiple chords, not one",
+          "[core3d][techdraw]") {
+    const TopoDS_Shape cylinder = BRepPrimAPI_MakeCylinder(10.0, 20.0).Shape();
+    const TechDrawView view = projectView(cylinder, ViewDirection::Top); // top view sees the circular cap edges
+    REQUIRE_FALSE(view.edges.empty());
+
+    // Every chord should be short relative to the circle's own diameter --
+    // a single end-to-end chord across a 20-unit-diameter circle would be
+    // long; a fine tessellation keeps each piece small.
+    const double diameter = 20.0;
+    bool anyShortChord = false;
+    for (const ProjectedEdge& edge : view.edges) {
+        const double length = std::hypot(edge.x2 - edge.x1, edge.y2 - edge.y1);
+        if (length > 1e-9 && length < diameter * 0.3) anyShortChord = true;
+    }
+    REQUIRE(anyShortChord);
+
+    // And there should be noticeably more than just a handful of edges
+    // (a single untessellated circle would project to very few chords).
+    REQUIRE(view.edges.size() > 10);
 }
