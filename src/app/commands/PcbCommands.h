@@ -3,6 +3,7 @@
 #include "commands/DrawCommand.h"
 #include "core/document/Document.h"
 #include "core/pcb/Autorouter.h"
+#include "core/pcb/CopperPour.h"
 #include "core/pcb/Ratsnest.h"
 
 #include <vector>
@@ -118,7 +119,7 @@ public:
     void cancel() override { m_finished = true; }
 
 private:
-    enum class Stage { Pick, NetlistPath, NetName, GridSize, Clearance };
+    enum class Stage { Pick, NetlistPath, NetName, GridSize, Clearance, ThermalRelief, AntipadRadius };
     lcad::Document& m_document;
     double m_pickTolerance;
     Stage m_stage = Stage::Pick;
@@ -126,6 +127,8 @@ private:
     std::vector<lcad::ImportedNet> m_nets;
     std::vector<lcad::Point2D> m_ownNetPositions;
     double m_gridSize = 0.5;
+    double m_clearance = 0.2;
+    lcad::ThermalReliefParams m_thermalRelief;
     bool m_finished = false;
 };
 

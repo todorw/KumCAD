@@ -36,6 +36,7 @@ add_executable(lcad_core_tests
     FootprintGeneratorTests.cpp
     SpecctraWriterTests.cpp
     CopperPourTests.cpp
+    TeardropTests.cpp
     ElectricalTests.cpp
     PidTests.cpp
     CivilTests.cpp

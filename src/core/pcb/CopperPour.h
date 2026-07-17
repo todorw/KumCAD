@@ -9,6 +9,20 @@ namespace lcad {
 
 class Document;
 
+// Thermal relief (KiCad's own default pad-to-pour connection style):
+// instead of flooding solid copper right up to an own-net pad, an
+// annular gap (radius antipadRadius around the pad) is cut, crossed only
+// by spokeCount narrow corridors (width spokeWidth) -- easier to hand-
+// solder/rework than a pad drowned in a large copper pour's heat-sinking
+// mass. Disabled (enabled=false) keeps this codebase's original
+// behavior: own-net pads connect with solid copper, no gap at all.
+struct ThermalReliefParams {
+    bool enabled = false;
+    double antipadRadius = 0.6;
+    double spokeWidth = 0.3;
+    int spokeCount = 4; // evenly spaced; 4 gives KiCad's classic "+" relief
+};
+
 // Builds a copper pour that automatically keeps clearance from other-net
 // copper, instead of relying purely on DRC to flag violations after the
 // fact (see Drc.h) -- a real auto-clearance cutout, but a disclosed
@@ -30,6 +44,7 @@ class Document;
 // Returns the ids of every HatchEntity piece added (on layer).
 std::vector<EntityId> buildCopperPourWithClearance(Document& doc, LayerId layer, const std::vector<Point2D>& boundary,
                                                     const std::vector<Point2D>& ownNetPositions, double gridSize = 0.5,
-                                                    double clearance = 0.2);
+                                                    double clearance = 0.2,
+                                                    const ThermalReliefParams& thermalRelief = {});
 
 } // namespace lcad

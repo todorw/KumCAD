@@ -139,21 +139,49 @@ std::optional<QString> CopperPourCommand::onText(const QString& text) {
         return QStringLiteral("Clearance <0.2>:");
     }
     case Stage::Clearance: {
-        m_finished = true;
-        double clearance = 0.2;
         if (!text.trimmed().isEmpty()) {
             bool ok = false;
-            clearance = text.trimmed().toDouble(&ok);
-            if (!ok || clearance < 0.0) return QStringLiteral("*Invalid clearance*");
+            m_clearance = text.trimmed().toDouble(&ok);
+            if (!ok || m_clearance < 0.0) return QStringLiteral("*Invalid clearance*");
         }
-        const auto ids = lcad::buildCopperPourWithClearance(m_document, m_document.currentLayer(), m_boundary,
-                                                             m_ownNetPositions, m_gridSize, clearance);
-        if (ids.empty()) return QStringLiteral("*Pour produced no copper -- check boundary/grid size*");
-        return QStringLiteral("*Copper pour: %1 piece(s)*").arg(ids.size());
+        m_stage = Stage::ThermalRelief;
+        return QStringLiteral("Thermal relief on own-net pads? [Yes/No] <No>:");
+    }
+    case Stage::ThermalRelief: {
+        const QString option = text.trimmed().toUpper();
+        if (option.isEmpty() || option == QLatin1String("N") || option == QLatin1String("NO")) {
+            m_thermalRelief.enabled = false;
+        } else if (option == QLatin1String("Y") || option == QLatin1String("YES")) {
+            m_thermalRelief.enabled = true;
+        } else {
+            return QStringLiteral("*Invalid option, expected Yes/No*");
+        }
+        if (!m_thermalRelief.enabled) {
+            m_finished = true;
+        } else {
+            m_stage = Stage::AntipadRadius;
+            return QStringLiteral("Antipad radius <0.6>:");
+        }
+        break;
+    }
+    case Stage::AntipadRadius: {
+        if (!text.trimmed().isEmpty()) {
+            bool ok = false;
+            const double value = text.trimmed().toDouble(&ok);
+            if (!ok || value <= 0.0) return QStringLiteral("*Invalid antipad radius*");
+            m_thermalRelief.antipadRadius = value;
+        }
+        m_finished = true;
+        break;
     }
     default:
         return std::nullopt;
     }
+
+    const auto ids = lcad::buildCopperPourWithClearance(m_document, m_document.currentLayer(), m_boundary,
+                                                         m_ownNetPositions, m_gridSize, m_clearance, m_thermalRelief);
+    if (ids.empty()) return QStringLiteral("*Pour produced no copper -- check boundary/grid size*");
+    return QStringLiteral("*Copper pour: %1 piece(s)*").arg(ids.size());
 }
 
 std::optional<QString> AutorouteCommand::onText(const QString& text) {

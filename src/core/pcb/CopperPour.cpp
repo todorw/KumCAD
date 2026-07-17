@@ -52,11 +52,39 @@ double clearanceOk(const Point2D& center, double clearance, const std::vector<Ob
     return true;
 }
 
+// True if cellCenter falls inside the thermal-relief annular keepout of
+// some own-net pad (within antipadRadius) but NOT inside one of that
+// pad's spoke corridors -- i.e. this cell should be excluded from the
+// pour even though it's on the pour's own net.
+bool inThermalKeepout(const Point2D& cellCenter, const std::vector<Point2D>& ownNetPositions,
+                      const ThermalReliefParams& relief) {
+    if (!relief.enabled || relief.spokeCount <= 0) return false;
+    constexpr double kPi = 3.14159265358979323846;
+    for (const Point2D& pad : ownNetPositions) {
+        const Point2D offset = cellCenter - pad;
+        const double dist = offset.length();
+        if (dist >= relief.antipadRadius) continue; // outside this pad's ring: not this pad's concern
+
+        bool inSpoke = false;
+        for (int s = 0; s < relief.spokeCount; ++s) {
+            const double angle = s * 2.0 * kPi / relief.spokeCount;
+            const double dx = std::cos(angle), dy = std::sin(angle);
+            const double perp = std::abs(offset.x * dy - offset.y * dx); // distance to the spoke's centerline
+            if (perp <= relief.spokeWidth / 2.0) {
+                inSpoke = true;
+                break;
+            }
+        }
+        if (!inSpoke) return true; // inside the ring, no spoke here: keepout
+    }
+    return false;
+}
+
 } // namespace
 
 std::vector<EntityId> buildCopperPourWithClearance(Document& doc, LayerId layer, const std::vector<Point2D>& boundary,
                                                     const std::vector<Point2D>& ownNetPositions, double gridSize,
-                                                    double clearance) {
+                                                    double clearance, const ThermalReliefParams& thermalRelief) {
     std::vector<EntityId> created;
     if (boundary.size() < 3 || gridSize <= 1e-9) return created;
 
@@ -112,7 +140,9 @@ std::vector<EntityId> buildCopperPourWithClearance(Document& doc, LayerId layer,
 
         for (int i = 0; i < nx; ++i) {
             const Point2D center(minX + (i + 0.5) * gridSize, minY + (j + 0.5) * gridSize);
-            const bool keep = pointInPolygon(center, boundary) && clearanceOk(center, clearance, pointObstacles, tracks);
+            const bool keep = pointInPolygon(center, boundary) &&
+                              clearanceOk(center, clearance, pointObstacles, tracks) &&
+                              !inThermalKeepout(center, ownNetPositions, thermalRelief);
             if (keep) {
                 if (runStart < 0) runStart = i;
             } else {

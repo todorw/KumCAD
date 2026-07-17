@@ -99,6 +99,7 @@
 #include "core/geometry/Polyline.h"
 #include "core/electrical/WireNumbering.h"
 #include "core/pcb/Drc.h"
+#include "core/pcb/Teardrop.h"
 #include "core/pid/InstrumentTagging.h"
 #include "core/schematic/Erc.h"
 #include "core/schematic/Netlist.h"
@@ -788,6 +789,10 @@ void CommandDispatcher::handleCommandText(const QString& text) {
 #endif
     } else if (cmd == QLatin1String("COPPERPOUR")) {
         startCommand(std::make_unique<CopperPourCommand>(m_document, pickTolerance()), QStringLiteral("COPPERPOUR"));
+    } else if (cmd == QLatin1String("TEARDROP")) {
+        const auto ids = lcad::addTeardropsToDocument(m_document, m_document.currentLayer());
+        m_commandLine.appendLine(QStringLiteral("*Teardrops: %1 added*").arg(ids.size()));
+        if (!ids.empty()) emit documentChanged();
     } else if (cmd == QLatin1String("GCODE")) {
         startCommand(std::make_unique<GCodeExportCommand>(m_document, pickTolerance()), QStringLiteral("GCODE"));
     } else if (cmd == QLatin1String("TIN")) {
