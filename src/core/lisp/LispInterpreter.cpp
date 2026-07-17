@@ -625,8 +625,15 @@ Value LispInterpreter::eval(const Value& form, Env& env) {
 
     bool handled = false;
     Value result = callBuiltin(op, args, handled);
-    if (!handled) throw LispError("unknown function: " + op);
+    if (!handled) {
+        if (auto extIt = m_externalBuiltins.find(op); extIt != m_externalBuiltins.end()) return extIt->second(args);
+        throw LispError("unknown function: " + op);
+    }
     return result;
+}
+
+void LispInterpreter::registerBuiltin(const std::string& name, ExternalBuiltin fn) {
+    m_externalBuiltins[name] = std::move(fn);
 }
 
 Value LispInterpreter::callBuiltin(const std::string& name, std::vector<Value>& a, bool& handled) {

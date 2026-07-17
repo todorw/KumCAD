@@ -9,6 +9,7 @@
 #include "core/core3d/Cam3D.h"
 #include "core/core3d/Commands3D.h"
 #include "core/core3d/Fem.h"
+#include "core/core3d/LispBindings3D.h"
 #include "core/core3d/Persistence3D.h"
 #include "core/core3d/Pick3D.h"
 #include "core/core3d/Piping.h"
@@ -16,6 +17,7 @@
 #include "core/core3d/TechDraw.h"
 #include "core/document/Document.h"
 #include "core/io/DxfWriter.h"
+#include "core/lisp/LispInterpreter.h"
 
 #include <Bnd_Box.hxx>
 #include <BRepBndLib.hxx>
@@ -44,6 +46,7 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMenu>
+#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSpinBox>
 #include <QMenuBar>
@@ -300,6 +303,60 @@ private:
 
     Document3D& m_document;
     QListWidget* m_list = nullptr;
+};
+
+// A real AutoLISP script console for the 3D side (see core/core3d/
+// LispBindings3D.h): one persistent LispInterpreter per dialog session,
+// so defuns/setqs from an earlier line stay visible to a later one, the
+// same "persistent global environment" contract LispInterpreter::run
+// itself already documents. Not Python (FreeCAD's own scripting
+// language) -- a real, disclosed scope choice matching how the 2D side's
+// own scripting story already works.
+class Lisp3DConsoleDialog : public QDialog {
+public:
+    explicit Lisp3DConsoleDialog(Document3D& document, QWidget* parent = nullptr)
+        : QDialog(parent), m_document(document), m_interp([this](const std::string& s) { (void)s; }) {
+        setWindowTitle(QStringLiteral("3D Lisp Console"));
+        resize(560, 420);
+        lcad::registerLisp3DBindings(m_interp, m_document);
+
+        m_output = new QPlainTextEdit(this);
+        m_output->setReadOnly(true);
+        m_output->appendPlainText(QStringLiteral(
+            "; BOX3D/CYLINDER3D/SPHERE3D/UNION3D/CUT3D/INTERSECT3D/PAD3D/VOLUME3D/BBOX3D/EXPORTSTEP3D"));
+
+        m_input = new QLineEdit(this);
+        connect(m_input, &QLineEdit::returnPressed, this, &Lisp3DConsoleDialog::runLine);
+
+        auto* closeButton = new QPushButton(QStringLiteral("Close"), this);
+        connect(closeButton, &QPushButton::clicked, this, &QDialog::accept);
+
+        auto* layout = new QVBoxLayout(this);
+        layout->addWidget(m_output, 1);
+        layout->addWidget(m_input);
+        layout->addWidget(closeButton);
+    }
+
+private:
+    void runLine() {
+        const QString text = m_input->text();
+        if (text.trimmed().isEmpty()) return;
+        m_input->clear();
+        m_output->appendPlainText(QStringLiteral("> ") + text);
+
+        const auto result = m_interp.run(text.toStdString());
+        if (!result.output.empty()) m_output->appendPlainText(QString::fromStdString(result.output));
+        if (result.ok) {
+            m_output->appendPlainText(QStringLiteral("= ") + QString::fromStdString(result.resultText));
+        } else {
+            m_output->appendPlainText(QStringLiteral("Error: ") + QString::fromStdString(result.error));
+        }
+    }
+
+    Document3D& m_document;
+    lcad::LispInterpreter m_interp;
+    QPlainTextEdit* m_output = nullptr;
+    QLineEdit* m_input = nullptr;
 };
 
 // Flat lengths/bend angles are entered as comma-separated numbers rather
@@ -1139,6 +1196,7 @@ Window3D::Window3D(QWidget* parent) : QMainWindow(parent) {
     toolbar->addAction(QStringLiteral("New Sketch..."), this, &Window3D::openSketchEditor);
     toolbar->addAction(QStringLiteral("Add Sketch Feature..."), this, &Window3D::addSketchFeature);
     toolbar->addAction(QStringLiteral("Variables..."), this, &Window3D::openVariablesDialog);
+    toolbar->addAction(QStringLiteral("3D Lisp Console..."), this, &Window3D::openLisp3DConsole);
     toolbar->addSeparator();
     toolbar->addAction(QStringLiteral("Undo"), this, &Window3D::undo);
     toolbar->addAction(QStringLiteral("Redo"), this, &Window3D::redo);
@@ -1333,6 +1391,19 @@ void Window3D::openVariablesDialog() {
     // setVariable/removeVariable recompute internally, so the feature
     // tree may have changed shape even though this dialog isn't itself
     // undoable (matching addSketch's own "not yet a Command" disclosure).
+    refreshFeatureList();
+    refreshViewport();
+}
+
+void Window3D::openLisp3DConsole() {
+    Lisp3DConsoleDialog dialog(m_document, this);
+    dialog.exec();
+    // A real, disclosed limitation: script-driven features (BOX3D et al,
+    // via Document3D::addFeature directly, since LispBindings3D has no
+    // way to route through CommandStack from inside a builtin) aren't
+    // individually undoable the way addPrimitive's own UI action is --
+    // Ctrl+Z after running a script won't step back through it one
+    // feature at a time.
     refreshFeatureList();
     refreshViewport();
 }

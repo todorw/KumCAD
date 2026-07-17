@@ -250,6 +250,8 @@ if(LCAD_ENABLE_3D)
             core3d/Fingerprint.h
             core3d/TopoNaming.h
             core3d/TopoNaming.cpp
+            core3d/LispBindings3D.h
+            core3d/LispBindings3D.cpp
             pcb/Board3D.h
             pcb/Board3D.cpp)
         message(STATUS "3D modeling core enabled (OpenCASCADE ${OpenCASCADE_VERSION})")

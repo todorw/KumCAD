@@ -34,6 +34,7 @@ private:
     void openSketchEditor();
     void addSketchFeature();
     void openVariablesDialog();
+    void openLisp3DConsole();
     void undo();
     void redo();
     void refreshFeatureList();

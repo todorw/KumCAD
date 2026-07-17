@@ -148,6 +148,19 @@ public:
     // session). Stops at the first error.
     RunResult run(const std::string& source);
 
+    // Registers an additional builtin function callable from Lisp source,
+    // dispatched after every built-in name above fails to match (so it
+    // can't shadow one of those, but a script can still call it exactly
+    // like a real builtin). The hook this codebase's 3D scripting
+    // bindings (core/core3d/LispBindings3D.h) use: LispInterpreter itself
+    // stays completely OCCT-free (this typedef is a plain std::function,
+    // no OCCT types leak in), while core3d -- which already depends on
+    // OCCT and is itself only compiled when it's found -- registers
+    // Document3D-aware functions into an existing interpreter from the
+    // outside, without this file needing to know Document3D exists.
+    using ExternalBuiltin = std::function<Value(std::vector<Value>&)>;
+    void registerBuiltin(const std::string& name, ExternalBuiltin fn);
+
 private:
     Env m_global;
     std::unordered_map<std::string, std::shared_ptr<LambdaDef>> m_functions;
@@ -156,6 +169,7 @@ private:
     InteractiveInputSink m_interactiveInput;
     std::unordered_map<std::string, Value> m_sysvars; // getvar/setvar, for names not backed by real state
     std::string m_output;
+    std::unordered_map<std::string, ExternalBuiltin> m_externalBuiltins;
 
     Value builtinGetvar(std::vector<Value>& args);
     Value builtinSetvar(std::vector<Value>& args);
