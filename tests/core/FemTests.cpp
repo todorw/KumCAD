@@ -154,6 +154,121 @@ TEST_CASE("solveLinearStatic fails cleanly on an empty mesh", "[core3d][fem]") {
     REQUIRE_FALSE(result.solved);
 }
 
+TEST_CASE("distributedBodyForce's per-node shares sum back to forcePerVolume times the mesh's total volume",
+         "[core3d][fem][distributed]") {
+    const TopoDS_Shape box = BRepPrimAPI_MakeBox(40.0, 20.0, 20.0).Shape();
+    const FemMesh mesh = buildVoxelMesh(box, 4);
+    REQUIRE_FALSE(mesh.tets.empty());
+
+    const std::array<double, 3> forcePerVolume = {0.0, 0.0, -9.8};
+    const std::vector<FemLoad> loads = distributedBodyForce(mesh, forcePerVolume);
+    REQUIRE(loads.size() == mesh.tets.size() * 4);
+
+    double totalZ = 0.0;
+    for (const FemLoad& load : loads) totalZ += load.forceVector[2];
+    REQUIRE(totalZ == Approx(forcePerVolume[2] * tetVolumeSum(mesh)).epsilon(1e-9));
+}
+
+TEST_CASE("distributedPressureLoad on a beam's end face reproduces the manually-spread-load axial tension result",
+         "[core3d][fem][distributed]") {
+    const double length = 100.0, width = 20.0, height = 20.0;
+    const TopoDS_Shape beam = BRepPrimAPI_MakeBox(length, width, height).Shape();
+    const FemMesh mesh = buildVoxelMesh(beam, 5);
+    REQUIRE_FALSE(mesh.tets.empty());
+
+    const double pressure = 100.0; // force per area
+    const double area = width * height;
+    const std::vector<FemLoad> loads =
+        distributedPressureLoad(mesh, {length - 1e-6, -1.0, -1.0}, {length + 1.0, width + 1.0, height + 1.0}, pressure,
+                                {1.0, 0.0, 0.0});
+    // This mesh's end face (a single cross-section cell) is exactly 2
+    // triangles, so 2*3 = 6 (face, node) load entries -- some sharing a
+    // node between the two triangles, which solveLinearStatic correctly
+    // sums rather than merging here.
+    REQUIRE(loads.size() == 6);
+
+    double totalForceX = 0.0;
+    for (const FemLoad& load : loads) totalForceX += load.forceVector[0];
+    // OCCT's own Bnd_Box carries a small enlargement gap (~1e-7 in model
+    // units) around the shape's true extent -- the same reason the mesh
+    // volume test above needs a margin against the analytic box volume
+    // rather than an exact match -- so this end face is very slightly
+    // larger than the ideal 20x20, not exactly equal to it.
+    REQUIRE(totalForceX == Approx(pressure * area).epsilon(1e-4));
+
+    FemMaterial material;
+    material.youngsModulus = 200000.0;
+    material.poissonsRatio = 0.3;
+    FemBoundaryCondition bc;
+    bc.fixedXMax = 1e-6;
+
+    const FemResult result = solveLinearStatic(mesh, material, bc, loads);
+    REQUIRE(result.solved);
+
+    const double expectedDisplacement = pressure * length / material.youngsModulus;
+    double averageDisplacement = 0.0;
+    int endNodeCount = 0;
+    for (std::size_t i = 0; i < mesh.nodes.size(); ++i) {
+        if (mesh.nodes[i][0] < length - 1e-6) continue;
+        averageDisplacement += result.displacements[i][0];
+        ++endNodeCount;
+    }
+    REQUIRE(endNodeCount == 4);
+    averageDisplacement /= endNodeCount;
+    REQUIRE(averageDisplacement == Approx(expectedDisplacement).epsilon(0.10));
+}
+
+TEST_CASE("solveModal's fundamental frequency scales exactly with material stiffness and mass", "[core3d][fem][modal]") {
+    const TopoDS_Shape box = BRepPrimAPI_MakeBox(20.0, 10.0, 10.0).Shape();
+    const FemMesh mesh = buildVoxelMesh(box, 2);
+    REQUIRE_FALSE(mesh.tets.empty());
+
+    FemBoundaryCondition bc;
+    bc.fixedXMax = 1e-6;
+
+    FemMaterial baseline;
+    baseline.youngsModulus = 200000.0;
+    baseline.poissonsRatio = 0.3;
+    baseline.density = 1.0;
+
+    const FemModalResult base = solveModal(mesh, baseline, bc);
+    REQUIRE(base.solved);
+    REQUIRE(base.angularFrequencySquared > 0.0);
+
+    // omega^2 = K/M in the generalized eigenproblem -- K scales exactly
+    // linearly with Young's modulus, so doubling it must exactly double
+    // the eigenvalue.
+    FemMaterial stiffer = baseline;
+    stiffer.youngsModulus = baseline.youngsModulus * 2.0;
+    const FemModalResult stiffened = solveModal(mesh, stiffer, bc);
+    REQUIRE(stiffened.solved);
+    REQUIRE(stiffened.angularFrequencySquared == Approx(base.angularFrequencySquared * 2.0).epsilon(0.02));
+
+    // The lumped mass matrix scales exactly linearly with density, so
+    // doubling it must exactly halve the eigenvalue.
+    FemMaterial denser = baseline;
+    denser.density = baseline.density * 2.0;
+    const FemModalResult densified = solveModal(mesh, denser, bc);
+    REQUIRE(densified.solved);
+    REQUIRE(densified.angularFrequencySquared == Approx(base.angularFrequencySquared * 0.5).epsilon(0.02));
+
+    // The mode shape must be (numerically) zero at every fixed node.
+    for (std::size_t i = 0; i < mesh.nodes.size(); ++i) {
+        if (mesh.nodes[i][0] > bc.fixedXMax) continue;
+        REQUIRE(base.modeShape[i][0] == Approx(0.0).margin(1e-9));
+        REQUIRE(base.modeShape[i][1] == Approx(0.0).margin(1e-9));
+        REQUIRE(base.modeShape[i][2] == Approx(0.0).margin(1e-9));
+    }
+}
+
+TEST_CASE("solveModal fails cleanly on an empty mesh", "[core3d][fem][modal]") {
+    FemMesh empty;
+    FemMaterial material;
+    FemBoundaryCondition bc;
+    const FemModalResult result = solveModal(empty, material, bc);
+    REQUIRE_FALSE(result.solved);
+}
+
 TEST_CASE("buildFemVisualization produces one non-null shape and one color per tet", "[core3d][fem][viz]") {
     const TopoDS_Shape box = BRepPrimAPI_MakeBox(40.0, 20.0, 20.0).Shape();
     const FemMesh mesh = buildVoxelMesh(box, 4);

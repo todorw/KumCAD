@@ -87,6 +87,14 @@ private:
     // edit -- same unverified-in-this-environment caveat as the rest of
     // Viewport3D.
     void runFemAnalysis();
+    // Same target-shape resolution as runFemAnalysis, but solves for the
+    // fundamental vibration mode (see Fem.h's solveModal) instead of a
+    // static load case -- reports the frequency and displays the mode
+    // shape the same deformed/exaggerated way, reusing
+    // buildFemVisualization by wrapping the mode shape into a plain
+    // FemResult (uniform color, since a mode shape has no stress of its
+    // own to heatmap).
+    void runFemModalAnalysis();
 
     lcad::Document3D m_document;
     Viewport3D* m_viewport = nullptr;

@@ -655,6 +655,72 @@ private:
     QLineEdit* m_loadForce;
 };
 
+// FEMMODAL: no loads (a vibration mode doesn't need any), but adds a
+// density field solveLinearStatic never needed.
+class FemModalDialog : public QDialog {
+public:
+    explicit FemModalDialog(QWidget* parent = nullptr) : QDialog(parent) {
+        setWindowTitle(QStringLiteral("Run FEM Modal Analysis"));
+        auto* form = new QFormLayout(this);
+
+        m_divisions = new QSpinBox(this);
+        m_divisions->setRange(1, 12);
+        m_divisions->setValue(4);
+        form->addRow(QStringLiteral("Mesh Divisions (coarse, single digits):"), m_divisions);
+
+        m_youngsModulus = new QDoubleSpinBox(this);
+        m_youngsModulus->setRange(1.0, 1e7);
+        m_youngsModulus->setValue(200000.0);
+        form->addRow(QStringLiteral("Young's Modulus:"), m_youngsModulus);
+
+        m_poissonsRatio = new QDoubleSpinBox(this);
+        m_poissonsRatio->setRange(0.0, 0.49);
+        m_poissonsRatio->setDecimals(3);
+        m_poissonsRatio->setValue(0.3);
+        form->addRow(QStringLiteral("Poisson's Ratio:"), m_poissonsRatio);
+
+        m_density = new QDoubleSpinBox(this);
+        m_density->setRange(1e-6, 1e6);
+        m_density->setDecimals(6);
+        m_density->setValue(1.0);
+        form->addRow(QStringLiteral("Density:"), m_density);
+
+        m_fixedXMax = new QDoubleSpinBox(this);
+        m_fixedXMax->setRange(-1e6, 1e6);
+        m_fixedXMax->setDecimals(3);
+        m_fixedXMax->setValue(0.0);
+        form->addRow(QStringLiteral("Fix every node with X <=:"), m_fixedXMax);
+
+        auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+        connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+        form->addRow(buttons);
+    }
+
+    int divisions() const { return m_divisions->value(); }
+
+    lcad::FemMaterial material() const {
+        lcad::FemMaterial material;
+        material.youngsModulus = m_youngsModulus->value();
+        material.poissonsRatio = m_poissonsRatio->value();
+        material.density = m_density->value();
+        return material;
+    }
+
+    lcad::FemBoundaryCondition boundaryCondition() const {
+        lcad::FemBoundaryCondition bc;
+        bc.fixedXMax = m_fixedXMax->value();
+        return bc;
+    }
+
+private:
+    QSpinBox* m_divisions;
+    QDoubleSpinBox* m_youngsModulus;
+    QDoubleSpinBox* m_poissonsRatio;
+    QDoubleSpinBox* m_density;
+    QDoubleSpinBox* m_fixedXMax;
+};
+
 } // namespace
 
 Window3D::Window3D(QWidget* parent) : QMainWindow(parent) {
@@ -691,6 +757,7 @@ Window3D::Window3D(QWidget* parent) : QMainWindow(parent) {
     fileMenu->addAction(QStringLiteral("Generate 3D CAM Toolpath..."), this, &Window3D::generate3DCamToolpath);
     fileMenu->addSeparator();
     fileMenu->addAction(QStringLiteral("Run FEM Analysis..."), this, &Window3D::runFemAnalysis);
+    fileMenu->addAction(QStringLiteral("Run FEM Modal Analysis..."), this, &Window3D::runFemModalAnalysis);
 
     m_viewport = new Viewport3D(this);
     setCentralWidget(m_viewport);
@@ -1338,6 +1405,90 @@ void Window3D::runFemAnalysis() {
                                   .arg(mesh.tets.size())
                                   .arg(maxDisplacement)
                                   .arg(maxStress));
+}
+
+void Window3D::runFemModalAnalysis() {
+    std::vector<bool> consumed(m_document.features().size(), false);
+    for (const auto& f : m_document.features()) {
+        if (f.inputA >= 0) consumed[static_cast<std::size_t>(f.inputA)] = true;
+        if (f.inputB >= 0) consumed[static_cast<std::size_t>(f.inputB)] = true;
+    }
+    TopoDS_Shape target;
+    for (int i = 0; i < static_cast<int>(m_document.features().size()); ++i) {
+        if (consumed[static_cast<std::size_t>(i)] || !m_document.isValid(i)) continue;
+        target = m_document.shapeAt(i);
+        break;
+    }
+    if (target.IsNull()) {
+        statusBar()->showMessage(QStringLiteral("No solids to analyze yet"), 3000);
+        return;
+    }
+
+    FemModalDialog dialog(this);
+    if (dialog.exec() != QDialog::Accepted) return;
+
+    const lcad::FemMesh mesh = lcad::buildVoxelMesh(target, dialog.divisions());
+    if (mesh.tets.empty()) {
+        QMessageBox::warning(this, QStringLiteral("Meshing Failed"),
+                              QStringLiteral("No tetrahedra were generated -- check the mesh divisions against "
+                                            "the part's size."));
+        return;
+    }
+
+    const lcad::FemModalResult result = lcad::solveModal(mesh, dialog.material(), dialog.boundaryCondition());
+    if (!result.solved) {
+        QMessageBox::warning(this, QStringLiteral("Analysis Failed"),
+                              QStringLiteral("The mode could not be solved -- check that enough nodes are fixed "
+                                            "(an unconstrained model has rigid-body freedom)."));
+        return;
+    }
+
+    const double omega = std::sqrt(std::max(0.0, result.angularFrequencySquared));
+    const double frequencyHz = omega / (2.0 * M_PI);
+
+    double maxAmplitude = 0.0;
+    for (const auto& d : result.modeShape) {
+        maxAmplitude = std::max(maxAmplitude, std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]));
+    }
+
+    if (m_viewport->isAvailable() && maxAmplitude > 1e-12) {
+        Bnd_Box bounds;
+        BRepBndLib::Add(target, bounds);
+        double xmin = 0, ymin = 0, zmin = 0, xmax = 0, ymax = 0, zmax = 0;
+        bounds.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+        const double diagonal = std::sqrt((xmax - xmin) * (xmax - xmin) + (ymax - ymin) * (ymax - ymin) +
+                                          (zmax - zmin) * (zmax - zmin));
+        const double displacementScale = diagonal > 1e-9 ? (diagonal * 0.10) / maxAmplitude : 1.0;
+
+        // Wrap the mode shape into a plain FemResult so buildFemVisualization
+        // (written for a static result) can be reused as-is -- a uniform
+        // color per element, since a mode shape carries no stress of its own.
+        lcad::FemResult asStaticResult;
+        asStaticResult.solved = true;
+        asStaticResult.displacements = result.modeShape;
+        asStaticResult.vonMisesStress.assign(mesh.tets.size(), 0.0);
+
+        const lcad::FemVisualization viz = lcad::buildFemVisualization(mesh, asStaticResult, displacementScale);
+        m_viewport->clearShapes();
+        for (std::size_t i = 0; i < viz.elementShapes.size(); ++i) {
+            if (viz.elementShapes[i].IsNull()) continue;
+            const auto& color = viz.elementColors[i];
+            m_viewport->displayShape(viz.elementShapes[i], color[0], color[1], color[2]);
+        }
+        m_viewport->fitAll();
+    }
+
+    QMessageBox::information(
+        this, QStringLiteral("FEM Modal Analysis Complete"),
+        QStringLiteral("Mesh: %1 nodes, %2 tetrahedra\nFundamental angular frequency^2 (omega^2): %3\n"
+                      "Fundamental frequency: %4 (in consistent force/length/mass units, not necessarily Hz "
+                      "unless your inputs already are)\n\n"
+                      "Displayed in the viewport as the exaggerated mode shape (not a stress heatmap) -- "
+                      "replaces the feature tree's own shapes until you edit/add a feature again.")
+            .arg(mesh.nodes.size())
+            .arg(mesh.tets.size())
+            .arg(result.angularFrequencySquared)
+            .arg(frequencyHz));
 }
 
 void Window3D::addPipeRun() {

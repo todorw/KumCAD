@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
 #include <unordered_map>
 
 namespace lcad {
@@ -207,20 +208,26 @@ FemMesh buildVoxelMesh(const TopoDS_Shape& shape, int divisions) {
     return mesh;
 }
 
-FemResult solveLinearStatic(const FemMesh& mesh, const FemMaterial& material,
-                            const FemBoundaryCondition& boundaryCondition, const std::vector<FemLoad>& loads) {
-    FemResult result;
-    if (mesh.tets.empty() || mesh.nodes.empty()) return result;
-
+// Assembles the global (unconstrained -- no boundary condition applied
+// yet) stiffness matrix, shared by solveLinearStatic and solveModal.
+// Also fills perTetCoeffs/perTetVolume (needed afterwards for stress
+// recovery), and per-node lumped mass diag if massDiag is non-null (each
+// tet's density*volume split evenly across its own 4 nodes, matching
+// distributedBodyForce's own consistent-load idea, just for inertia).
+// Returns an empty matrix if any tet is degenerate (zero volume).
+std::vector<std::vector<double>> assembleStiffness(const FemMesh& mesh, const FemMaterial& material,
+                                                    std::vector<std::array<std::array<double, 4>, 4>>& perTetCoeffs,
+                                                    std::vector<double>& perTetVolume,
+                                                    std::vector<double>* massDiag) {
     const std::size_t numNodes = mesh.nodes.size();
     const std::size_t numDofs = numNodes * 3;
     std::vector<std::vector<double>> stiffness(numDofs, std::vector<double>(numDofs, 0.0));
-    std::vector<double> force(numDofs, 0.0);
+    if (massDiag) massDiag->assign(numDofs, 0.0);
 
     const std::vector<std::vector<double>> materialD = materialMatrix(material);
 
-    std::vector<std::array<std::array<double, 4>, 4>> perTetCoeffs(mesh.tets.size());
-    std::vector<double> perTetVolume(mesh.tets.size());
+    perTetCoeffs.resize(mesh.tets.size());
+    perTetVolume.resize(mesh.tets.size());
 
     for (std::size_t t = 0; t < mesh.tets.size(); ++t) {
         const auto& tet = mesh.tets[t];
@@ -229,7 +236,7 @@ FemResult solveLinearStatic(const FemMesh& mesh, const FemMaterial& material,
                                                             mesh.nodes[static_cast<std::size_t>(tet[2])],
                                                             mesh.nodes[static_cast<std::size_t>(tet[3])]};
         std::array<std::array<double, 4>, 4> coeffs{};
-        if (!tetShapeFunctionCoeffs(pts, coeffs)) return result; // a degenerate (zero-volume) tet
+        if (!tetShapeFunctionCoeffs(pts, coeffs)) return {}; // a degenerate (zero-volume) tet
         perTetCoeffs[t] = coeffs;
         perTetVolume[t] = tetVolume(pts[0], pts[1], pts[2], pts[3]);
 
@@ -250,7 +257,104 @@ FemResult solveLinearStatic(const FemMesh& mesh, const FemMaterial& material,
                 }
             }
         }
+
+        if (massDiag) {
+            const double share = material.density * perTetVolume[t] / 4.0;
+            for (int a = 0; a < 4; ++a) {
+                for (int d = 0; d < 3; ++d) {
+                    (*massDiag)[static_cast<std::size_t>(tet[static_cast<std::size_t>(a)]) * 3 + static_cast<std::size_t>(d)] += share;
+                }
+            }
+        }
     }
+    return stiffness;
+}
+
+std::vector<FemLoad> distributedBodyForce(const FemMesh& mesh, const std::array<double, 3>& forcePerVolume) {
+    std::vector<FemLoad> loads;
+    loads.reserve(mesh.tets.size() * 4);
+    for (const auto& tet : mesh.tets) {
+        const auto& p0 = mesh.nodes[static_cast<std::size_t>(tet[0])];
+        const auto& p1 = mesh.nodes[static_cast<std::size_t>(tet[1])];
+        const auto& p2 = mesh.nodes[static_cast<std::size_t>(tet[2])];
+        const auto& p3 = mesh.nodes[static_cast<std::size_t>(tet[3])];
+        const double share = tetVolume(p0, p1, p2, p3) / 4.0;
+        for (int a : tet) {
+            loads.push_back({mesh.nodes[static_cast<std::size_t>(a)],
+                             {forcePerVolume[0] * share, forcePerVolume[1] * share, forcePerVolume[2] * share}});
+        }
+    }
+    return loads;
+}
+
+std::vector<FemLoad> distributedPressureLoad(const FemMesh& mesh, const std::array<double, 3>& boxMin,
+                                             const std::array<double, 3>& boxMax, double pressure,
+                                             const std::array<double, 3>& direction) {
+    std::vector<FemLoad> loads;
+    const double dirLen = std::sqrt(direction[0] * direction[0] + direction[1] * direction[1] + direction[2] * direction[2]);
+    if (dirLen < 1e-12) return loads;
+    const std::array<double, 3> dir = {direction[0] / dirLen, direction[1] / dirLen, direction[2] / dirLen};
+
+    // A tet's 4 triangular faces, as local corner indices. Counting how
+    // many tets each (sorted) face's node triple appears in tells apart
+    // boundary faces (exactly one owning tet) from interior ones (shared
+    // by exactly two) -- the standard way to recover a tet mesh's own
+    // boundary surface without a separate conforming-surface-mesh
+    // structure.
+    static constexpr int kLocalFaces[4][3] = {{0, 1, 2}, {0, 1, 3}, {0, 2, 3}, {1, 2, 3}};
+    std::map<std::array<int, 3>, int> faceCount;
+    std::map<std::array<int, 3>, std::array<int, 3>> faceNodes;
+    for (const auto& tet : mesh.tets) {
+        for (const auto& lf : kLocalFaces) {
+            std::array<int, 3> nodesIdx = {tet[static_cast<std::size_t>(lf[0])], tet[static_cast<std::size_t>(lf[1])],
+                                          tet[static_cast<std::size_t>(lf[2])]};
+            std::array<int, 3> key = nodesIdx;
+            std::sort(key.begin(), key.end());
+            const int count = ++faceCount[key];
+            if (count == 1) faceNodes[key] = nodesIdx;
+        }
+    }
+
+    for (const auto& [key, count] : faceCount) {
+        if (count != 1) continue; // interior face, shared by two tets
+        const auto& nodesIdx = faceNodes.at(key);
+        const auto& p0 = mesh.nodes[static_cast<std::size_t>(nodesIdx[0])];
+        const auto& p1 = mesh.nodes[static_cast<std::size_t>(nodesIdx[1])];
+        const auto& p2 = mesh.nodes[static_cast<std::size_t>(nodesIdx[2])];
+        const std::array<double, 3> centroid = {(p0[0] + p1[0] + p2[0]) / 3.0, (p0[1] + p1[1] + p2[1]) / 3.0,
+                                                (p0[2] + p1[2] + p2[2]) / 3.0};
+        if (centroid[0] < boxMin[0] || centroid[0] > boxMax[0] || centroid[1] < boxMin[1] || centroid[1] > boxMax[1] ||
+            centroid[2] < boxMin[2] || centroid[2] > boxMax[2]) {
+            continue;
+        }
+
+        const double ax = p1[0] - p0[0], ay = p1[1] - p0[1], az = p1[2] - p0[2];
+        const double bx = p2[0] - p0[0], by = p2[1] - p0[1], bz = p2[2] - p0[2];
+        const double cx = ay * bz - az * by, cy = az * bx - ax * bz, cz = ax * by - ay * bx;
+        const double area = 0.5 * std::sqrt(cx * cx + cy * cy + cz * cz);
+        const double share = pressure * area / 3.0;
+
+        for (int idx : nodesIdx) {
+            loads.push_back({mesh.nodes[static_cast<std::size_t>(idx)], {dir[0] * share, dir[1] * share, dir[2] * share}});
+        }
+    }
+    return loads;
+}
+
+FemResult solveLinearStatic(const FemMesh& mesh, const FemMaterial& material,
+                            const FemBoundaryCondition& boundaryCondition, const std::vector<FemLoad>& loads) {
+    FemResult result;
+    if (mesh.tets.empty() || mesh.nodes.empty()) return result;
+
+    const std::size_t numNodes = mesh.nodes.size();
+    const std::size_t numDofs = numNodes * 3;
+
+    std::vector<std::array<std::array<double, 4>, 4>> perTetCoeffs;
+    std::vector<double> perTetVolume;
+    std::vector<std::vector<double>> stiffness = assembleStiffness(mesh, material, perTetCoeffs, perTetVolume, nullptr);
+    if (stiffness.empty()) return result;
+
+    std::vector<double> force(numDofs, 0.0);
 
     for (const FemLoad& load : loads) {
         int nearest = -1;
@@ -289,6 +393,7 @@ FemResult solveLinearStatic(const FemMesh& mesh, const FemMaterial& material,
         result.displacements[n] = {displacementVec[n * 3 + 0], displacementVec[n * 3 + 1], displacementVec[n * 3 + 2]};
     }
 
+    const std::vector<std::vector<double>> materialD = materialMatrix(material);
     result.vonMisesStress.resize(mesh.tets.size());
     for (std::size_t t = 0; t < mesh.tets.size(); ++t) {
         const auto& tet = mesh.tets[t];
@@ -308,6 +413,91 @@ FemResult solveLinearStatic(const FemMesh& mesh, const FemMaterial& material,
         result.vonMisesStress[t] = vm;
     }
 
+    result.solved = true;
+    return result;
+}
+
+FemModalResult solveModal(const FemMesh& mesh, const FemMaterial& material,
+                          const FemBoundaryCondition& boundaryCondition, int maxIterations) {
+    FemModalResult result;
+    if (mesh.tets.empty() || mesh.nodes.empty()) return result;
+
+    const std::size_t numNodes = mesh.nodes.size();
+    const std::size_t numDofs = numNodes * 3;
+
+    std::vector<std::array<std::array<double, 4>, 4>> perTetCoeffs;
+    std::vector<double> perTetVolume;
+    std::vector<double> massDiag;
+    std::vector<std::vector<double>> stiffness = assembleStiffness(mesh, material, perTetCoeffs, perTetVolume, &massDiag);
+    if (stiffness.empty()) return result;
+
+    // Same boundary-condition treatment as solveLinearStatic's -- an
+    // identity row/column in K for each fixed DOF -- plus zeroing that
+    // DOF's lumped mass, which removes it from the eigenproblem entirely.
+    for (std::size_t n = 0; n < numNodes; ++n) {
+        if (mesh.nodes[n][0] > boundaryCondition.fixedXMax) continue;
+        for (int d = 0; d < 3; ++d) {
+            const std::size_t dof = n * 3 + static_cast<std::size_t>(d);
+            for (std::size_t col = 0; col < numDofs; ++col) stiffness[dof][col] = 0.0;
+            for (std::size_t row = 0; row < numDofs; ++row) stiffness[row][dof] = 0.0;
+            stiffness[dof][dof] = 1.0;
+            massDiag[dof] = 0.0;
+        }
+    }
+
+    auto massNorm = [&](const std::vector<double>& v) {
+        double sum = 0.0;
+        for (std::size_t i = 0; i < numDofs; ++i) sum += massDiag[i] * v[i] * v[i];
+        return std::sqrt(sum);
+    };
+    auto rayleighQuotient = [&](const std::vector<double>& v, const std::vector<double>& kv) {
+        double numerator = 0.0, denominator = 0.0;
+        for (std::size_t i = 0; i < numDofs; ++i) {
+            numerator += v[i] * kv[i];
+            denominator += massDiag[i] * v[i] * v[i];
+        }
+        return denominator > 1e-300 ? numerator / denominator : 0.0;
+    };
+
+    // Start from 1.0 at every free DOF (0 at fixed ones) -- any vector
+    // with a nonzero component along the true fundamental mode works as
+    // an inverse-iteration seed, and this one has no special symmetry
+    // that would accidentally make it orthogonal to that mode.
+    std::vector<double> x(numDofs, 1.0);
+    for (std::size_t i = 0; i < numDofs; ++i) {
+        if (massDiag[i] <= 0.0) x[i] = 0.0;
+    }
+    double norm = massNorm(x);
+    if (norm < 1e-300) return result; // every DOF fixed -- nothing to vibrate
+    for (double& v : x) v /= norm;
+
+    double lambda = 0.0;
+    for (int iter = 0; iter < maxIterations; ++iter) {
+        std::vector<double> rhs(numDofs);
+        for (std::size_t i = 0; i < numDofs; ++i) rhs[i] = massDiag[i] * x[i];
+
+        std::vector<double> y;
+        if (!solveLinearSystem(stiffness, rhs, y)) return result;
+
+        const double newLambda = rayleighQuotient(y, multipliedVec(stiffness, y));
+
+        const double yNorm = massNorm(y);
+        if (yNorm < 1e-300) return result;
+        for (double& v : y) v /= yNorm;
+
+        // Converged once the Rayleigh quotient (the eigenvalue estimate)
+        // stops moving -- inverse power iteration typically settles in a
+        // handful of iterations for a well-separated fundamental mode, so
+        // this usually exits long before maxIterations.
+        const bool converged = iter > 0 && std::abs(newLambda - lambda) < 1e-9 * std::max(1.0, std::abs(newLambda));
+        lambda = newLambda;
+        x = y;
+        if (converged) break;
+    }
+
+    result.angularFrequencySquared = lambda;
+    result.modeShape.resize(numNodes);
+    for (std::size_t n = 0; n < numNodes; ++n) result.modeShape[n] = {x[n * 3 + 0], x[n * 3 + 1], x[n * 3 + 2]};
     result.solved = true;
     return result;
 }
