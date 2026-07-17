@@ -51,7 +51,14 @@ std::string decodeToken(const std::string& s) {
 
 std::string serializeDocument(const Document3D& doc) {
     std::ostringstream out;
-    out << "KCAD3D 4\n";
+    out << "KCAD3D 5\n";
+
+    // Named document variables (see Document3D::setVariable) arrived in
+    // format version 5, alongside per-feature expressions below.
+    out << "VARIABLES " << doc.variables().size() << "\n";
+    for (const auto& [name, value] : doc.variables()) {
+        out << encodeToken(name) << " " << value << "\n";
+    }
 
     const auto& sketches = doc.sketches();
     out << "SKETCHES " << sketches.size() << "\n";
@@ -96,6 +103,11 @@ std::string serializeDocument(const Document3D& doc) {
         out << "SKETCHINDICES " << f.sketchIndices.size();
         for (int sketchIdx : f.sketchIndices) out << " " << sketchIdx;
         out << "\n";
+        out << "EXPRESSIONS " << f.expressions.size();
+        for (const auto& [fieldName, expr] : f.expressions) {
+            out << " " << encodeToken(fieldName) << " " << encodeToken(expr);
+        }
+        out << "\n";
     }
 
     out << "IMPORTEDSHAPES " << doc.importedShapes().size() << "\n";
@@ -106,6 +118,7 @@ struct ParsedDocument3D {
     std::vector<Sketch> sketches;
     std::vector<Feature3D> features;
     std::size_t importedShapeCount = 0;
+    std::vector<std::pair<std::string, double>> variables;
 };
 
 bool expectTag(std::istringstream& in, const char* tag) {
@@ -120,6 +133,20 @@ bool parseDocumentText(const std::string& text, ParsedDocument3D& parsed) {
     int version = 0;
     in >> version;
     if (!in) return false;
+
+    // Named variables arrived in format version 5; an older file has none.
+    if (version >= 5) {
+        if (!expectTag(in, "VARIABLES")) return false;
+        std::size_t variableCount = 0;
+        in >> variableCount;
+        for (std::size_t v = 0; v < variableCount; ++v) {
+            std::string encodedName;
+            double value = 0.0;
+            in >> encodedName >> value;
+            if (!in) return false;
+            parsed.variables.emplace_back(decodeToken(encodedName), value);
+        }
+    }
 
     std::size_t sketchCount = 0;
     if (!expectTag(in, "SKETCHES")) return false;
@@ -238,6 +265,18 @@ bool parseDocumentText(const std::string& text, ParsedDocument3D& parsed) {
                 f.sketchIndices.push_back(sketchIdx);
             }
         }
+        // Expression-driven parameters arrived in format version 5; an
+        // older file's features simply have no expressions bound.
+        if (version >= 5) {
+            if (!expectTag(in, "EXPRESSIONS")) return false;
+            std::size_t expressionCount = 0;
+            in >> expressionCount;
+            for (std::size_t e = 0; e < expressionCount; ++e) {
+                std::string encodedField, encodedExpr;
+                in >> encodedField >> encodedExpr;
+                f.expressions[decodeToken(encodedField)] = decodeToken(encodedExpr);
+            }
+        }
         if (!in) return false;
         parsed.features.push_back(f);
     }
@@ -286,6 +325,10 @@ bool loadDocument3D(Document3D& doc, const std::string& path) {
         doc.addImportedShape(shape);
     }
 
+    // Variables must be in place BEFORE features are added below, since
+    // addFeature recomputes immediately and any expression referencing a
+    // variable needs it to already exist.
+    for (const auto& [name, value] : parsed.variables) doc.setVariable(name, value);
     for (Sketch& sketch : parsed.sketches) doc.addSketch(std::move(sketch));
     for (Feature3D& feature : parsed.features) doc.addFeature(feature);
     return true;

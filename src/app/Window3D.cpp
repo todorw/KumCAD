@@ -40,9 +40,11 @@
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QHBoxLayout>
+#include <QInputDialog>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMenu>
+#include <QPushButton>
 #include <QSpinBox>
 #include <QMenuBar>
 #include <QMessageBox>
@@ -55,6 +57,7 @@
 #include <cmath>
 
 using lcad::AddFeature3DCommand;
+using lcad::Document3D;
 using lcad::Feature3D;
 using lcad::FeatureType;
 using lcad::UpdateFeature3DCommand;
@@ -117,13 +120,39 @@ public:
         m_result = feature;
         const std::vector<QString> labels = paramLabels(feature.type);
         const double initial[4] = {feature.p1, feature.p2, feature.p3, feature.p4};
+        static const char* kFieldNames[4] = {"p1", "p2", "p3", "p4"};
         for (std::size_t i = 0; i < labels.size() && i < 4; ++i) {
             auto* spin = new QDoubleSpinBox(this);
             spin->setRange(0.0, 1e6);
             spin->setDecimals(3);
             spin->setValue(initial[i]);
-            form->addRow(labels[i], spin);
             m_paramSpins.push_back(spin);
+
+            // "fx..." opens a text prompt for an expression (see
+            // core/util/Expr.h + Document3D's named variables) driving
+            // this field instead of a plain typed number. The spin box
+            // stays visible/editable regardless -- if an expression is
+            // bound, Document3D::recomputeOne overwrites the field (and
+            // this spin box, next time the dialog reopens) right after.
+            const std::string fieldName = kFieldNames[i];
+            auto* fxButton = new QPushButton(QStringLiteral("fx..."), this);
+            fxButton->setToolTip(QStringLiteral("Bind an expression to this field"));
+            connect(fxButton, &QPushButton::clicked, this, [this, fieldName]() {
+                const auto it = m_result.expressions.find(fieldName);
+                const QString current = it != m_result.expressions.end() ? QString::fromStdString(it->second) : QString();
+                bool ok = false;
+                const QString expr = QInputDialog::getText(this, QStringLiteral("Expression"),
+                                                            QStringLiteral("Expression (blank to clear):"),
+                                                            QLineEdit::Normal, current, &ok);
+                if (!ok) return;
+                if (expr.trimmed().isEmpty()) m_result.expressions.erase(fieldName);
+                else m_result.expressions[fieldName] = expr.trimmed().toStdString();
+            });
+
+            auto* row = new QHBoxLayout();
+            row->addWidget(spin, 1);
+            row->addWidget(fxButton);
+            form->addRow(labels[i], row);
         }
 
         for (const auto& [label, value] : std::initializer_list<std::pair<QString, double*>>{
@@ -184,6 +213,85 @@ private:
     std::vector<QDoubleSpinBox*> m_posSpins;
     std::vector<QDoubleSpinBox*> m_rotAxisSpins;
     QDoubleSpinBox* m_rotAngleSpin = nullptr;
+};
+
+// Named document variables (Document3D::setVariable/removeVariable) that
+// Feature3D::expressions entries can reference by name -- FreeCAD's own
+// expression-engine variables, simplified to a flat name->number table.
+class VariablesDialog : public QDialog {
+public:
+    explicit VariablesDialog(Document3D& document, QWidget* parent = nullptr) : QDialog(parent), m_document(document) {
+        setWindowTitle(QStringLiteral("Variables"));
+        resize(320, 300);
+
+        m_list = new QListWidget(this);
+        refresh();
+
+        auto* addButton = new QPushButton(QStringLiteral("Add/Edit..."), this);
+        auto* deleteButton = new QPushButton(QStringLiteral("Delete"), this);
+        auto* closeButton = new QPushButton(QStringLiteral("Close"), this);
+        connect(addButton, &QPushButton::clicked, this, &VariablesDialog::addOrEdit);
+        connect(deleteButton, &QPushButton::clicked, this, &VariablesDialog::deleteSelected);
+        connect(closeButton, &QPushButton::clicked, this, &QDialog::accept);
+        connect(m_list, &QListWidget::itemDoubleClicked, this, &VariablesDialog::addOrEdit);
+
+        auto* buttons = new QHBoxLayout();
+        buttons->addWidget(addButton);
+        buttons->addWidget(deleteButton);
+        buttons->addStretch();
+        buttons->addWidget(closeButton);
+
+        auto* layout = new QVBoxLayout(this);
+        layout->addWidget(m_list);
+        layout->addLayout(buttons);
+    }
+
+private:
+    void refresh() {
+        m_list->clear();
+        for (const auto& [name, value] : m_document.variables()) {
+            m_list->addItem(QStringLiteral("%1 = %2").arg(QString::fromStdString(name)).arg(value));
+        }
+    }
+
+    void addOrEdit() {
+        QString existingName;
+        double existingValue = 0.0;
+        if (QListWidgetItem* item = m_list->currentItem()) {
+            const QString text = item->text();
+            const int eq = text.indexOf(QLatin1Char('='));
+            if (eq > 0) {
+                existingName = text.left(eq).trimmed();
+                existingValue = text.mid(eq + 1).trimmed().toDouble();
+            }
+        }
+
+        bool ok = false;
+        const QString name =
+            QInputDialog::getText(this, QStringLiteral("Variable Name"), QStringLiteral("Name:"), QLineEdit::Normal,
+                                  existingName, &ok);
+        if (!ok || name.trimmed().isEmpty()) return;
+
+        const double value = QInputDialog::getDouble(this, QStringLiteral("Variable Value"), QStringLiteral("Value:"),
+                                                      existingValue, -1e9, 1e9, 6, &ok);
+        if (!ok) return;
+
+        m_document.setVariable(name.trimmed().toStdString(), value);
+        refresh();
+    }
+
+    void deleteSelected() {
+        QListWidgetItem* item = m_list->currentItem();
+        if (!item) return;
+        const QString text = item->text();
+        const int eq = text.indexOf(QLatin1Char('='));
+        if (eq <= 0) return;
+        m_document.removeVariable(text.left(eq).trimmed().toStdString());
+        refresh();
+    }
+
+    Document3D& m_document;
+    QListWidget* m_list = nullptr;
 };
 
 // Flat lengths/bend angles are entered as comma-separated numbers rather
@@ -1021,6 +1129,7 @@ Window3D::Window3D(QWidget* parent) : QMainWindow(parent) {
     toolbar->addAction(QStringLiteral("List Faces..."), this, &Window3D::listSelectedFeatureFaces);
     toolbar->addAction(QStringLiteral("New Sketch..."), this, &Window3D::openSketchEditor);
     toolbar->addAction(QStringLiteral("Add Sketch Feature..."), this, &Window3D::addSketchFeature);
+    toolbar->addAction(QStringLiteral("Variables..."), this, &Window3D::openVariablesDialog);
     toolbar->addSeparator();
     toolbar->addAction(QStringLiteral("Undo"), this, &Window3D::undo);
     toolbar->addAction(QStringLiteral("Redo"), this, &Window3D::redo);
@@ -1198,6 +1307,16 @@ void Window3D::addSketchFeature() {
     if (dialog.exec() != QDialog::Accepted) return;
 
     m_document.commandStack().execute(std::make_unique<AddFeature3DCommand>(m_document, dialog.result()));
+    refreshFeatureList();
+    refreshViewport();
+}
+
+void Window3D::openVariablesDialog() {
+    VariablesDialog dialog(m_document, this);
+    dialog.exec();
+    // setVariable/removeVariable recompute internally, so the feature
+    // tree may have changed shape even though this dialog isn't itself
+    // undoable (matching addSketch's own "not yet a Command" disclosure).
     refreshFeatureList();
     refreshViewport();
 }

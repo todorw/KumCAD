@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace lcad {
@@ -154,6 +155,21 @@ struct Feature3D {
     // 2+; sketchIndex above is unused for this type since it's not just
     // one profile).
     std::vector<int> sketchIndices;
+
+    // Expression-driven parameters (FreeCAD's own expression engine,
+    // simplified): keyed by the double field's own name ("p1", "posX",
+    // "dirZ", ...; see core/core3d/Document3D.cpp's field table for the
+    // exact set), each an arithmetic expression (core/util/Expr.h) that
+    // can reference the owning Document3D's named variables. Evaluated at
+    // the start of every recompute, OVERWRITING that field's stored value
+    // -- so the field always shows the last successfully evaluated
+    // result, and a field with no entry here behaves exactly as before
+    // (a plain, directly-edited number). An expression that fails to
+    // evaluate (bad syntax, unknown variable) silently leaves that
+    // field's PREVIOUS value in place rather than invalidating the whole
+    // feature -- a deliberately forgiving choice so one bad expression
+    // doesn't collapse an entire downstream feature tree.
+    std::unordered_map<std::string, std::string> expressions;
 
     static bool isBoolean(FeatureType t) { return t == FeatureType::Union || t == FeatureType::Cut || t == FeatureType::Intersect; }
     bool isBoolean() const { return isBoolean(type); }

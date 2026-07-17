@@ -33,6 +33,7 @@ private:
     void listSelectedFeatureFaces();
     void openSketchEditor();
     void addSketchFeature();
+    void openVariablesDialog();
     void undo();
     void redo();
     void refreshFeatureList();

@@ -1,6 +1,7 @@
 #include "core/core3d/Document3D.h"
 
 #include "core/core3d/SketchToFace.h"
+#include "core/util/Expr.h"
 
 #include <BRepAlgoAPI_Common.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
@@ -37,8 +38,59 @@
 #include <gp_Vec.hxx>
 
 #include <cmath>
+#include <unordered_map>
 
 namespace lcad {
+
+namespace {
+
+// Every double field an expression can drive, by the same name
+// Feature3D::expressions is keyed by. A pointer-to-member table avoids a
+// hand-written switch over field names in applyExpressions below.
+const std::unordered_map<std::string, double Feature3D::*>& expressionFields() {
+    static const std::unordered_map<std::string, double Feature3D::*> fields = {
+        {"p1", &Feature3D::p1},     {"p2", &Feature3D::p2},         {"p3", &Feature3D::p3},
+        {"p4", &Feature3D::p4},     {"posX", &Feature3D::posX},     {"posY", &Feature3D::posY},
+        {"posZ", &Feature3D::posZ}, {"rotAxisX", &Feature3D::rotAxisX}, {"rotAxisY", &Feature3D::rotAxisY},
+        {"rotAxisZ", &Feature3D::rotAxisZ}, {"rotAngle", &Feature3D::rotAngle}, {"dirX", &Feature3D::dirX},
+        {"dirY", &Feature3D::dirY}, {"dirZ", &Feature3D::dirZ},
+    };
+    return fields;
+}
+
+} // namespace
+
+void Document3D::applyExpressions(Feature3D& f) const {
+    if (f.expressions.empty()) return;
+    const auto& fields = expressionFields();
+    for (const auto& [fieldName, expr] : f.expressions) {
+        const auto fieldIt = fields.find(fieldName);
+        if (fieldIt == fields.end()) continue; // unknown field name: ignore
+
+        const auto value = evaluateExpression(
+            expr,
+            [this](const std::string& name) -> std::optional<double> {
+                const auto it = m_variables.find(name);
+                return it != m_variables.end() ? std::optional<double>(it->second) : std::nullopt;
+            },
+            nullptr);
+        // On failure, deliberately leave the field's previous value in
+        // place (see Feature3D::expressions' own comment) rather than
+        // invalidating the whole feature over one bad expression.
+        if (value) f.*(fieldIt->second) = *value;
+    }
+}
+
+void Document3D::setVariable(const std::string& name, double value) {
+    m_variables[name] = value;
+    for (std::size_t i = 0; i < m_features.size(); ++i) recomputeOne(static_cast<int>(i));
+}
+
+bool Document3D::removeVariable(const std::string& name) {
+    if (m_variables.erase(name) == 0) return false;
+    for (std::size_t i = 0; i < m_features.size(); ++i) recomputeOne(static_cast<int>(i));
+    return true;
+}
 
 int Document3D::addFeature(Feature3D feature) {
     const int index = static_cast<int>(m_features.size());
@@ -127,6 +179,7 @@ bool Document3D::isValid(int index) const {
 
 void Document3D::recomputeOne(int index) {
     Feature3D& f = m_features[static_cast<std::size_t>(index)];
+    applyExpressions(f); // overwrites p1-p4/posX-Z/rotAxis*/rotAngle/dirX-Z from f.expressions first
     const gp_Ax2 axes(gp_Pnt(f.posX, f.posY, f.posZ), gp_Dir(0, 0, 1));
 
     TopoDS_Shape shape;

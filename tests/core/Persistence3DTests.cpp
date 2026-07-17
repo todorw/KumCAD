@@ -206,3 +206,70 @@ TEST_CASE("loadDocument3D fails cleanly on a missing or malformed file", "[core3
     Document3D doc;
     REQUIRE_FALSE(loadDocument3D(doc, "/nonexistent/path/kumcad_never_exists.kcad3d"));
 }
+
+TEST_CASE("Document3D save/load round-trips named variables and a feature's expression", "[core3d][persistence]") {
+    TempPath temp;
+    Document3D doc;
+    doc.setVariable("Width", 6.0);
+    doc.setVariable("Height", 3.5);
+
+    Feature3D box;
+    box.type = FeatureType::Box;
+    box.p1 = 1.0; // will be overwritten by the expression on the very first recompute
+    box.p2 = box.p3 = 4.0;
+    box.expressions["p1"] = "Width*2";
+    const int boxIdx = doc.addFeature(box);
+    REQUIRE(doc.findFeature(boxIdx)->p1 == Approx(12.0)); // sanity: expression already applied pre-save
+
+    REQUIRE(saveDocument3D(doc, temp.path.string()));
+
+    Document3D loaded;
+    REQUIRE(loadDocument3D(loaded, temp.path.string()));
+
+    REQUIRE(loaded.variables().size() == 2);
+    REQUIRE(loaded.variables().at("Width") == Approx(6.0));
+    REQUIRE(loaded.variables().at("Height") == Approx(3.5));
+
+    const Feature3D* loadedBox = loaded.findFeature(boxIdx);
+    REQUIRE(loadedBox);
+    REQUIRE(loadedBox->expressions.at("p1") == "Width*2");
+    REQUIRE(loadedBox->p1 == Approx(12.0)); // re-evaluated on load, not just the raw stored 1.0
+    REQUIRE(loaded.isValid(boxIdx));
+    REQUIRE(volumeOf(loaded.shapeAt(boxIdx)) == Approx(12.0 * 4.0 * 4.0).margin(1e-6));
+
+    // Changing the reloaded variable still recomputes the reloaded feature
+    // -- proves the expression binding survived as a LIVE binding, not
+    // just a snapshot of its once-evaluated value.
+    loaded.setVariable("Width", 10.0);
+    REQUIRE(loaded.findFeature(boxIdx)->p1 == Approx(20.0));
+}
+
+TEST_CASE("loadDocument3D reads an older format-4 file (no variables/expressions) with sane defaults",
+          "[core3d][persistence]") {
+    TempPath temp;
+    // A hand-built format-4 document.txt, predating VARIABLES/EXPRESSIONS,
+    // with one plain Box feature -- proves an old save file still loads.
+    const std::string oldFormatText =
+        "KCAD3D 4\n"
+        "SKETCHES 0\n"
+        "FEATURES 1\n"
+        "0 OldBox\n"
+        "9 9 9 0\n"
+        "0 0 0\n"
+        "0 0 1\n"
+        "0 0 1 0\n"
+        "-1 -1 0\n"
+        "-1 1 -1 -1\n"
+        "EDGEINDICES 0\n"
+        "FACEINDICES 0\n"
+        "SKETCHINDICES 0\n"
+        "IMPORTEDSHAPES 0\n";
+    REQUIRE(writeZip(temp.path.string(), {{"document.txt", oldFormatText}}));
+
+    Document3D loaded;
+    REQUIRE(loadDocument3D(loaded, temp.path.string()));
+    REQUIRE(loaded.variables().empty());
+    REQUIRE(loaded.isValid(0));
+    REQUIRE(volumeOf(loaded.shapeAt(0)) == Approx(9.0 * 9.0 * 9.0).margin(1e-6));
+    REQUIRE(loaded.findFeature(0)->expressions.empty());
+}

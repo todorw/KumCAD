@@ -15,6 +15,7 @@ constexpr double kRadToDeg = 180.0 / M_PI;
 class Parser {
 public:
     explicit Parser(const std::string& s) : m_s(s) {}
+    Parser(const std::string& s, const VariableLookup& lookup) : m_s(s), m_lookup(lookup) {}
 
     std::optional<double> parse() {
         skipWs();
@@ -35,6 +36,7 @@ private:
     std::size_t m_pos = 0;
     bool m_failed = false;
     std::string m_error;
+    VariableLookup m_lookup;
 
     void fail(const std::string& msg) {
         if (!m_failed) m_error = msg;
@@ -156,14 +158,21 @@ private:
               (std::isalnum(static_cast<unsigned char>(m_s[m_pos])) || m_s[m_pos] == '_')) {
             ++m_pos;
         }
-        std::string name = m_s.substr(start, m_pos - start);
+        const std::string original = m_s.substr(start, m_pos - start);
+        std::string name = original;
         for (char& ch : name) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
 
         if (name == "pi") return M_PI;
         if (name == "e") return M_E;
 
         if (!consume('(')) {
-            fail("unknown identifier '" + name + "'");
+            // Not a function call: try a variable lookup (case-sensitive,
+            // the ORIGINAL text, not the case-folded name above) before
+            // failing.
+            if (m_lookup) {
+                if (auto value = m_lookup(original)) return *value;
+            }
+            fail("unknown identifier '" + original + "'");
             return 0.0;
         }
         std::vector<double> args;
@@ -214,6 +223,14 @@ private:
 
 std::optional<double> evaluateExpression(const std::string& expr, std::string* errorOut) {
     Parser parser(expr);
+    if (auto v = parser.parse()) return v;
+    if (errorOut) *errorOut = parser.error();
+    return std::nullopt;
+}
+
+std::optional<double> evaluateExpression(const std::string& expr, const VariableLookup& lookup,
+                                         std::string* errorOut) {
+    Parser parser(expr, lookup);
     if (auto v = parser.parse()) return v;
     if (errorOut) *errorOut = parser.error();
     return std::nullopt;

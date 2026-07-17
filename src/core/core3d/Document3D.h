@@ -6,6 +6,8 @@
 
 #include <TopoDS_Shape.hxx>
 
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace lcad {
@@ -66,6 +68,16 @@ public:
     int addImportedShape(TopoDS_Shape shape);
     const std::vector<TopoDS_Shape>& importedShapes() const { return m_importedShapes; }
 
+    // Named document variables (FreeCAD's own expression-engine variables,
+    // simplified: no spreadsheet, just a flat name->number table), which
+    // Feature3D::expressions entries can reference by name. Not undoable
+    // yet (matching addSketch's own "not itself a dependency the recompute
+    // engine understands" disclosure) -- setVariable recomputes every
+    // feature so the change is felt immediately.
+    void setVariable(const std::string& name, double value);
+    bool removeVariable(const std::string& name);
+    const std::unordered_map<std::string, double>& variables() const { return m_variables; }
+
 private:
     std::vector<Feature3D> m_features;
     std::vector<TopoDS_Shape> m_shapes;
@@ -73,8 +85,13 @@ private:
     CommandStack m_commandStack;
     std::vector<Sketch> m_sketches;
     std::vector<TopoDS_Shape> m_importedShapes;
+    std::unordered_map<std::string, double> m_variables;
 
     void recomputeOne(int index);
+    // Overwrites f's double fields that have an entry in f.expressions,
+    // evaluating each against m_variables. See Feature3D::expressions'
+    // own comment for the "leave the previous value on failure" contract.
+    void applyExpressions(Feature3D& f) const;
 };
 
 } // namespace lcad

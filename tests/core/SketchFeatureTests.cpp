@@ -572,3 +572,71 @@ TEST_CASE("Document3D Pad on the YZ plane with an offset places geometry correct
     REQUIRE((ymax - ymin) == Approx(6.0));
     REQUIRE((zmax - zmin) == Approx(4.0));
 }
+
+TEST_CASE("Document3D expression-driven parameter reacts to variable changes", "[core3d][expression]") {
+    Document3D doc;
+    doc.setVariable("Width", 5.0);
+
+    Feature3D box;
+    box.type = FeatureType::Box;
+    box.p1 = 999.0; // deliberately wrong initial value: the expression must override it
+    box.p2 = box.p3 = 4.0;
+    box.expressions["p1"] = "Width*2";
+    const int boxIdx = doc.addFeature(box);
+
+    REQUIRE(doc.isValid(boxIdx));
+    REQUIRE(volumeOf(doc.shapeAt(boxIdx)) == Approx(10.0 * 4.0 * 4.0).margin(1e-6));
+    REQUIRE(doc.findFeature(boxIdx)->p1 == Approx(10.0)); // the field itself reflects the evaluated result
+
+    // Changing the variable recomputes every feature that depends on it.
+    doc.setVariable("Width", 8.0);
+    REQUIRE(volumeOf(doc.shapeAt(boxIdx)) == Approx(16.0 * 4.0 * 4.0).margin(1e-6));
+    REQUIRE(doc.findFeature(boxIdx)->p1 == Approx(16.0));
+}
+
+TEST_CASE("Document3D expression referencing an unknown variable leaves the previous value", "[core3d][expression]") {
+    Document3D doc;
+
+    Feature3D box;
+    box.type = FeatureType::Box;
+    box.p1 = 7.0; // no matching variable exists -- this must survive untouched
+    box.p2 = box.p3 = 3.0;
+    box.expressions["p1"] = "NoSuchVariable";
+    const int boxIdx = doc.addFeature(box);
+
+    REQUIRE(doc.isValid(boxIdx));
+    REQUIRE(doc.findFeature(boxIdx)->p1 == Approx(7.0));
+    REQUIRE(volumeOf(doc.shapeAt(boxIdx)) == Approx(7.0 * 3.0 * 3.0).margin(1e-6));
+}
+
+TEST_CASE("Document3D expression on an unknown field name is silently ignored", "[core3d][expression]") {
+    Document3D doc;
+    Feature3D box;
+    box.type = FeatureType::Box;
+    box.p1 = box.p2 = box.p3 = 6.0;
+    box.expressions["notARealField"] = "1+1";
+    const int boxIdx = doc.addFeature(box);
+
+    REQUIRE(doc.isValid(boxIdx));
+    REQUIRE(volumeOf(doc.shapeAt(boxIdx)) == Approx(6.0 * 6.0 * 6.0).margin(1e-6));
+}
+
+TEST_CASE("Document3D removeVariable recomputes dependents back to their raw stored value", "[core3d][expression]") {
+    Document3D doc;
+    doc.setVariable("Size", 4.0);
+
+    Feature3D box;
+    box.type = FeatureType::Box;
+    box.p1 = box.p2 = box.p3 = 4.0;
+    box.expressions["p1"] = "Size*3";
+    const int boxIdx = doc.addFeature(box);
+    REQUIRE(doc.findFeature(boxIdx)->p1 == Approx(12.0));
+
+    REQUIRE(doc.removeVariable("Size"));
+    REQUIRE_FALSE(doc.removeVariable("Size")); // already gone
+    // The expression now fails to resolve (unknown variable), so p1 keeps
+    // its LAST successfully evaluated value (12.0), not the original 4.0
+    // -- matching applyExpressions' own disclosed "leave previous value"
+    // contract exactly.
+    REQUIRE(doc.findFeature(boxIdx)->p1 == Approx(12.0));
+}
