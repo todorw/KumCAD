@@ -73,6 +73,8 @@ add_library(lcad_core STATIC
     pcb/Drc.cpp
     pcb/GerberWriter.h
     pcb/GerberWriter.cpp
+    pcb/SpecctraWriter.h
+    pcb/SpecctraWriter.cpp
     electrical/ElectricalLibrary.h
     electrical/ElectricalLibrary.cpp
     electrical/WireNumbering.h

@@ -5,6 +5,7 @@
 #include "core/geometry/Via.h"
 #include "core/pcb/GerberWriter.h"
 #include "core/pcb/Ratsnest.h"
+#include "core/pcb/SpecctraWriter.h"
 
 #include <fstream>
 #include <sstream>
@@ -65,6 +66,25 @@ std::optional<QString> RatsnestCommand::onText(const QString& text) {
         .arg(nets.size())
         .arg(lines.size())
         .arg(totalLength, 0, 'f', 2);
+}
+
+std::optional<QString> DsnExportCommand::onText(const QString& text) {
+    if (m_stage == Stage::NetlistPath) {
+        std::ifstream in(text.trimmed().toStdString(), std::ios::binary);
+        if (!in) return QStringLiteral("*Could not open %1*\nEnter netlist file path:").arg(text.trimmed());
+        std::ostringstream buffer;
+        buffer << in.rdbuf();
+        m_nets = lcad::parseNetlist(buffer.str());
+        m_stage = Stage::OutputPath;
+        return QStringLiteral("Enter output .dsn file path:");
+    }
+
+    m_finished = true;
+    std::string error;
+    if (!lcad::writeSpecctraDsn(m_document, m_nets, text.trimmed().toStdString(), &error)) {
+        return QStringLiteral("*%1*").arg(QString::fromStdString(error));
+    }
+    return QStringLiteral("*Specctra DSN written to %1 (%2 net(s))*").arg(text.trimmed()).arg(m_nets.size());
 }
 
 std::optional<QString> GerberExportCommand::onText(const QString& text) {

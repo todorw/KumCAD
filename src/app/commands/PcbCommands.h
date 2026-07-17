@@ -2,6 +2,7 @@
 
 #include "commands/DrawCommand.h"
 #include "core/document/Document.h"
+#include "core/pcb/Ratsnest.h"
 
 #include <vector>
 
@@ -95,6 +96,31 @@ private:
     lcad::Document& m_document;
     Stage m_stage = Stage::LayerName;
     lcad::LayerId m_layer = 0;
+    bool m_finished = false;
+};
+
+// DSNEXPORT: netlist file path, then output file path -- writes a
+// Specctra DSN file (see core/pcb/SpecctraWriter.h) for external
+// autorouters (FreeRouting etc.) instead of an in-house autorouter.
+class DsnExportCommand : public DrawCommand {
+public:
+    explicit DsnExportCommand(lcad::Document& document) : m_document(document) {}
+
+    QString start() override { return QStringLiteral("DSNEXPORT  Enter netlist file path:"); }
+    std::optional<QString> onPoint(const lcad::Point2D& pt) override {
+        (void)pt;
+        return std::nullopt;
+    }
+    bool wantsTextInput() const override { return true; }
+    std::optional<QString> onText(const QString& text) override;
+    bool isFinished() const override { return m_finished; }
+    void cancel() override { m_finished = true; }
+
+private:
+    enum class Stage { NetlistPath, OutputPath };
+    lcad::Document& m_document;
+    Stage m_stage = Stage::NetlistPath;
+    std::vector<lcad::ImportedNet> m_nets;
     bool m_finished = false;
 };
 

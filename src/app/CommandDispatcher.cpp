@@ -574,6 +574,8 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         startCommand(std::make_unique<DrillExportCommand>(m_document), QStringLiteral("DRILL"));
     } else if (cmd == QLatin1String("PNP")) {
         startCommand(std::make_unique<PickAndPlaceCommand>(m_document), QStringLiteral("PNP"));
+    } else if (cmd == QLatin1String("DSNEXPORT")) {
+        startCommand(std::make_unique<DsnExportCommand>(m_document), QStringLiteral("DSNEXPORT"));
     } else if (cmd == QLatin1String("GCODE")) {
         startCommand(std::make_unique<GCodeExportCommand>(m_document, pickTolerance()), QStringLiteral("GCODE"));
     } else if (cmd == QLatin1String("TIN")) {
