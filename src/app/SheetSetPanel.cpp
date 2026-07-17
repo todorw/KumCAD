@@ -9,16 +9,17 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFont>
 #include <QHBoxLayout>
 #include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
-#include <QListWidget>
 #include <QMessageBox>
 #include <QPainter>
 #include <QPrinter>
 #include <QPushButton>
-#include <QTextStream>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
 #include <QVBoxLayout>
 
 namespace {
@@ -38,8 +39,9 @@ QStringList peekLayoutNames(const QString& path) {
 } // namespace
 
 SheetSetPanel::SheetSetPanel(QWidget* parent) : QWidget(parent) {
-    m_list = new QListWidget(this);
-    connect(m_list, &QListWidget::itemDoubleClicked, this, &SheetSetPanel::onItemDoubleClicked);
+    m_tree = new QTreeWidget(this);
+    m_tree->setHeaderLabels({QStringLiteral("Sheet"), QStringLiteral("Drawing")});
+    connect(m_tree, &QTreeWidget::itemDoubleClicked, this, &SheetSetPanel::onItemDoubleClicked);
 
     auto* hint = new QLabel(QStringLiteral("Double-click a sheet to open it (replaces the current drawing)."), this);
     hint->setWordWrap(true);
@@ -68,22 +70,32 @@ SheetSetPanel::SheetSetPanel(QWidget* parent) : QWidget(parent) {
 
     auto* layout = new QVBoxLayout(this);
     layout->addWidget(hint);
-    layout->addWidget(m_list);
+    layout->addWidget(m_tree);
     layout->addLayout(buttonRow1);
     layout->addLayout(buttonRow2);
     layout->addWidget(publishButton);
 }
 
-void SheetSetPanel::refreshList() {
-    m_list->clear();
-    for (int i = 0; i < m_sheets.size(); ++i) {
-        const Sheet& sheet = m_sheets[i];
-        const QString layoutPart = sheet.layoutName.isEmpty() ? QStringLiteral("Model") : sheet.layoutName;
-        auto* item = new QListWidgetItem(
-            QStringLiteral("%1  [%2 — %3]").arg(sheet.title, QFileInfo(sheet.filePath).fileName(), layoutPart),
-            m_list);
-        item->setData(Qt::UserRole, i);
+void SheetSetPanel::refreshTree() {
+    m_tree->clear();
+    for (const lcad::SheetSubset& subset : m_set.subsets) {
+        auto* subsetItem = new QTreeWidgetItem(m_tree, {QString::fromStdString(subset.name)});
+        QFont font = subsetItem->font(0);
+        font.setBold(true);
+        subsetItem->setFont(0, font);
+        subsetItem->setFlags(subsetItem->flags() & ~Qt::ItemIsSelectable);
+        for (const lcad::SheetSetEntry& sheet : subset.sheets) {
+            const QString layoutPart =
+                sheet.layoutName.empty() ? QStringLiteral("Model") : QString::fromStdString(sheet.layoutName);
+            const QString label = QString::fromStdString(sheet.sheetNumber) + QStringLiteral(" - ") +
+                                  QString::fromStdString(sheet.sheetTitle);
+            const QString drawingPart =
+                QFileInfo(QString::fromStdString(sheet.drawingPath)).fileName() + QStringLiteral(" — ") + layoutPart;
+            auto* sheetItem = new QTreeWidgetItem(subsetItem, {label, drawingPart});
+            sheetItem->setData(0, Qt::UserRole, QString::fromStdString(sheet.sheetNumber));
+        }
     }
+    m_tree->expandAll();
 }
 
 void SheetSetPanel::onAddSheet() {
@@ -95,10 +107,28 @@ void SheetSetPanel::onAddSheet() {
     QStringList options{QStringLiteral("(Model space)")};
     options << layouts;
     bool ok = false;
-    const QString chosen =
+    const QString chosenLayout =
         QInputDialog::getItem(this, QStringLiteral("Add Sheet"), QStringLiteral("Layout:"), options, 0, false, &ok);
     if (!ok) return;
-    const QString layoutName = chosen == QStringLiteral("(Model space)") ? QString() : chosen;
+    const QString layoutName = chosenLayout == QStringLiteral("(Model space)") ? QString() : chosenLayout;
+
+    QStringList subsetNames;
+    for (const lcad::SheetSubset& subset : m_set.subsets) subsetNames << QString::fromStdString(subset.name);
+    if (subsetNames.isEmpty()) subsetNames << QStringLiteral("Sheets");
+    const QString subsetName = QInputDialog::getItem(this, QStringLiteral("Add Sheet"),
+                                                      QStringLiteral("Subset (existing or new):"), subsetNames, 0,
+                                                      true, &ok);
+    if (!ok || subsetName.isEmpty()) return;
+
+    const QString number =
+        QInputDialog::getText(this, QStringLiteral("Add Sheet"), QStringLiteral("Sheet number:"), QLineEdit::Normal,
+                              QString(), &ok);
+    if (!ok || number.isEmpty()) return;
+    if (m_set.findSheet(number.toStdString()) != nullptr) {
+        QMessageBox::warning(this, QStringLiteral("Add Sheet"),
+                             QStringLiteral("A sheet numbered \"%1\" already exists in this set.").arg(number));
+        return;
+    }
 
     const QString defaultTitle =
         layoutName.isEmpty() ? QFileInfo(path).baseName() : QFileInfo(path).baseName() + QStringLiteral(" - ") + layoutName;
@@ -107,62 +137,54 @@ void SheetSetPanel::onAddSheet() {
                               defaultTitle, &ok);
     if (!ok || title.isEmpty()) return;
 
-    m_sheets.push_back({title, path, layoutName});
-    refreshList();
+    lcad::addSheet(m_set, subsetName.toStdString(),
+                   {number.toStdString(), title.toStdString(), path.toStdString(), layoutName.toStdString()});
+    refreshTree();
 }
 
 void SheetSetPanel::onRemoveSheet() {
-    const int row = m_list->currentRow();
-    if (row < 0 || row >= m_sheets.size()) return;
-    m_sheets.removeAt(row);
-    refreshList();
+    QTreeWidgetItem* item = m_tree->currentItem();
+    if (!item || !item->parent()) return; // no selection, or a subset header (not a sheet)
+    const std::string number = item->data(0, Qt::UserRole).toString().toStdString();
+    lcad::removeSheet(m_set, number);
+    refreshTree();
 }
 
 void SheetSetPanel::onNewSet() {
-    m_sheets.clear();
+    m_set = lcad::SheetSet();
     m_setPath.clear();
-    refreshList();
+    refreshTree();
 }
 
 void SheetSetPanel::onSaveSet() {
     const QString path = QFileDialog::getSaveFileName(this, QStringLiteral("Save Sheet Set"), m_setPath,
-                                                       QStringLiteral("KumCAD Sheet Set (*.kcss)"));
+                                                       QStringLiteral("KumCAD Sheet Set (*.kss)"));
     if (path.isEmpty()) return;
-    QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        QMessageBox::warning(this, QStringLiteral("Save Sheet Set"), QStringLiteral("Could not write the file."));
+    std::string error;
+    if (!lcad::saveSheetSet(m_set, path.toStdString(), &error)) {
+        QMessageBox::warning(this, QStringLiteral("Save Sheet Set"), QString::fromStdString(error));
         return;
-    }
-    QTextStream out(&file);
-    for (const Sheet& sheet : m_sheets) {
-        out << sheet.title << '|' << sheet.filePath << '|' << sheet.layoutName << '\n';
     }
     m_setPath = path;
 }
 
 void SheetSetPanel::onLoadSet() {
     const QString path = QFileDialog::getOpenFileName(this, QStringLiteral("Load Sheet Set"), m_setPath,
-                                                       QStringLiteral("KumCAD Sheet Set (*.kcss)"));
+                                                       QStringLiteral("KumCAD Sheet Set (*.kss)"));
     if (path.isEmpty()) return;
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        QMessageBox::warning(this, QStringLiteral("Load Sheet Set"), QStringLiteral("Could not read the file."));
+    lcad::SheetSet loaded;
+    std::string error;
+    if (!lcad::loadSheetSet(loaded, path.toStdString(), &error)) {
+        QMessageBox::warning(this, QStringLiteral("Load Sheet Set"), QString::fromStdString(error));
         return;
     }
-    QVector<Sheet> loaded;
-    QTextStream in(&file);
-    while (!in.atEnd()) {
-        const QStringList parts = in.readLine().split(QLatin1Char('|'));
-        if (parts.size() != 3) continue;
-        loaded.push_back({parts[0], parts[1], parts[2]});
-    }
-    m_sheets = loaded;
+    m_set = std::move(loaded);
     m_setPath = path;
-    refreshList();
+    refreshTree();
 }
 
 void SheetSetPanel::onPublish() {
-    if (m_sheets.isEmpty()) {
+    if (m_set.sheetCount() == 0) {
         QMessageBox::information(this, QStringLiteral("Publish"), QStringLiteral("The sheet set is empty."));
         return;
     }
@@ -179,28 +201,30 @@ void SheetSetPanel::onPublish() {
     int published = 0;
     QStringList failed;
     bool firstPage = true;
-    for (const Sheet& sheet : m_sheets) {
-        lcad::Document scratch;
-        const bool isDwg = sheet.filePath.endsWith(QStringLiteral(".dwg"), Qt::CaseInsensitive);
-        const bool ok = isDwg ? lcad::readDwg(scratch, sheet.filePath.toStdString())
-                              : lcad::readDxf(scratch, sheet.filePath.toStdString());
-        if (!ok) {
-            failed << sheet.title;
-            continue;
-        }
-        const lcad::Layout* layout = nullptr;
-        if (!sheet.layoutName.isEmpty()) {
-            for (const lcad::Layout& l : scratch.layouts()) {
-                if (QString::fromStdString(l.name) == sheet.layoutName) {
-                    layout = &l;
-                    break;
+    for (const lcad::SheetSubset& subset : m_set.subsets) {
+        for (const lcad::SheetSetEntry& sheet : subset.sheets) {
+            lcad::Document scratch;
+            const QString filePath = QString::fromStdString(sheet.drawingPath);
+            const bool isDwg = filePath.endsWith(QStringLiteral(".dwg"), Qt::CaseInsensitive);
+            const bool ok = isDwg ? lcad::readDwg(scratch, sheet.drawingPath) : lcad::readDxf(scratch, sheet.drawingPath);
+            if (!ok) {
+                failed << QString::fromStdString(sheet.sheetNumber);
+                continue;
+            }
+            const lcad::Layout* layout = nullptr;
+            if (!sheet.layoutName.empty()) {
+                for (const lcad::Layout& l : scratch.layouts()) {
+                    if (l.name == sheet.layoutName) {
+                        layout = &l;
+                        break;
+                    }
                 }
             }
+            if (!firstPage) printer.newPage();
+            firstPage = false;
+            renderDocumentPage(painter, printer.resolution(), scratch, layout);
+            ++published;
         }
-        if (!firstPage) printer.newPage();
-        firstPage = false;
-        renderDocumentPage(painter, printer.resolution(), scratch, layout);
-        ++published;
     }
     painter.end();
 
@@ -219,9 +243,11 @@ void SheetSetPanel::onPublish() {
     QMessageBox::information(this, QStringLiteral("Publish"), message);
 }
 
-void SheetSetPanel::onItemDoubleClicked(QListWidgetItem* item) {
-    if (!item) return;
-    const int index = item->data(Qt::UserRole).toInt();
-    if (index < 0 || index >= m_sheets.size()) return;
-    emit sheetOpenRequested(m_sheets[index].filePath, m_sheets[index].layoutName);
+void SheetSetPanel::onItemDoubleClicked(QTreeWidgetItem* item, int column) {
+    (void)column;
+    if (!item || !item->parent()) return; // a subset header, not a sheet
+    const std::string number = item->data(0, Qt::UserRole).toString().toStdString();
+    const lcad::SheetSetEntry* sheet = m_set.findSheet(number);
+    if (!sheet) return;
+    emit sheetOpenRequested(QString::fromStdString(sheet->drawingPath), QString::fromStdString(sheet->layoutName));
 }
