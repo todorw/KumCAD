@@ -51,7 +51,7 @@ std::string decodeToken(const std::string& s) {
 
 std::string serializeDocument(const Document3D& doc) {
     std::ostringstream out;
-    out << "KCAD3D 5\n";
+    out << "KCAD3D 6\n";
 
     // Named document variables (see Document3D::setVariable) arrived in
     // format version 5, alongside per-feature expressions below.
@@ -106,6 +106,18 @@ std::string serializeDocument(const Document3D& doc) {
         out << "EXPRESSIONS " << f.expressions.size();
         for (const auto& [fieldName, expr] : f.expressions) {
             out << " " << encodeToken(fieldName) << " " << encodeToken(expr);
+        }
+        out << "\n";
+        // Topological-naming fingerprints (see TopoNaming.h), one per
+        // edgeIndices/faceIndices entry, arrived in format version 6.
+        out << "EDGEFINGERPRINTS " << f.edgeFingerprints.size();
+        for (const EdgeFingerprint& fp : f.edgeFingerprints) {
+            out << " " << fp.midX << " " << fp.midY << " " << fp.midZ << " " << fp.length;
+        }
+        out << "\n";
+        out << "FACEFINGERPRINTS " << f.faceFingerprints.size();
+        for (const FaceFingerprint& fp : f.faceFingerprints) {
+            out << " " << fp.centroidX << " " << fp.centroidY << " " << fp.centroidZ << " " << fp.area;
         }
         out << "\n";
     }
@@ -275,6 +287,28 @@ bool parseDocumentText(const std::string& text, ParsedDocument3D& parsed) {
                 std::string encodedField, encodedExpr;
                 in >> encodedField >> encodedExpr;
                 f.expressions[decodeToken(encodedField)] = decodeToken(encodedExpr);
+            }
+        }
+        // Topological-naming fingerprints arrived in format version 6; an
+        // older file's Fillet/Chamfer/Shell features simply have none,
+        // so recompute falls back to trusting their raw indices directly
+        // (reresolveIndices' own "sizes don't match" fallback).
+        if (version >= 6) {
+            if (!expectTag(in, "EDGEFINGERPRINTS")) return false;
+            std::size_t edgeFpCount = 0;
+            in >> edgeFpCount;
+            for (std::size_t e = 0; e < edgeFpCount; ++e) {
+                EdgeFingerprint fp;
+                in >> fp.midX >> fp.midY >> fp.midZ >> fp.length;
+                f.edgeFingerprints.push_back(fp);
+            }
+            if (!expectTag(in, "FACEFINGERPRINTS")) return false;
+            std::size_t faceFpCount = 0;
+            in >> faceFpCount;
+            for (std::size_t fc = 0; fc < faceFpCount; ++fc) {
+                FaceFingerprint fp;
+                in >> fp.centroidX >> fp.centroidY >> fp.centroidZ >> fp.area;
+                f.faceFingerprints.push_back(fp);
             }
         }
         if (!in) return false;

@@ -1,5 +1,7 @@
 #include "SketchFeatureDialog.h"
 
+#include "core/core3d/TopoNaming.h"
+
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -186,16 +188,40 @@ Feature3D SketchFeatureDialog::result() const {
     f.dirX = m_dirX->value();
     f.dirY = m_dirY->value();
     f.dirZ = m_dirZ->value();
+    // A typed index is captured against the target's CURRENT shape as a
+    // geometric fingerprint too (see core/core3d/TopoNaming.h) -- the
+    // same topological-naming mitigation a real interactive pick would
+    // get, applied here since this dialog uses typed indices (cross-
+    // referenced via "List Edges.../List Faces...") rather than actual
+    // viewport clicking.
+    const TopoDS_Shape* targetShape =
+        (f.inputA >= 0 && m_document.isValid(f.inputA)) ? &m_document.shapeAt(f.inputA) : nullptr;
     for (const QString& token : m_edgeIndices->text().split(QLatin1Char(','), Qt::SkipEmptyParts)) {
         bool ok = false;
         const int value = token.trimmed().toInt(&ok);
-        if (ok) f.edgeIndices.push_back(value);
+        if (!ok) continue;
+        f.edgeIndices.push_back(value);
+        if (targetShape) {
+            if (const auto fp = lcad::fingerprintEdge(*targetShape, value)) f.edgeFingerprints.push_back(*fp);
+        }
     }
+    // If any index failed to fingerprint (target unresolved, or an
+    // out-of-range typed index), drop the whole fingerprint list rather
+    // than leaving it partially populated -- recomputeOne's own
+    // reresolveIndices only trusts fingerprints when the count exactly
+    // matches edgeIndices, so a partial list would silently misalign.
+    if (targetShape && f.edgeFingerprints.size() != f.edgeIndices.size()) f.edgeFingerprints.clear();
+
     for (const QString& token : m_faceIndices->text().split(QLatin1Char(','), Qt::SkipEmptyParts)) {
         bool ok = false;
         const int value = token.trimmed().toInt(&ok);
-        if (ok) f.faceIndices.push_back(value);
+        if (!ok) continue;
+        f.faceIndices.push_back(value);
+        if (targetShape) {
+            if (const auto fp = lcad::fingerprintFace(*targetShape, value)) f.faceFingerprints.push_back(*fp);
+        }
     }
+    if (targetShape && f.faceFingerprints.size() != f.faceIndices.size()) f.faceFingerprints.clear();
     for (const QString& token : m_sketchIndices->text().split(QLatin1Char(','), Qt::SkipEmptyParts)) {
         bool ok = false;
         const int value = token.trimmed().toInt(&ok);

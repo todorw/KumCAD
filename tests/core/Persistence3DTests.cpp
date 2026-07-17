@@ -1,5 +1,7 @@
 #include "core/core3d/Document3D.h"
 #include "core/core3d/Persistence3D.h"
+#include "core/core3d/Pick3D.h"
+#include "core/core3d/TopoNaming.h"
 #include "core/io/Zip.h"
 #include "core/sketch/SketchGeometry.h"
 
@@ -272,4 +274,76 @@ TEST_CASE("loadDocument3D reads an older format-4 file (no variables/expressions
     REQUIRE(loaded.isValid(0));
     REQUIRE(volumeOf(loaded.shapeAt(0)) == Approx(9.0 * 9.0 * 9.0).margin(1e-6));
     REQUIRE(loaded.findFeature(0)->expressions.empty());
+}
+
+TEST_CASE("Document3D save/load round-trips a Fillet's edge fingerprints and survives a stale raw index",
+          "[core3d][persistence][toponaming]") {
+    TempPath temp;
+    Document3D doc;
+    Feature3D box;
+    box.type = FeatureType::Box;
+    box.p1 = box.p2 = box.p3 = 20.0;
+    const int boxIdx = doc.addFeature(box);
+
+    PickRay ray;
+    ray.origin = {20.1, 20.0, -50.0};
+    ray.direction = {0.0, 0.0, 1.0};
+    const auto picked = pickEdge(doc.shapeAt(boxIdx), ray, 0.5);
+    REQUIRE(picked.has_value());
+    const auto fingerprint = fingerprintEdge(doc.shapeAt(boxIdx), picked->edgeIndex);
+    REQUIRE(fingerprint.has_value());
+
+    Feature3D fillet;
+    fillet.type = FeatureType::Fillet;
+    fillet.inputA = boxIdx;
+    fillet.p1 = 2.0;
+    // A deliberately wrong stored index, saved alongside the correct
+    // fingerprint -- proves the fingerprint (not the index) survives the
+    // round-trip and still drives recompute correctly after loading.
+    fillet.edgeIndices = {(picked->edgeIndex + 5) % 12};
+    fillet.edgeFingerprints = {*fingerprint};
+    const int filletIdx = doc.addFeature(fillet);
+    REQUIRE(doc.isValid(filletIdx));
+    const double originalVolume = volumeOf(doc.shapeAt(filletIdx));
+
+    REQUIRE(saveDocument3D(doc, temp.path.string()));
+    Document3D loaded;
+    REQUIRE(loadDocument3D(loaded, temp.path.string()));
+
+    const Feature3D* loadedFillet = loaded.findFeature(filletIdx);
+    REQUIRE(loadedFillet);
+    REQUIRE(loadedFillet->edgeFingerprints.size() == 1);
+    REQUIRE(loadedFillet->edgeFingerprints[0].length == Approx(fingerprint->length));
+    REQUIRE(loaded.isValid(filletIdx));
+    REQUIRE(volumeOf(loaded.shapeAt(filletIdx)) == Approx(originalVolume).margin(1e-6));
+}
+
+TEST_CASE("loadDocument3D reads an older format-5 file (no fingerprints) with sane defaults",
+          "[core3d][persistence][toponaming]") {
+    TempPath temp;
+    const std::string oldFormatText =
+        "KCAD3D 5\n"
+        "VARIABLES 0\n"
+        "SKETCHES 0\n"
+        "FEATURES 1\n"
+        "0 OldBox\n"
+        "9 9 9 0\n"
+        "0 0 0\n"
+        "0 0 1\n"
+        "0 0 1 0\n"
+        "-1 -1 0\n"
+        "-1 1 -1 -1\n"
+        "EDGEINDICES 0\n"
+        "FACEINDICES 0\n"
+        "SKETCHINDICES 0\n"
+        "EXPRESSIONS 0\n"
+        "IMPORTEDSHAPES 0\n";
+    REQUIRE(writeZip(temp.path.string(), {{"document.txt", oldFormatText}}));
+
+    Document3D loaded;
+    REQUIRE(loadDocument3D(loaded, temp.path.string()));
+    REQUIRE(loaded.isValid(0));
+    REQUIRE(volumeOf(loaded.shapeAt(0)) == Approx(9.0 * 9.0 * 9.0).margin(1e-6));
+    REQUIRE(loaded.findFeature(0)->edgeFingerprints.empty());
+    REQUIRE(loaded.findFeature(0)->faceFingerprints.empty());
 }

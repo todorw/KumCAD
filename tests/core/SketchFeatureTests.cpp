@@ -1,5 +1,6 @@
 #include "core/core3d/Document3D.h"
 #include "core/core3d/Pick3D.h"
+#include "core/core3d/TopoNaming.h"
 
 #include <BRepBndLib.hxx>
 #include <BRepGProp.hxx>
@@ -639,4 +640,73 @@ TEST_CASE("Document3D removeVariable recomputes dependents back to their raw sto
     // -- matching applyExpressions' own disclosed "leave previous value"
     // contract exactly.
     REQUIRE(doc.findFeature(boxIdx)->p1 == Approx(12.0));
+}
+
+TEST_CASE("Document3D Fillet recovers the intended edge via fingerprint even with a stale wrong raw index",
+          "[core3d][fillet][toponaming]") {
+    Document3D doc;
+    Feature3D box;
+    box.type = FeatureType::Box;
+    box.p1 = box.p2 = box.p3 = 20.0;
+    const int boxIdx = doc.addFeature(box);
+
+    // Pick a real edge, exactly like the existing "specific edgeIndices"
+    // test does, and capture its fingerprint from the box's own shape.
+    PickRay ray;
+    ray.origin = {20.1, 20.0, -50.0};
+    ray.direction = {0.0, 0.0, 1.0};
+    const auto picked = pickEdge(doc.shapeAt(boxIdx), ray, 0.5);
+    REQUIRE(picked.has_value());
+    const auto fingerprint = fingerprintEdge(doc.shapeAt(boxIdx), picked->edgeIndex);
+    REQUIRE(fingerprint.has_value());
+
+    // A correctly-indexed fillet on the picked edge -- the reference
+    // result the fingerprint-driven one below must match.
+    Feature3D correctFillet;
+    correctFillet.type = FeatureType::Fillet;
+    correctFillet.inputA = boxIdx;
+    correctFillet.p1 = 2.0;
+    correctFillet.edgeIndices = {picked->edgeIndex};
+    const int correctIdx = doc.addFeature(correctFillet);
+    REQUIRE(doc.isValid(correctIdx));
+    const double correctVolume = volumeOf(doc.shapeAt(correctIdx));
+
+    // A DELIBERATELY WRONG raw index (some other edge of the box's 12),
+    // but the RIGHT fingerprint -- simulates exactly what a topological-
+    // naming failure looks like: the stored index no longer points where
+    // it should, but the fingerprint still identifies the real edge.
+    int wrongIndex = (picked->edgeIndex + 5) % 12;
+    Feature3D staleFillet;
+    staleFillet.type = FeatureType::Fillet;
+    staleFillet.inputA = boxIdx;
+    staleFillet.p1 = 2.0;
+    staleFillet.edgeIndices = {wrongIndex};
+    staleFillet.edgeFingerprints = {*fingerprint};
+    const int staleIdx = doc.addFeature(staleFillet);
+    REQUIRE(doc.isValid(staleIdx));
+
+    // Must match the CORRECT fillet's volume, not a wrong-edge one --
+    // proving recompute actually used the fingerprint to override the
+    // stale index rather than trusting it directly.
+    REQUIRE(volumeOf(doc.shapeAt(staleIdx)) == Approx(correctVolume).margin(1e-6));
+}
+
+TEST_CASE("Document3D Fillet with no fingerprints falls back to trusting the raw index directly (old-format compat)",
+          "[core3d][fillet][toponaming]") {
+    Document3D doc;
+    Feature3D box;
+    box.type = FeatureType::Box;
+    box.p1 = box.p2 = box.p3 = 20.0;
+    const int boxIdx = doc.addFeature(box);
+    const double boxVolume = 20.0 * 20.0 * 20.0;
+
+    Feature3D fillet;
+    fillet.type = FeatureType::Fillet;
+    fillet.inputA = boxIdx;
+    fillet.p1 = 2.0;
+    fillet.edgeIndices = {0}; // no edgeFingerprints entry at all
+    const int filletIdx = doc.addFeature(fillet);
+
+    REQUIRE(doc.isValid(filletIdx));
+    REQUIRE(volumeOf(doc.shapeAt(filletIdx)) < boxVolume); // rounded something, using the raw index as before
 }

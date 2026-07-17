@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/core3d/Fingerprint.h"
+
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -150,6 +152,18 @@ struct Feature3D {
     // same numbering Pick3D.h's pickFace returns -- so a real face pick
     // can drive this directly, same as edgeIndices does for Fillet/Chamfer.
     std::vector<int> faceIndices;
+
+    // Geometric fingerprints (see core/core3d/TopoNaming.h), one per
+    // edgeIndices/faceIndices entry in the SAME order, captured from
+    // inputA's shape at the moment each edge/face was actually picked.
+    // Recompute re-resolves each index against inputA's CURRENT shape
+    // via its fingerprint before use -- the topological-naming
+    // mitigation described in TopoNaming.h's own comment. Left empty
+    // (the default, and always true for an older-format loaded file, or
+    // for Fillet/Chamfer's "every edge" empty-edgeIndices mode) falls
+    // back to trusting the raw indices directly, unchanged from before.
+    std::vector<EdgeFingerprint> edgeFingerprints;
+    std::vector<FaceFingerprint> faceFingerprints;
 
     // The profile sketches to loft through, in order -- Loft only (needs
     // 2+; sketchIndex above is unused for this type since it's not just

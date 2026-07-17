@@ -1,6 +1,7 @@
 #include "core/core3d/Document3D.h"
 
 #include "core/core3d/SketchToFace.h"
+#include "core/core3d/TopoNaming.h"
 #include "core/util/Expr.h"
 
 #include <BRepAlgoAPI_Common.hxx>
@@ -56,6 +57,30 @@ const std::unordered_map<std::string, double Feature3D::*>& expressionFields() {
         {"dirY", &Feature3D::dirY}, {"dirZ", &Feature3D::dirZ},
     };
     return fields;
+}
+
+// Re-resolves rawIndices against target's CURRENT edge/face ordering via
+// fingerprints, one call site per index, when a fingerprint was actually
+// captured for that slot (same size as rawIndices) -- otherwise (old-
+// format file, or Fillet/Chamfer's "every edge" empty-indices mode)
+// falls back to rawIndices completely unchanged, exactly the pre-
+// mitigation behavior.
+std::vector<int> reresolveIndices(const TopoDS_Shape& target, const std::vector<int>& rawIndices,
+                                  const std::vector<EdgeFingerprint>& fingerprints) {
+    if (fingerprints.size() != rawIndices.size()) return rawIndices;
+    std::vector<int> resolved;
+    resolved.reserve(rawIndices.size());
+    for (const EdgeFingerprint& fp : fingerprints) resolved.push_back(resolveEdgeIndex(target, fp));
+    return resolved;
+}
+
+std::vector<int> reresolveIndices(const TopoDS_Shape& target, const std::vector<int>& rawIndices,
+                                  const std::vector<FaceFingerprint>& fingerprints) {
+    if (fingerprints.size() != rawIndices.size()) return rawIndices;
+    std::vector<int> resolved;
+    resolved.reserve(rawIndices.size());
+    for (const FaceFingerprint& fp : fingerprints) resolved.push_back(resolveFaceIndex(target, fp));
+    return resolved;
 }
 
 } // namespace
@@ -320,7 +345,10 @@ void Document3D::recomputeOne(int index) {
                 ++addedCount;
             }
         } else {
-            for (int edgeIndex : f.edgeIndices) {
+            // See TopoNaming.h: re-resolves each index by geometric
+            // fingerprint before trusting it, mitigating upstream
+            // recomputes reshuffling OCCT's own edge ordering.
+            for (int edgeIndex : reresolveIndices(target, f.edgeIndices, f.edgeFingerprints)) {
                 if (edgeIndex < 0 || edgeIndex >= edgeMap.Extent()) continue;
                 filletBuilder.Add(f.p1, TopoDS::Edge(edgeMap(edgeIndex + 1)));
                 ++addedCount;
@@ -356,7 +384,7 @@ void Document3D::recomputeOne(int index) {
                 ++addedCount;
             }
         } else {
-            for (int edgeIndex : f.edgeIndices) {
+            for (int edgeIndex : reresolveIndices(target, f.edgeIndices, f.edgeFingerprints)) {
                 if (edgeIndex < 0 || edgeIndex >= edgeMap.Extent()) continue;
                 chamferBuilder.Add(f.p1, TopoDS::Edge(edgeMap(edgeIndex + 1)));
                 ++addedCount;
@@ -380,7 +408,7 @@ void Document3D::recomputeOne(int index) {
         TopTools_IndexedMapOfShape faceMap;
         TopExp::MapShapes(target, TopAbs_FACE, faceMap);
         TopTools_ListOfShape facesToRemove;
-        for (int faceIndex : f.faceIndices) {
+        for (int faceIndex : reresolveIndices(target, f.faceIndices, f.faceFingerprints)) {
             if (faceIndex < 0 || faceIndex >= faceMap.Extent()) continue;
             facesToRemove.Append(faceMap(faceIndex + 1));
         }
