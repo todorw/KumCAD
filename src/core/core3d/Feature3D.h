@@ -5,9 +5,14 @@
 namespace lcad {
 
 // A parametric 3D feature. Which of p1-p4 mean what depends on type; unused
-// fields are ignored. Position is a simple translation only for now (no
-// rotation) -- a real placement (rotation, sketch-plane orientation) is
-// deeper 3D-sprint territory, not primitives-and-booleans foundations.
+// fields are ignored. Position is a simple translation for every type;
+// rotAxis/rotAngle (see Feature3D's own field comments) are an additional
+// placement rotation, but only for the feature types that have their own
+// independent orientation in space (primitives, Imported) -- Pad/Revolve
+// already fully control their own orientation via dirX/Y/Z, and booleans/
+// Fillet/Chamfer/patterns/Mirror derive their geometry from inputA/inputB
+// so a standalone rotation on them wouldn't mean anything, matching how
+// posX/Y/Z is already "unused fields are ignored" per type.
 enum class FeatureType {
     Box,       // p1=dx, p2=dy, p3=dz
     Cylinder,  // p1=radius, p2=height
@@ -63,6 +68,15 @@ struct Feature3D {
     double posX = 0.0;
     double posY = 0.0;
     double posZ = 0.0;
+
+    // An additional placement rotation of rotAngle degrees around the axis
+    // (rotAxisX,Y,Z) through (posX,posY,posZ) -- primitives (Box..Wedge)
+    // and Imported only, applied after that type's own shape construction
+    // (see recomputeOne). Defaults to "no rotation" (any axis, 0 degrees).
+    double rotAxisX = 0.0;
+    double rotAxisY = 0.0;
+    double rotAxisZ = 1.0;
+    double rotAngle = 0.0;
 
     // Direction/axis/plane-normal vector, meaning depends on type (see
     // FeatureType). Defaults to +Z, matching Pad's most common case

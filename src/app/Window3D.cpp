@@ -122,6 +122,26 @@ public:
             m_posSpins.push_back(spin);
         }
 
+        // Only meaningful for primitives/Imported (see Feature3D.h's own
+        // field comment); shown for every type anyway, same precedent as
+        // Position above always being shown even for types that ignore it.
+        for (const auto& [label, value] : std::initializer_list<std::pair<QString, double*>>{
+                 {QStringLiteral("Rotation Axis X"), &m_result.rotAxisX},
+                 {QStringLiteral("Rotation Axis Y"), &m_result.rotAxisY},
+                 {QStringLiteral("Rotation Axis Z"), &m_result.rotAxisZ}}) {
+            auto* spin = new QDoubleSpinBox(this);
+            spin->setRange(-1.0, 1.0);
+            spin->setDecimals(3);
+            spin->setValue(*value);
+            form->addRow(label, spin);
+            m_rotAxisSpins.push_back(spin);
+        }
+        m_rotAngleSpin = new QDoubleSpinBox(this);
+        m_rotAngleSpin->setRange(-360.0, 360.0);
+        m_rotAngleSpin->setDecimals(2);
+        m_rotAngleSpin->setValue(m_result.rotAngle);
+        form->addRow(QStringLiteral("Rotation Angle (deg):"), m_rotAngleSpin);
+
         auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
         connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
         connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
@@ -135,6 +155,10 @@ public:
         f.posX = m_posSpins[0]->value();
         f.posY = m_posSpins[1]->value();
         f.posZ = m_posSpins[2]->value();
+        f.rotAxisX = m_rotAxisSpins[0]->value();
+        f.rotAxisY = m_rotAxisSpins[1]->value();
+        f.rotAxisZ = m_rotAxisSpins[2]->value();
+        f.rotAngle = m_rotAngleSpin->value();
         return f;
     }
 
@@ -142,6 +166,8 @@ private:
     Feature3D m_result;
     std::vector<QDoubleSpinBox*> m_paramSpins;
     std::vector<QDoubleSpinBox*> m_posSpins;
+    std::vector<QDoubleSpinBox*> m_rotAxisSpins;
+    QDoubleSpinBox* m_rotAngleSpin = nullptr;
 };
 
 // Flat lengths/bend angles are entered as comma-separated numbers rather

@@ -311,6 +311,11 @@ void Document3D::recomputeOne(int index) {
             break;
         }
         shape = m_importedShapes[static_cast<std::size_t>(f.importIndex)];
+        if (std::abs(f.posX) > 1e-12 || std::abs(f.posY) > 1e-12 || std::abs(f.posZ) > 1e-12) {
+            gp_Trsf move;
+            move.SetTranslation(gp_Vec(f.posX, f.posY, f.posZ));
+            shape = BRepBuilderAPI_Transform(shape, move, true).Shape();
+        }
         break;
     }
     case FeatureType::Mirror: {
@@ -329,6 +334,25 @@ void Document3D::recomputeOne(int index) {
         if (ok) shape = op.Shape();
         break;
     }
+    }
+
+    // An additional placement rotation -- primitives and Imported only
+    // (see Feature3D.h's own field comment for why other types ignore
+    // this), applied last so it spins the already-positioned shape in
+    // place around (posX,posY,posZ) rather than needing to be composed
+    // with each type's own construction transform.
+    const bool rotatable = f.type == FeatureType::Box || f.type == FeatureType::Cylinder ||
+                           f.type == FeatureType::Sphere || f.type == FeatureType::Cone ||
+                           f.type == FeatureType::Torus || f.type == FeatureType::Wedge ||
+                           f.type == FeatureType::Imported;
+    if (ok && !shape.IsNull() && rotatable && std::abs(f.rotAngle) > 1e-12) {
+        const double axisLen = std::sqrt(f.rotAxisX * f.rotAxisX + f.rotAxisY * f.rotAxisY + f.rotAxisZ * f.rotAxisZ);
+        if (axisLen > 1e-9) {
+            gp_Trsf rotate;
+            rotate.SetRotation(gp_Ax1(gp_Pnt(f.posX, f.posY, f.posZ), gp_Dir(f.rotAxisX, f.rotAxisY, f.rotAxisZ)),
+                               f.rotAngle * M_PI / 180.0);
+            shape = BRepBuilderAPI_Transform(shape, rotate, true).Shape();
+        }
     }
 
     m_shapes[static_cast<std::size_t>(index)] = shape;

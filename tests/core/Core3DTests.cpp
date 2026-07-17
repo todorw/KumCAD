@@ -1,8 +1,10 @@
 #include "core/core3d/Commands3D.h"
 #include "core/core3d/Document3D.h"
 
+#include <BRepBndLib.hxx>
 #include <BRepGProp.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
+#include <Bnd_Box.hxx>
 #include <GProp_GProps.hxx>
 
 #include <catch2/catch_approx.hpp>
@@ -230,4 +232,87 @@ TEST_CASE("Document3D stores finished sketches for a later sketch-based feature 
     REQUIRE(index == 0);
     REQUIRE(doc.sketches().size() == 1);
     REQUIRE(doc.sketches()[0].lines().size() == 1);
+}
+
+namespace {
+void boundingExtents(const TopoDS_Shape& shape, double& dx, double& dy, double& dz) {
+    Bnd_Box box;
+    BRepBndLib::Add(shape, box);
+    double xmin, ymin, zmin, xmax, ymax, zmax;
+    box.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+    dx = xmax - xmin;
+    dy = ymax - ymin;
+    dz = zmax - zmin;
+}
+} // namespace
+
+TEST_CASE("A rotated Box keeps its volume but swaps its X/Y bounding extents", "[core3d][rotation]") {
+    Document3D doc;
+    Feature3D box;
+    box.type = FeatureType::Box;
+    box.p1 = 20.0; // dx
+    box.p2 = 5.0;  // dy
+    box.p3 = 8.0;  // dz
+    box.rotAxisX = 0;
+    box.rotAxisY = 0;
+    box.rotAxisZ = 1;
+    box.rotAngle = 90.0;
+    const int idx = doc.addFeature(box);
+
+    REQUIRE(doc.isValid(idx));
+
+    GProp_GProps props;
+    BRepGProp::VolumeProperties(doc.shapeAt(idx), props);
+    REQUIRE(props.Mass() == Approx(20.0 * 5.0 * 8.0).margin(1e-6));
+
+    double dx = 0, dy = 0, dz = 0;
+    boundingExtents(doc.shapeAt(idx), dx, dy, dz);
+    // A 90-degree spin around Z swaps which world axis the box's dx/dy
+    // extents land on.
+    REQUIRE(dx == Approx(5.0).margin(1e-6));
+    REQUIRE(dy == Approx(20.0).margin(1e-6));
+    REQUIRE(dz == Approx(8.0).margin(1e-6));
+}
+
+TEST_CASE("An unrotated Box (rotAngle == 0) is unaffected by rotation fields", "[core3d][rotation]") {
+    Document3D doc;
+    Feature3D box;
+    box.type = FeatureType::Box;
+    box.p1 = 20.0;
+    box.p2 = 5.0;
+    box.p3 = 8.0;
+    const int idx = doc.addFeature(box); // rotAngle defaults to 0.0
+
+    REQUIRE(doc.isValid(idx));
+    double dx = 0, dy = 0, dz = 0;
+    boundingExtents(doc.shapeAt(idx), dx, dy, dz);
+    REQUIRE(dx == Approx(20.0).margin(1e-6));
+    REQUIRE(dy == Approx(5.0).margin(1e-6));
+    REQUIRE(dz == Approx(8.0).margin(1e-6));
+}
+
+TEST_CASE("An Imported feature is translated to its posX/Y/Z", "[core3d][rotation][import]") {
+    Document3D doc;
+    const TopoDS_Shape box = BRepPrimAPI_MakeBox(10.0, 10.0, 10.0).Shape();
+    const int importIdx = doc.addImportedShape(box);
+
+    Feature3D imported;
+    imported.type = FeatureType::Imported;
+    imported.importIndex = importIdx;
+    imported.posX = 100.0;
+    imported.posY = 50.0;
+    imported.posZ = 0.0;
+    const int idx = doc.addFeature(imported);
+
+    REQUIRE(doc.isValid(idx));
+    double dx = 0, dy = 0, dz = 0;
+    boundingExtents(doc.shapeAt(idx), dx, dy, dz);
+    REQUIRE(dx == Approx(10.0).margin(1e-6)); // size unaffected by translation
+
+    Bnd_Box bounds;
+    BRepBndLib::Add(doc.shapeAt(idx), bounds);
+    double xmin, ymin, zmin, xmax, ymax, zmax;
+    bounds.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+    REQUIRE(xmin == Approx(100.0).margin(1e-6));
+    REQUIRE(ymin == Approx(50.0).margin(1e-6));
 }
