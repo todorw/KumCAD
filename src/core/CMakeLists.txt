@@ -113,6 +113,7 @@ add_library(lcad_core STATIC
     cam/GCodeWriter.cpp
     util/Expr.h
     util/Expr.cpp
+    util/Script.cpp
     lisp/LispInterpreter.h
     lisp/LispInterpreter.cpp
     sketch/SketchGeometry.h

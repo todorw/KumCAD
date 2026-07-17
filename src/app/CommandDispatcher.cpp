@@ -84,6 +84,7 @@
 #include "core/document/Commands.h"
 #include "core/document/Fields.h"
 #include "core/document/ExpressTools.h"
+#include "core/util/Script.h"
 #include "core/geometry/MText.h"
 #include <set>
 #include "core/geometry/Text.h"
@@ -188,6 +189,16 @@ void CommandDispatcher::handleCommandText(const QString& text) {
             m_lispInputResult = trimmed.toStdString();
         }
         m_lispLoop->quit();
+        return;
+    }
+
+    if (m_awaitingScriptPath) {
+        m_awaitingScriptPath = false;
+        if (trimmed.isEmpty()) {
+            m_commandLine.appendLine(QStringLiteral("*Cancelled*"));
+        } else {
+            runScriptFile(trimmed);
+        }
         return;
     }
 
@@ -654,6 +665,9 @@ void CommandDispatcher::handleCommandText(const QString& text) {
     } else if (cmd == QLatin1String("TCASE")) {
         const std::vector<lcad::EntityId> ids = selectionForModify();
         if (!ids.empty()) startCommand(std::make_unique<TCaseCommand>(m_document, ids), QStringLiteral("TCASE"));
+    } else if (cmd == QLatin1String("SCRIPT") || cmd == QLatin1String("SCR")) {
+        m_awaitingScriptPath = true;
+        m_commandLine.appendLine(QStringLiteral("SCRIPT  Enter script file path:"));
     } else if (cmd == QLatin1String("BURST")) {
         burstSelection();
     } else if (cmd == QLatin1String("TXT2MTXT")) {
@@ -986,6 +1000,44 @@ void CommandDispatcher::overkillSelection() {
     }
     m_document.commandStack().execute(std::move(batch));
     m_commandLine.appendLine(QStringLiteral("*%1 duplicate(s) removed*").arg(duplicateIndices.size()));
+    emit documentChanged();
+}
+
+void CommandDispatcher::runScriptFile(const QString& path) {
+    if (m_scriptDepth >= 8) {
+        m_commandLine.appendLine(QStringLiteral("*Script nesting too deep -- stopped*"));
+        return;
+    }
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        m_commandLine.appendLine(QStringLiteral("*Cannot open script \"%1\"*").arg(path));
+        return;
+    }
+    const std::vector<lcad::ScriptLine> lines = lcad::parseScript(QString::fromUtf8(file.readAll()).toStdString());
+    m_commandLine.appendLine(QStringLiteral("*Running script: %1*").arg(path));
+
+    ++m_scriptDepth;
+    int fed = 0;
+    for (const lcad::ScriptLine& line : lines) {
+        if (line.blank()) {
+            handleCommandText(QString());
+            ++fed;
+            continue;
+        }
+        for (std::size_t i = 0; i < line.tokens.size(); ++i) {
+            if (m_activeCommand && m_activeCommand->wantsTextInput()) {
+                // Free-text stage (TEXT's "Enter text:"): the untokenized
+                // rest of the line is one entry, spaces included.
+                handleCommandText(QString::fromStdString(line.raw.substr(line.offsets[i])));
+                ++fed;
+                break;
+            }
+            handleCommandText(QString::fromStdString(line.tokens[i]));
+            ++fed;
+        }
+    }
+    --m_scriptDepth;
+    m_commandLine.appendLine(QStringLiteral("*Script finished: %1 input(s)*").arg(fed));
     emit documentChanged();
 }
 

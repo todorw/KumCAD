@@ -16,6 +16,7 @@ add_executable(lcad_core_tests
     DwgIoTests.cpp
     ModifyOpsTests.cpp
     ExprTests.cpp
+    ScriptTests.cpp
     LispTests.cpp
     CsvTests.cpp
     PointCloudFileTests.cpp

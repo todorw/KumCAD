@@ -59,6 +59,10 @@ public:
 
 public slots:
     void handleCommandText(const QString& text);
+    // SCRIPT: plays a .scr command script (see core/util/Script.h) by
+    // feeding its entries back through handleCommandText. Public so a
+    // future command-line "-s script.scr" launch flag can reuse it.
+    void runScriptFile(const QString& path);
     void undo();
     void redo();
 
@@ -116,6 +120,11 @@ private:
 
     // Layers LAYISO turned off (they were visible before), for LAYUNISO.
     std::vector<lcad::LayerId> m_layIsoHidden;
+
+    // SCRIPT: the next typed line is the script path; depth guards a
+    // script SCRIPTing itself forever.
+    bool m_awaitingScriptPath = false;
+    int m_scriptDepth = 0;
 
     // A scoped-down AutoLISP interpreter (see LispInterpreter.h for what's
     // not implemented): input starting with '(' at the top-level command
