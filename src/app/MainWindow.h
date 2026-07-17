@@ -58,6 +58,18 @@ public:
     // not an oversight.
     void setupElectricalPanelMode();
 
+    // Same pattern as setupElectricalPanelMode above -- a genuinely
+    // distinct, discoverable entry point (see WelcomeScreen's "Other"
+    // submenu) rather than leaving these domains reachable only by
+    // typing an exact, undocumented-in-the-UI command name. Every 2D
+    // window already has the relevant symbol library pre-registered
+    // (registerPidSymbols is called unconditionally in the constructor),
+    // so there's nothing to set up beyond the mode label and a status-
+    // bar hint pointing at the actual commands.
+    void setupPidMode();
+    void setupCivilMode();
+    void setupCamMode();
+
 protected:
     void closeEvent(QCloseEvent* event) override;
 

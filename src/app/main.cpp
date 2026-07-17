@@ -66,6 +66,12 @@ int main(int argc, char** argv) {
         window.openSheet(welcome.selectedPath(), QString());
     } else if (welcome.choice() == WelcomeScreen::Choice::NewElectricalPanel) {
         window.setupElectricalPanelMode();
+    } else if (welcome.choice() == WelcomeScreen::Choice::NewPid) {
+        window.setupPidMode();
+    } else if (welcome.choice() == WelcomeScreen::Choice::NewCivil) {
+        window.setupCivilMode();
+    } else if (welcome.choice() == WelcomeScreen::Choice::NewCam) {
+        window.setupCamMode();
     }
     window.show();
 

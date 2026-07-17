@@ -556,6 +556,34 @@ void MainWindow::setupElectricalPanelMode() {
                               6000);
 }
 
+void MainWindow::setupPidMode() {
+    m_modeLabel = QStringLiteral("P&ID");
+    updateWindowTitle();
+    statusBar()->showMessage(
+        QStringLiteral("P&ID mode: VALVE/PUMP/VESSEL/INSTRUMENT symbols are ready to place (INSERT), wired with "
+                      "WIRE -- TAGINST auto-tags placed instruments (INST-n), LINELIST reports connectivity."),
+        6000);
+}
+
+void MainWindow::setupCivilMode() {
+    m_modeLabel = QStringLiteral("Civil/Surveying");
+    updateWindowTitle();
+    statusBar()->showMessage(
+        QStringLiteral("Civil/Surveying mode: import a point cloud/survey file, then TIN builds a Delaunay "
+                      "surface, CONTOUR extracts elevation lines, CUTFILL compares two TINs, PROFILE samples a "
+                      "road alignment."),
+        6000);
+}
+
+void MainWindow::setupCamMode() {
+    m_modeLabel = QStringLiteral("2D CAM");
+    updateWindowTitle();
+    statusBar()->showMessage(
+        QStringLiteral("2D CAM mode: draw or import a closed profile, then GCODE prompts for tool diameter/cut "
+                      "side/feed/plunge/depth and writes a toolpath as common-subset G-code."),
+        6000);
+}
+
 bool MainWindow::saveDocument() {
     if (m_currentFilePath.isEmpty()) return saveDocumentAs();
 

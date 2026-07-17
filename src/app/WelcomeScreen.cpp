@@ -80,8 +80,8 @@ WelcomeScreen::WelcomeScreen(QWidget* parent) : QDialog(parent) {
     modeGrid->addWidget(modePcb, 0, 2);
 
     auto* modeOther =
-        makeModeButton(IconFactory::modeOtherIcon(), QStringLiteral("Other"), QStringLiteral("Coming soon"), true);
-    connect(modeOther, &QToolButton::clicked, this, [this] { showComingSoon(QStringLiteral("Other modes")); });
+        makeModeButton(IconFactory::modeOtherIcon(), QStringLiteral("Other"), QStringLiteral("P&ID, Civil, CAM..."), true);
+    connect(modeOther, &QToolButton::clicked, this, &WelcomeScreen::showOtherMenu);
     modeGrid->addWidget(modeOther, 0, 3);
 
     // A genuinely distinct entry point from plain schematic capture (see
@@ -169,4 +169,67 @@ void WelcomeScreen::showComingSoon(const QString& modeName) {
                               QStringLiteral("%1 isn't available yet -- KumCAD is currently a 2D drafting "
                                               "application. This mode is planned for a future release.")
                                   .arg(modeName));
+}
+
+void WelcomeScreen::showOtherMenu() {
+    QDialog submenu(this);
+    submenu.setWindowTitle(QStringLiteral("Other"));
+    auto* layout = new QVBoxLayout(&submenu);
+    layout->addWidget(new QLabel(QStringLiteral("Domains that ride on the same 2D/3D engine:")));
+
+    auto* grid = new QGridLayout;
+    grid->setSpacing(12);
+
+    auto* modePid =
+        makeModeButton(IconFactory::modeOtherIcon(), QStringLiteral("P&ID"), QStringLiteral("ISA-5.1 symbols"), true);
+    connect(modePid, &QToolButton::clicked, this, [this, &submenu] {
+        m_choice = Choice::NewPid;
+        submenu.accept();
+        accept();
+    });
+    grid->addWidget(modePid, 0, 0);
+
+    auto* modeCivil = makeModeButton(IconFactory::modeOtherIcon(), QStringLiteral("Civil / Surveying"),
+                                     QStringLiteral("TIN, contours"), true);
+    connect(modeCivil, &QToolButton::clicked, this, [this, &submenu] {
+        m_choice = Choice::NewCivil;
+        submenu.accept();
+        accept();
+    });
+    grid->addWidget(modeCivil, 0, 1);
+
+    auto* modeCam =
+        makeModeButton(IconFactory::modeOtherIcon(), QStringLiteral("2D CAM"), QStringLiteral("G-code toolpaths"), true);
+    connect(modeCam, &QToolButton::clicked, this, [this, &submenu] {
+        m_choice = Choice::NewCam;
+        submenu.accept();
+        accept();
+    });
+    grid->addWidget(modeCam, 0, 2);
+
+#ifdef LCAD_HAS_OCCT
+    auto* mode3DExt = makeModeButton(IconFactory::mode3DIcon(), QStringLiteral("3D Extensions"),
+                                     QStringLiteral("Sheet Metal, BIM, FEM..."), true);
+    connect(mode3DExt, &QToolButton::clicked, this, [this, &submenu] {
+        m_choice = Choice::New3D;
+        submenu.accept();
+        accept();
+    });
+    grid->addWidget(mode3DExt, 0, 3);
+#endif
+
+    layout->addLayout(grid);
+    auto* hint = new QLabel(QStringLiteral(
+        "P&ID/Civil/CAM open the same 2D drafting window with the relevant symbol library ready and a status-bar "
+        "hint naming the actual commands (TAGINST/LINELIST, TIN/CONTOUR/CUTFILL/PROFILE, GCODE). 3D Extensions "
+        "opens 3D Modeling, whose own toolbar already lists Sheet Metal/BIM/FEM/Piping/Assembly directly."));
+    hint->setWordWrap(true);
+    hint->setStyleSheet(QStringLiteral("color: #aaa;"));
+    layout->addWidget(hint);
+
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, &submenu);
+    connect(buttons, &QDialogButtonBox::rejected, &submenu, &QDialog::reject);
+    layout->addWidget(buttons);
+
+    submenu.exec();
 }
