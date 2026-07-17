@@ -5,10 +5,11 @@
 #include "core/document/Document.h"
 
 // GCODE: select a closed polyline profile, then tool diameter, cut side
-// (OUTSIDE/INSIDE/ONLINE), and an output file path -- writes G-code for it
-// (see core/cam/Toolpath.h, core/cam/GCodeWriter.h). Feed rate, plunge
-// rate, cut depth, and safe height use ToolpathParams's defaults; this
-// command doesn't prompt for them yet. Only PolylineEntity profiles are
+// (OUTSIDE/INSIDE/ONLINE), feed rate, plunge rate, cut depth, safe height,
+// and an output file path -- writes G-code for it (see core/cam/
+// Toolpath.h, core/cam/GCodeWriter.h). Pressing Enter with no input at
+// each of the last four prompts keeps ToolpathParams's own default for
+// that field, shown in the prompt. Only PolylineEntity profiles are
 // supported (a HATCH's traced boundary or a drawn PLINE/RECTANG) -- not
 // circles or other closed curves directly.
 class GCodeExportCommand : public DrawCommand {
@@ -24,12 +25,11 @@ public:
     void cancel() override { m_finished = true; }
 
 private:
-    enum class Stage { Pick, ToolDiameter, CutSide, Path };
+    enum class Stage { Pick, ToolDiameter, CutSide, FeedRate, PlungeRate, CutDepth, SafeHeight, Path };
     lcad::Document& m_document;
     double m_pickTolerance;
     Stage m_stage = Stage::Pick;
     lcad::EntityId m_profileId = 0;
-    double m_toolDiameter = 1.0;
-    lcad::CutSide m_cutSide = lcad::CutSide::OnLine;
+    lcad::ToolpathParams m_params; // toolDiameter/side/feedRate/plungeRate/cutDepth/safeHeight, built up prompt by prompt
     bool m_finished = false;
 };

@@ -25,22 +25,67 @@ std::optional<QString> GCodeExportCommand::onPoint(const lcad::Point2D& pt) {
     return QStringLiteral("Enter tool diameter:");
 }
 
+namespace {
+// Parses text as a positive double, or -- if text is empty -- keeps
+// fallback (the "press Enter to keep the default" convention already used
+// by CutSide's own empty-input-means-OnLine handling).
+bool parsePositiveOrDefault(const QString& text, double fallback, double& out) {
+    if (text.trimmed().isEmpty()) {
+        out = fallback;
+        return true;
+    }
+    bool ok = false;
+    const double value = text.trimmed().toDouble(&ok);
+    if (!ok || value <= 0.0) return false;
+    out = value;
+    return true;
+}
+} // namespace
+
 std::optional<QString> GCodeExportCommand::onText(const QString& text) {
     switch (m_stage) {
     case Stage::ToolDiameter: {
         bool ok = false;
         const double d = text.trimmed().toDouble(&ok);
         if (!ok || d < 0.0) return QStringLiteral("*Invalid tool diameter*");
-        m_toolDiameter = d;
+        m_params.toolDiameter = d;
         m_stage = Stage::CutSide;
         return QStringLiteral("Cut side [Outside/Inside/OnLine] <OnLine>:");
     }
     case Stage::CutSide: {
         const QString side = text.trimmed().toUpper();
-        if (side.isEmpty() || side == QLatin1String("ONLINE")) m_cutSide = lcad::CutSide::OnLine;
-        else if (side == QLatin1String("OUTSIDE")) m_cutSide = lcad::CutSide::Outside;
-        else if (side == QLatin1String("INSIDE")) m_cutSide = lcad::CutSide::Inside;
+        if (side.isEmpty() || side == QLatin1String("ONLINE")) m_params.side = lcad::CutSide::OnLine;
+        else if (side == QLatin1String("OUTSIDE")) m_params.side = lcad::CutSide::Outside;
+        else if (side == QLatin1String("INSIDE")) m_params.side = lcad::CutSide::Inside;
         else return QStringLiteral("*Unrecognized cut side*\nCut side <OnLine>:");
+        m_stage = Stage::FeedRate;
+        return QStringLiteral("Feed rate <%1>:").arg(m_params.feedRate);
+    }
+    case Stage::FeedRate: {
+        double value = 0.0;
+        if (!parsePositiveOrDefault(text, m_params.feedRate, value)) return QStringLiteral("*Invalid feed rate*");
+        m_params.feedRate = value;
+        m_stage = Stage::PlungeRate;
+        return QStringLiteral("Plunge rate <%1>:").arg(m_params.plungeRate);
+    }
+    case Stage::PlungeRate: {
+        double value = 0.0;
+        if (!parsePositiveOrDefault(text, m_params.plungeRate, value)) return QStringLiteral("*Invalid plunge rate*");
+        m_params.plungeRate = value;
+        m_stage = Stage::CutDepth;
+        return QStringLiteral("Cut depth <%1>:").arg(m_params.cutDepth);
+    }
+    case Stage::CutDepth: {
+        double value = 0.0;
+        if (!parsePositiveOrDefault(text, m_params.cutDepth, value)) return QStringLiteral("*Invalid cut depth*");
+        m_params.cutDepth = value;
+        m_stage = Stage::SafeHeight;
+        return QStringLiteral("Safe height <%1>:").arg(m_params.safeHeight);
+    }
+    case Stage::SafeHeight: {
+        double value = 0.0;
+        if (!parsePositiveOrDefault(text, m_params.safeHeight, value)) return QStringLiteral("*Invalid safe height*");
+        m_params.safeHeight = value;
         m_stage = Stage::Path;
         return QStringLiteral("Enter output G-code file path:");
     }
@@ -49,14 +94,11 @@ std::optional<QString> GCodeExportCommand::onText(const QString& text) {
         const auto* profile = static_cast<const lcad::PolylineEntity*>(m_document.findEntity(m_profileId));
         if (!profile) return QStringLiteral("*Profile no longer exists*");
 
-        lcad::ToolpathParams params;
-        params.toolDiameter = m_toolDiameter;
-        params.side = m_cutSide;
-        const std::vector<lcad::Point2D> path = lcad::computeToolpath(*profile, params);
+        const std::vector<lcad::Point2D> path = lcad::computeToolpath(*profile, m_params);
         if (path.size() < 2) return QStringLiteral("*Toolpath computation failed (tool too large for a tight corner?)*");
 
         std::string error;
-        if (!lcad::writeGCode(path, params, text.trimmed().toStdString(), &error)) {
+        if (!lcad::writeGCode(path, m_params, text.trimmed().toStdString(), &error)) {
             return QStringLiteral("*%1*").arg(QString::fromStdString(error));
         }
         return QStringLiteral("*G-code written to %1 (%2 point(s))*").arg(text.trimmed()).arg(path.size());
