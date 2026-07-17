@@ -35,8 +35,15 @@ using WorldToScreen = std::function<QPointF(const lcad::Point2D&)>;
 // viewport simultaneously, at whatever scale each one plots. 0 (the
 // default) means "use document->annotationScale()", matching the single
 // current representation model space itself is edited at.
+//
+// backgroundColor is what a WIPEOUT entity actually fills with (see
+// core/geometry/Wipeout.h) -- injected rather than assumed, since the two
+// callers have genuinely different backgrounds (DrawingView's dark canvas
+// vs. PrintRenderer's white paper), the same reason toScreen itself is
+// injected instead of computed here.
 void paint(QPainter& painter, const lcad::Entity& entity, const WorldToScreen& toScreen, double scale,
            const QColor& color, double penWidth, lcad::LineType linetype = lcad::LineType::Continuous,
-           double ltScale = 1.0, const lcad::Document* document = nullptr, double annotationScaleOverride = 0.0);
+           double ltScale = 1.0, const lcad::Document* document = nullptr, double annotationScaleOverride = 0.0,
+           const QColor& backgroundColor = QColor(33, 33, 33));
 
 } // namespace EntityPainter

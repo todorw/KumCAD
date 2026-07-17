@@ -24,6 +24,7 @@
 #include "core/geometry/Text.h"
 #include "core/geometry/Track.h"
 #include "core/geometry/Via.h"
+#include "core/geometry/Wipeout.h"
 #include "core/geometry/Wire.h"
 #include "core/io/DxfColors.h"
 
@@ -540,6 +541,25 @@ void writeEntity(std::ofstream& out, const Document& document, const Entity& e) 
         writeGroup(out, 40, track.width());
         writeGroup(out, 90, static_cast<int>(track.vertices().size()));
         for (const Point2D& v : track.vertices()) {
+            writeGroup(out, 10, v.x);
+            writeGroup(out, 20, v.y);
+        }
+        break;
+    }
+    case EntityType::Wipeout: {
+        // A real WIPEOUT DXF entity is a WIPEOUT type referencing a
+        // WIPEOUTVARIABLES-backed IMAGEDEF-like frame object -- not
+        // attempted here (see DwgWriter's own disclosed IMAGE/POINTCLOUD
+        // gap, LibreDWG's own add-API for that machinery is marked
+        // experimental/unsupported). Persisted via this codebase's usual
+        // custom-group-code convention instead, safely skipped by real
+        // DXF readers, same as Track/Via/etc.
+        const auto& wipeout = static_cast<const WipeoutEntity&>(e);
+        writeGroup(out, 0, "WIPEOUT");
+        writeCommon(out, document, e);
+        writeGroup(out, 290, wipeout.showFrame() ? 1 : 0);
+        writeGroup(out, 90, static_cast<int>(wipeout.vertices().size()));
+        for (const Point2D& v : wipeout.vertices()) {
             writeGroup(out, 10, v.x);
             writeGroup(out, 20, v.y);
         }

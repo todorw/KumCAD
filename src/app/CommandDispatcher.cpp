@@ -23,6 +23,8 @@
 #include "commands/TranCommand.h"
 #include "commands/LengthTuneCommand.h"
 #include "commands/DiffPairCommand.h"
+#include "commands/WipeoutCommand.h"
+#include "commands/RevcloudCommand.h"
 #include "commands/LibraryCommands.h"
 #include "commands/ExpressToolCommands.h"
 #include "commands/DimAngularCommand.h"
@@ -874,6 +876,15 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         }
     } else if (cmd == QLatin1String("TRAN")) {
         startCommand(std::make_unique<TranCommand>(m_document), QStringLiteral("TRAN"));
+    } else if (cmd == QLatin1String("WIPEOUT")) {
+        startCommand(std::make_unique<WipeoutCommand>(m_document), QStringLiteral("WIPEOUT"));
+    } else if (cmd == QLatin1String("REVCLOUD")) {
+        const std::vector<lcad::EntityId> ids = selectionForModify();
+        if (ids.size() != 1) {
+            if (!ids.empty()) m_commandLine.appendLine(QStringLiteral("*Select exactly one polyline or circle*"));
+        } else {
+            startCommand(std::make_unique<RevcloudCommand>(m_document, ids[0]), QStringLiteral("REVCLOUD"));
+        }
     } else if (cmd == QLatin1String("DIFFPAIR")) {
         startCommand(std::make_unique<DiffPairCommand>(m_document), QStringLiteral("DIFFPAIR"));
     } else if (cmd == QLatin1String("LENGTHTUNE")) {

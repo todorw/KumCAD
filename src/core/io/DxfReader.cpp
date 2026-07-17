@@ -25,6 +25,7 @@
 #include "core/geometry/Text.h"
 #include "core/geometry/Track.h"
 #include "core/geometry/Via.h"
+#include "core/geometry/Wipeout.h"
 #include "core/geometry/Wire.h"
 #include "core/io/DxfColors.h"
 
@@ -401,6 +402,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
     double trackWidth = 0.0;      // TRACK group 40
     double viaDiameter = 0.0;     // VIA group 40
     double viaDrillDiameter = 0.0; // VIA group 41
+    bool wipeoutShowFrame = true;  // WIPEOUT group 290
     // The INSERT most recently flushed, so following ATTRIB records can
     // attach their values to it. Cleared by any non-ATTRIB entity.
     InsertEntity* lastInsert = nullptr;
@@ -578,6 +580,8 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
         } else if (curEntityType == "VIA") {
             made = std::make_unique<ViaEntity>(id, layerId, p10, viaDiameter > 1e-9 ? viaDiameter : 0.6,
                                                viaDrillDiameter > 1e-9 ? viaDrillDiameter : 0.3);
+        } else if (curEntityType == "WIPEOUT" && polyVerts.size() >= 3) {
+            made = std::make_unique<WipeoutEntity>(id, layerId, polyVerts, wipeoutShowFrame);
         }
 
         const bool madeSomething = made != nullptr;
@@ -675,6 +679,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
         trackWidth = 0.0;
         viaDiameter = 0.0;
         viaDrillDiameter = 0.0;
+        wipeoutShowFrame = true;
     };
 
     for (const Group& g : groups) {
@@ -1020,7 +1025,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             break;
         case 10:
             if (curEntityType == "LWPOLYLINE" || curEntityType == "SPLINE" || curEntityType == "LEADER" ||
-                curEntityType == "WIRE" || curEntityType == "TRACK" || inVertex) {
+                curEntityType == "WIRE" || curEntityType == "TRACK" || curEntityType == "WIPEOUT" || inVertex) {
                 pendingVertX = toDouble(g.value);
                 havePendingVertX = true;
             } else if (curEntityType == "HATCH") {
@@ -1034,7 +1039,8 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             break;
         case 20:
             if (curEntityType == "LWPOLYLINE" || curEntityType == "SPLINE" || curEntityType == "LEADER" || inVertex ||
-                curEntityType == "HATCH" || curEntityType == "WIRE" || curEntityType == "TRACK") {
+                curEntityType == "HATCH" || curEntityType == "WIRE" || curEntityType == "TRACK" ||
+                curEntityType == "WIPEOUT") {
                 if (havePendingVertX) {
                     polyVerts.emplace_back(pendingVertX, toDouble(g.value));
                     polyBulges.push_back(0.0); // a following group 42 may overwrite this
@@ -1110,6 +1116,9 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             else if (curEntityType == "VIEWPORT") vpHeight = toDouble(g.value);
             else if (curEntityType == "IMAGE") imageHeight = toDouble(g.value);
             else if (curEntityType == "VIA") viaDrillDiameter = toDouble(g.value, 0.3);
+            break;
+        case 290:
+            if (curEntityType == "WIPEOUT") wipeoutShowFrame = toInt(g.value, 1) != 0;
             break;
         case 12:
             if (curEntityType == "VIEWPORT") vpViewCenter.x = toDouble(g.value);

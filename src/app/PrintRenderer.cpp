@@ -55,7 +55,7 @@ void renderLayoutPage(QPainter& painter, double resolutionDpi, const lcad::Docum
             // plot scale is.
             const double annoOverride = vp.viewScale > 1e-9 ? 1.0 / vp.viewScale : 0.0;
             EntityPainter::paint(painter, *e, toScreen, effScale, color, penWidthFor(appearance.lineweight),
-                                 appearance.linetype, document.lineTypeScale(), &document, annoOverride);
+                                 appearance.linetype, document.lineTypeScale(), &document, annoOverride, Qt::white);
         }
         painter.restore();
     }
@@ -69,7 +69,7 @@ void renderLayoutPage(QPainter& painter, double resolutionDpi, const lcad::Docum
         QColor color(appearance.color.r, appearance.color.g, appearance.color.b);
         if (appearance.color.r > 200 && appearance.color.g > 200 && appearance.color.b > 200) color = Qt::black;
         EntityPainter::paint(painter, *e, paperToPage, scale, color, penWidthFor(appearance.lineweight),
-                             appearance.linetype, document.lineTypeScale(), &document);
+                             appearance.linetype, document.lineTypeScale(), &document, 0.0, Qt::white);
     }
 }
 
@@ -112,7 +112,7 @@ void renderModelPage(QPainter& painter, double resolutionDpi, const lcad::Docume
         const double penWidth = std::max(1.0, appearance.lineweight * resolutionDpi / 25.4);
 
         EntityPainter::paint(painter, *e, toScreen, scale, color, penWidth, appearance.linetype,
-                             document.lineTypeScale(), &document);
+                             document.lineTypeScale(), &document, 0.0, Qt::white);
     }
 }
 

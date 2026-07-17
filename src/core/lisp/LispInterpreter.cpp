@@ -234,6 +234,7 @@ const char* dxfTypeName(EntityType type) {
     case EntityType::NetLabel: return "NETLABEL";
     case EntityType::Track: return "TRACK";
     case EntityType::Via: return "VIA";
+    case EntityType::Wipeout: return "WIPEOUT";
     }
     return "UNKNOWN";
 }

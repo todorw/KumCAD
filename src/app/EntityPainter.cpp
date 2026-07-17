@@ -24,6 +24,7 @@
 #include "core/geometry/Text.h"
 #include "core/geometry/Track.h"
 #include "core/geometry/Via.h"
+#include "core/geometry/Wipeout.h"
 #include "core/geometry/Wire.h"
 #include "core/document/Document.h"
 
@@ -160,7 +161,7 @@ QBrush gradientBrush(lcad::GradientPreset preset, const QColor& color1, const QC
 
 void paint(QPainter& painter, const lcad::Entity& entity, const WorldToScreen& toScreen, double scale,
            const QColor& color, double penWidth, lcad::LineType linetype, double ltScale,
-           const lcad::Document* document, double annotationScaleOverride) {
+           const lcad::Document* document, double annotationScaleOverride, const QColor& backgroundColor) {
     painter.setPen(makePen(color, penWidth, linetype, ltScale, scale));
 
     switch (entity.type()) {
@@ -632,6 +633,20 @@ void paint(QPainter& painter, const lcad::Entity& entity, const WorldToScreen& t
         painter.save();
         painter.setFont(font);
         painter.drawText(toScreen(label.position()), QString::fromStdString(label.name()));
+        painter.restore();
+        break;
+    }
+    case lcad::EntityType::Wipeout: {
+        const auto& wipeout = static_cast<const lcad::WipeoutEntity&>(entity);
+        const auto& verts = wipeout.vertices();
+        if (verts.size() < 3) break;
+        QPolygonF poly;
+        poly.reserve(static_cast<int>(verts.size()));
+        for (const lcad::Point2D& v : verts) poly << toScreen(v);
+        painter.save();
+        painter.setBrush(backgroundColor);
+        painter.setPen(wipeout.showFrame() ? makePen(color, penWidth, linetype, ltScale, scale) : Qt::NoPen);
+        painter.drawPolygon(poly);
         painter.restore();
         break;
     }

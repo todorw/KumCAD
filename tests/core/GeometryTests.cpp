@@ -5,6 +5,7 @@
 #include "core/geometry/Dimension.h"
 #include "core/geometry/Ellipse.h"
 #include "core/geometry/Hatch.h"
+#include "core/geometry/Wipeout.h"
 #include "core/geometry/Image.h"
 #include "core/geometry/Insert.h"
 #include "core/geometry/PointCloud.h"
@@ -475,6 +476,35 @@ TEST_CASE("HatchEntity containment and distance", "[geometry][hatch]") {
     REQUIRE(box.max.y == Approx(10.0));
 }
 
+TEST_CASE("WipeoutEntity containment, distance, transforms, and grips", "[geometry][wipeout]") {
+    std::vector<lcad::Point2D> square{{0, 0}, {10, 0}, {10, 10}, {0, 10}};
+    lcad::WipeoutEntity wipeout(1, 0, square);
+
+    REQUIRE(wipeout.showFrame()); // default
+    REQUIRE(wipeout.containsPoint(lcad::Point2D(5, 5)));
+    REQUIRE_FALSE(wipeout.containsPoint(lcad::Point2D(15, 5)));
+    REQUIRE(wipeout.distanceTo(lcad::Point2D(5, 5)) == Approx(0.0));
+    REQUIRE(wipeout.distanceTo(lcad::Point2D(12, 5)) == Approx(2.0));
+
+    const auto box = wipeout.boundingBox();
+    REQUIRE(box.max.x == Approx(10.0));
+    REQUIRE(box.max.y == Approx(10.0));
+
+    wipeout.translate(lcad::Point2D(5, 0));
+    REQUIRE(wipeout.boundingBox().min.x == Approx(5.0));
+
+    REQUIRE(wipeout.gripPoints().size() == 4);
+    wipeout.moveGripPoint(0, lcad::Point2D(100, 100));
+    REQUIRE(wipeout.vertices()[0].x == Approx(100.0));
+
+    lcad::WipeoutEntity noFrame(2, 0, square, false);
+    REQUIRE_FALSE(noFrame.showFrame());
+
+    const auto clone = wipeout.clone();
+    REQUIRE(clone->type() == lcad::EntityType::Wipeout);
+    REQUIRE(static_cast<const lcad::WipeoutEntity&>(*clone).vertices().size() == 4);
+}
+
 TEST_CASE("ImageEntity hit-tests, rotates, and scales its rectangle", "[geometry][image]") {
     lcad::ImageEntity image(1, 0, "photo.png", lcad::Point2D(0, 0), 10.0, 5.0);
 
@@ -870,6 +900,66 @@ TEST_CASE("joinToPolyline chains lines and arcs into one polyline", "[geometry][
     // Disjoint pieces refuse.
     lcad::LineEntity far(5, 0, lcad::Point2D(100, 100), lcad::Point2D(110, 100));
     REQUIRE(lcad::joinToPolyline(12, 0, {&l1, &far}) == nullptr);
+}
+
+TEST_CASE("revisionCloud resamples a closed boundary into evenly bulged arc segments", "[geometry][revcloud]") {
+    // A 40x40 square, perimeter 160, archLength 10 -> exactly 16 teeth.
+    std::vector<lcad::Point2D> square{{0, 0}, {40, 0}, {40, 40}, {0, 40}};
+    auto cloud = lcad::revisionCloud(1, 0, square, true, 10.0);
+    REQUIRE(cloud != nullptr);
+    REQUIRE(cloud->closed());
+    REQUIRE(cloud->vertices().size() == 16);
+    REQUIRE(cloud->hasArcs());
+
+    // Every bulge has the same sign (all teeth bulge the same way) and is
+    // the requested magnitude.
+    const double firstBulge = cloud->bulgeAt(0);
+    REQUIRE(std::abs(firstBulge) == Approx(0.4));
+    for (std::size_t i = 0; i < cloud->vertices().size(); ++i) {
+        REQUIRE(cloud->bulgeAt(i) == Approx(firstBulge));
+    }
+
+    // Every resampled vertex still sits ON the original square's boundary
+    // (only the arcs bulge outward, the polygon vertices themselves are
+    // exact resample points on the perimeter).
+    for (const lcad::Point2D& p : cloud->vertices()) {
+        const bool onBottom = std::abs(p.y - 0.0) < 1e-6 && p.x >= -1e-6 && p.x <= 40.0 + 1e-6;
+        const bool onTop = std::abs(p.y - 40.0) < 1e-6 && p.x >= -1e-6 && p.x <= 40.0 + 1e-6;
+        const bool onLeft = std::abs(p.x - 0.0) < 1e-6 && p.y >= -1e-6 && p.y <= 40.0 + 1e-6;
+        const bool onRight = std::abs(p.x - 40.0) < 1e-6 && p.y >= -1e-6 && p.y <= 40.0 + 1e-6;
+        REQUIRE((onBottom || onTop || onLeft || onRight));
+    }
+}
+
+TEST_CASE("revisionCloud bulge sign flips with boundary winding direction", "[geometry][revcloud]") {
+    std::vector<lcad::Point2D> ccw{{0, 0}, {40, 0}, {40, 40}, {0, 40}}; // positive shoelace area
+    std::vector<lcad::Point2D> cw{{0, 0}, {0, 40}, {40, 40}, {40, 0}}; // same square, reversed winding
+
+    auto cloudCcw = lcad::revisionCloud(1, 0, ccw, true, 10.0);
+    auto cloudCw = lcad::revisionCloud(2, 0, cw, true, 10.0);
+    REQUIRE(cloudCcw != nullptr);
+    REQUIRE(cloudCw != nullptr);
+    REQUIRE(cloudCcw->bulgeAt(0) == Approx(-cloudCw->bulgeAt(0)));
+}
+
+TEST_CASE("revisionCloud on an open path keeps the exact endpoints and a zero final bulge",
+          "[geometry][revcloud]") {
+    std::vector<lcad::Point2D> path{{0, 0}, {30, 0}, {30, 30}}; // an L-shaped path, length 60
+    auto cloud = lcad::revisionCloud(1, 0, path, false, 10.0);
+    REQUIRE(cloud != nullptr);
+    REQUIRE_FALSE(cloud->closed());
+    REQUIRE(cloud->vertices().front().x == Approx(0.0));
+    REQUIRE(cloud->vertices().front().y == Approx(0.0));
+    REQUIRE(cloud->vertices().back().x == Approx(30.0));
+    REQUIRE(cloud->vertices().back().y == Approx(30.0));
+    REQUIRE(cloud->bulgeAt(cloud->vertices().size() - 1) == Approx(0.0));
+    // Every OTHER segment still bulges (a real cloud, not a plain polyline).
+    REQUIRE(std::abs(cloud->bulgeAt(0)) == Approx(0.4));
+}
+
+TEST_CASE("revisionCloud rejects degenerate input", "[geometry][revcloud]") {
+    REQUIRE(lcad::revisionCloud(1, 0, {{0, 0}, {1, 1}}, true, 10.0) == nullptr); // <3 points
+    REQUIRE(lcad::revisionCloud(1, 0, {{0, 0}, {10, 0}, {10, 10}}, true, 0.0) == nullptr); // archLength <= 0
 }
 
 TEST_CASE("traceBoundary finds the enclosing loop from disjoint segments", "[geometry][boundary]") {

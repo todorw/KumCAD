@@ -23,6 +23,7 @@
 #include "core/geometry/Text.h"
 #include "core/geometry/Track.h"
 #include "core/geometry/Via.h"
+#include "core/geometry/Wipeout.h"
 #include "core/geometry/Wire.h"
 #include "core/io/DxfColors.h"
 #include "core/io/DxfReader.h"
@@ -1490,4 +1491,34 @@ TEST_CASE("DXF round-trips PCB footprint pads, tracks, and vias", "[dxf][pcb]") 
     }
     REQUIRE(foundTrack);
     REQUIRE(foundVia);
+}
+
+TEST_CASE("DXF round-trips a WipeoutEntity including showFrame", "[dxf][wipeout]") {
+    TempDxfPath temp;
+
+    lcad::Document doc;
+    std::vector<lcad::Point2D> verts{{0, 0}, {10, 0}, {10, 10}, {0, 10}};
+    doc.addEntity(std::make_unique<lcad::WipeoutEntity>(doc.reserveEntityId(), doc.currentLayer(), verts, true));
+    doc.addEntity(std::make_unique<lcad::WipeoutEntity>(doc.reserveEntityId(), doc.currentLayer(),
+                                                        std::vector<lcad::Point2D>{{20, 20}, {30, 20}, {25, 30}},
+                                                        false));
+
+    REQUIRE(lcad::writeDxf(doc, temp.path.string()));
+    lcad::Document loaded;
+    REQUIRE(lcad::readDxf(loaded, temp.path.string()));
+
+    int found = 0;
+    for (const lcad::Entity* e : loaded.entities()) {
+        if (e->type() != lcad::EntityType::Wipeout) continue;
+        const auto& wipeout = static_cast<const lcad::WipeoutEntity&>(*e);
+        if (wipeout.vertices().size() == 4) {
+            REQUIRE(wipeout.showFrame());
+            REQUIRE(wipeout.vertices()[2].x == Approx(10.0));
+        } else {
+            REQUIRE(wipeout.vertices().size() == 3);
+            REQUIRE_FALSE(wipeout.showFrame());
+        }
+        ++found;
+    }
+    REQUIRE(found == 2);
 }

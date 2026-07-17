@@ -39,6 +39,7 @@ enum class EntityType {
     NetLabel,         // named net tag touching a wire
     Track,            // PCB copper trace
     Via,              // PCB drilled through-layer connection
+    Wipeout,          // AutoCAD WIPEOUT: masks whatever was drawn before it
 };
 
 // Object-snap candidate kinds, mirroring AutoCAD's OSNAP markers. The first

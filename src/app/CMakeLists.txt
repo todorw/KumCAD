@@ -162,6 +162,8 @@ add_executable(kumcad WIN32
     commands/TranCommand.cpp
     commands/LengthTuneCommand.cpp
     commands/DiffPairCommand.cpp
+    commands/WipeoutCommand.cpp
+    commands/RevcloudCommand.cpp
     commands/LibraryCommands.cpp
     commands/ExpressToolCommands.cpp
     commands/DimAngularCommand.h

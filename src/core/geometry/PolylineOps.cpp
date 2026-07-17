@@ -231,4 +231,70 @@ std::unique_ptr<PolylineEntity> joinToPolyline(EntityId newId, LayerId layer,
     return std::make_unique<PolylineEntity>(newId, layer, std::move(chain.pts), std::move(chain.bulges), closed);
 }
 
+std::unique_ptr<PolylineEntity> revisionCloud(EntityId newId, LayerId layer, const std::vector<Point2D>& boundary,
+                                              bool closed, double archLength, double bulgeMagnitude) {
+    if (boundary.size() < 3 || archLength <= 1e-9) return nullptr;
+
+    const std::size_t segCount = closed ? boundary.size() : boundary.size() - 1;
+    double perimeter = 0.0;
+    for (std::size_t i = 0; i < segCount; ++i) {
+        perimeter += boundary[i].distanceTo(boundary[(i + 1) % boundary.size()]);
+    }
+    if (perimeter < 1e-9) return nullptr;
+
+    const int teeth = std::max(3, static_cast<int>(std::lround(perimeter / archLength)));
+    const double stepLen = perimeter / teeth;
+    // How many resampled points to end up with: one per tooth for a closed
+    // boundary (the wrap-around segment closes the loop); one extra to
+    // keep the original end point exactly for an open one.
+    const std::size_t pointCount = static_cast<std::size_t>(teeth) + (closed ? 0 : 1);
+
+    // Overall winding direction (shoelace sign over the ORIGINAL boundary,
+    // stable regardless of resampling density) picks a single bulge sign
+    // applied to every resampled segment, so every tooth bulges outward.
+    double signedArea = 0.0;
+    for (std::size_t i = 0; i < boundary.size(); ++i) {
+        const Point2D& a = boundary[i];
+        const Point2D& b = boundary[(i + 1) % boundary.size()];
+        signedArea += a.x * b.y - b.x * a.y;
+    }
+    const double bulge = signedArea >= 0.0 ? bulgeMagnitude : -bulgeMagnitude;
+
+    // Walk the original boundary's cumulative arc length, emitting a
+    // resampled point every stepLen -- a standard even-arc-length resample.
+    std::vector<Point2D> resampled;
+    resampled.reserve(pointCount);
+    resampled.push_back(boundary[0]);
+
+    double travelled = 0.0;
+    double nextMark = stepLen;
+    Point2D cur = boundary[0];
+    for (std::size_t i = 0; i < segCount && resampled.size() < pointCount; ++i) {
+        const Point2D& next = boundary[(i + 1) % boundary.size()];
+        const double segLen = cur.distanceTo(next);
+        if (segLen < 1e-12) {
+            cur = next;
+            continue;
+        }
+        // A segment may need to emit more than one resampled point if
+        // stepLen is small relative to it.
+        while (travelled + segLen >= nextMark - 1e-9 && resampled.size() < pointCount) {
+            const double t = std::clamp((nextMark - travelled) / segLen, 0.0, 1.0);
+            resampled.emplace_back(cur.x + (next.x - cur.x) * t, cur.y + (next.y - cur.y) * t);
+            nextMark += stepLen;
+        }
+        travelled += segLen;
+        cur = next;
+    }
+    if (!closed && resampled.size() < pointCount) resampled.push_back(boundary.back());
+
+    if (!closed && resampled.size() < 2) return nullptr;
+    if (closed && resampled.size() < 3) return nullptr;
+
+    std::vector<double> bulges(resampled.size(), bulge);
+    if (!closed) bulges.back() = 0.0; // no segment leaves the final open vertex
+
+    return std::make_unique<PolylineEntity>(newId, layer, std::move(resampled), std::move(bulges), closed);
+}
+
 } // namespace lcad

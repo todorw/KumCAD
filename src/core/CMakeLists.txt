@@ -59,6 +59,8 @@ add_library(lcad_core STATIC
     geometry/Track.h
     geometry/Track.cpp
     geometry/Via.h
+    geometry/Wipeout.h
+    geometry/Wipeout.cpp
     schematic/Netlist.h
     schematic/Netlist.cpp
     schematic/Spice.cpp
