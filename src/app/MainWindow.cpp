@@ -51,7 +51,10 @@
 #include <fstream>
 #include <sstream>
 
+QList<MainWindow*> MainWindow::s_windows;
+
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
+    s_windows.append(this);
     resize(1280, 800);
 
     lcad::registerBuiltinSymbols(m_document);
@@ -137,6 +140,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_commandLine->input()->setFocus();
 
     updateWindowTitle();
+}
+
+MainWindow::~MainWindow() {
+    s_windows.removeOne(this);
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
@@ -231,6 +238,10 @@ void MainWindow::setupMenusAndToolbar() {
     fileMenu->addAction(QStringLiteral("&New"), QKeySequence::New, this, &MainWindow::newDocument);
     fileMenu->addAction(QStringLiteral("&Open..."), QKeySequence::Open, this, &MainWindow::openDocument);
     fileMenu->addSeparator();
+    fileMenu->addAction(QStringLiteral("New &Window"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_N), this,
+                        &MainWindow::newWindow);
+    fileMenu->addAction(QStringLiteral("Open in New Window..."), this, &MainWindow::openInNewWindow);
+    fileMenu->addSeparator();
     fileMenu->addAction(QStringLiteral("&Save"), QKeySequence::Save, this, [this]() { saveDocument(); });
     fileMenu->addAction(QStringLiteral("Save &As..."), QKeySequence::SaveAs, this, [this]() { saveDocumentAs(); });
     fileMenu->addSeparator();
@@ -293,6 +304,9 @@ void MainWindow::setupMenusAndToolbar() {
         CommandAliasDialog dialog(m_dispatcher->commandAliases(), this);
         dialog.exec();
     });
+
+    m_windowMenu = menuBar()->addMenu(QStringLiteral("&Window"));
+    connect(m_windowMenu, &QMenu::aboutToShow, this, &MainWindow::rebuildWindowMenu);
 
     QToolBar* toolbar = addToolBar(QStringLiteral("Draw"));
     toolbar->setIconSize(QSize(22, 22));
@@ -441,6 +455,44 @@ void MainWindow::openDocument() {
     if (path.isEmpty()) return;
 
     loadFromPath(path);
+}
+
+void MainWindow::newWindow() {
+    auto* window = new MainWindow();
+    window->setAttribute(Qt::WA_DeleteOnClose);
+    window->show();
+}
+
+void MainWindow::openInNewWindow() {
+    const QString filter = lcad::dwgSupportAvailable()
+                               ? QStringLiteral("Drawings (*.dxf *.dwg);;DXF Files (*.dxf);;DWG Files (*.dwg)")
+                               : QStringLiteral("DXF Files (*.dxf)");
+    const QString path = QFileDialog::getOpenFileName(this, QStringLiteral("Open Drawing in New Window"), QString(), filter);
+    if (path.isEmpty()) return;
+
+    auto* window = new MainWindow();
+    window->setAttribute(Qt::WA_DeleteOnClose);
+    if (!window->loadFromPath(path)) {
+        delete window;
+        return;
+    }
+    window->show();
+}
+
+void MainWindow::rebuildWindowMenu() {
+    m_windowMenu->clear();
+    m_windowMenu->addAction(QStringLiteral("New Window"), this, &MainWindow::newWindow);
+    m_windowMenu->addSeparator();
+    for (MainWindow* window : s_windows) {
+        QAction* action = m_windowMenu->addAction(window->windowTitle());
+        action->setCheckable(true);
+        action->setChecked(window == this);
+        connect(action, &QAction::triggered, window, [window]() {
+            window->show();
+            window->raise();
+            window->activateWindow();
+        });
+    }
 }
 
 bool MainWindow::loadFromPath(const QString& path) {
