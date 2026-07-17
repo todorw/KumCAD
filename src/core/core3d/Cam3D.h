@@ -21,7 +21,18 @@ struct Cam3DParams {
 
 struct Cam3DLevel {
     double z = 0.0;
-    std::vector<Point2D> toolpath; // already tool-radius-compensated (see core/cam/Toolpath.h)
+    // One tool-radius-compensated contour per closed loop the slice at z
+    // produced (see core/cam/Toolpath.h): toolpaths[0] is always the
+    // largest loop (the outer boundary, compensated by params.side same
+    // as before); toolpaths[1..] are every other loop at this level
+    // (islands/pocket walls), each compensated Outside its own boundary
+    // regardless of params.side, since an island is material to stay
+    // clear of, not the profile to follow. This is still not full pocket-
+    // clearing (nothing removes the material *between* the outer contour
+    // and an island -- that needs an adaptive-clearing toolpath generator,
+    // real additional scope) -- it's "the tool now also traces a contour
+    // around every island instead of ignoring it entirely."
+    std::vector<std::vector<Point2D>> toolpaths;
 };
 
 // "3D CAM" here means slice-based multi-level roughing, not full 3-axis
@@ -29,12 +40,9 @@ struct Cam3DLevel {
 // surfaces) -- that's a much deeper computational-geometry undertaking,
 // flagged as one of the plan's riskiest items when Phase 3 was scoped.
 // This slices shape with a horizontal plane at every Z from its top down
-// to its bottom, params.stepDown apart (plus one final pass exactly at the
-// bottom), and at each level keeps only the LARGEST closed loop the slice
-// produces (same "largest loop is the outer boundary" heuristic as
-// SketchToFace.cpp) -- so a slice through a part with an island or a
-// pocket only mills the outer envelope at that level, not the island/
-// pocket detail. That's a disclosed, real scope cut, not a bug.
+// to its bottom, params.stepDown apart (plus one final pass exactly at
+// the bottom); see Cam3DLevel's own comment for how multiple loops per
+// level (islands/pockets) are now handled.
 std::vector<Cam3DLevel> sliceIntoLevels(const TopoDS_Shape& shape, const Cam3DParams& params);
 
 // Writes every level as one G-code program, machining top to bottom, in

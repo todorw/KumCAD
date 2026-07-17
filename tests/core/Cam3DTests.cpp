@@ -61,7 +61,7 @@ TEST_CASE("sliceIntoLevels of a plain box produces one level per stepDown plus a
     REQUIRE(levels[3].z < 5.0);
 }
 
-TEST_CASE("sliceIntoLevels' OnLine toolpath at each level matches the box's own footprint", "[core3d][cam3d]") {
+TEST_CASE("sliceIntoLevels' OnLine outer toolpath at each level matches the box's own footprint", "[core3d][cam3d]") {
     const TopoDS_Shape box = BRepPrimAPI_MakeBox(50.0, 30.0, 20.0).Shape();
     Cam3DParams params;
     params.stepDown = 10.0;
@@ -70,13 +70,14 @@ TEST_CASE("sliceIntoLevels' OnLine toolpath at each level matches the box's own 
     const std::vector<Cam3DLevel> levels = sliceIntoLevels(box, params);
     REQUIRE_FALSE(levels.empty());
     for (const Cam3DLevel& level : levels) {
-        const Extent e = extentOf(level.toolpath);
+        REQUIRE(level.toolpaths.size() == 1); // a plain box has no islands
+        const Extent e = extentOf(level.toolpaths[0]);
         REQUIRE((e.maxX - e.minX) == Approx(50.0).margin(1e-6));
         REQUIRE((e.maxY - e.minY) == Approx(30.0).margin(1e-6));
     }
 }
 
-TEST_CASE("sliceIntoLevels' Outside toolpath is offset outward by the tool radius", "[core3d][cam3d]") {
+TEST_CASE("sliceIntoLevels' Outside outer toolpath is offset outward by the tool radius", "[core3d][cam3d]") {
     const TopoDS_Shape box = BRepPrimAPI_MakeBox(50.0, 30.0, 20.0).Shape();
     Cam3DParams params;
     params.stepDown = 10.0;
@@ -85,16 +86,18 @@ TEST_CASE("sliceIntoLevels' Outside toolpath is offset outward by the tool radiu
 
     const std::vector<Cam3DLevel> levels = sliceIntoLevels(box, params);
     REQUIRE_FALSE(levels.empty());
-    const Extent e = extentOf(levels[0].toolpath);
+    const Extent e = extentOf(levels[0].toolpaths[0]);
     REQUIRE((e.maxX - e.minX) == Approx(50.0 + 6.0).margin(1e-3));
     REQUIRE((e.maxY - e.minY) == Approx(30.0 + 6.0).margin(1e-3));
 }
 
-TEST_CASE("sliceIntoLevels picks the largest loop, dropping a pocket's inner boundary at that level",
+TEST_CASE("sliceIntoLevels' outer toolpath keeps the outer footprint AND contours the pocket as a second toolpath",
           "[core3d][cam3d]") {
     // A box with a blind cylindrical pocket in the middle: a slice through
     // the pocket depth produces two loops (outer box + inner pocket
-    // circle) -- only the outer (larger) one should survive.
+    // circle) -- the outer one drives toolpaths[0] same as always, and the
+    // pocket's own loop now drives a second, Outside-the-island contour
+    // (toolpaths[1]) instead of being dropped.
     const TopoDS_Shape box = BRepPrimAPI_MakeBox(50.0, 50.0, 20.0).Shape();
     const TopoDS_Shape pocket = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(25, 25, 5), gp_Dir(0, 0, 1)), 8.0, 20.0).Shape();
     BRepAlgoAPI_Cut cut(box, pocket);
@@ -106,13 +109,23 @@ TEST_CASE("sliceIntoLevels picks the largest loop, dropping a pocket's inner bou
     const std::vector<Cam3DLevel> levels = sliceIntoLevels(cut.Shape(), params);
     REQUIRE_FALSE(levels.empty());
 
-    // A slice at z=10 (well within the pocket's depth) should still report
-    // the box's own 50x50 footprint, not the small 16-diameter pocket loop.
+    bool checkedMidLevel = false;
     for (const Cam3DLevel& level : levels) {
-        if (std::abs(level.z - 10.0) > 1.0) continue;
-        const Extent e = extentOf(level.toolpath);
-        REQUIRE((e.maxX - e.minX) == Approx(50.0).margin(1e-6));
+        if (std::abs(level.z - 10.0) > 1.0) continue; // well within the pocket's depth
+        checkedMidLevel = true;
+
+        const Extent outer = extentOf(level.toolpaths[0]);
+        REQUIRE((outer.maxX - outer.minX) == Approx(50.0).margin(1e-6));
+
+        REQUIRE(level.toolpaths.size() == 2); // outer boundary + one island contour
+        const Extent island = extentOf(level.toolpaths[1]);
+        const double islandDiameter = island.maxX - island.minX;
+        // The pocket itself is 16 units across (radius 8); the island
+        // contour should be close to that, not the full 50-unit box.
+        REQUIRE(islandDiameter > 10.0);
+        REQUIRE(islandDiameter < 25.0);
     }
+    REQUIRE(checkedMidLevel);
 }
 
 TEST_CASE("sliceIntoLevels rejects a null shape or non-positive stepDown", "[core3d][cam3d]") {
@@ -125,7 +138,7 @@ TEST_CASE("sliceIntoLevels rejects a null shape or non-positive stepDown", "[cor
     REQUIRE(sliceIntoLevels(box, badParams).empty());
 }
 
-TEST_CASE("writeMultiLevelGCode writes a file with one plunge per level and an M30 end", "[core3d][cam3d]") {
+TEST_CASE("writeMultiLevelGCode writes a file with one plunge per toolpath and an M30 end", "[core3d][cam3d]") {
     const TopoDS_Shape box = BRepPrimAPI_MakeBox(20.0, 20.0, 10.0).Shape();
     Cam3DParams params;
     params.stepDown = 5.0;
@@ -141,13 +154,16 @@ TEST_CASE("writeMultiLevelGCode writes a file with one plunge per level and an M
     REQUIRE(content.find("G21") != std::string::npos);
     REQUIRE(content.find("M30") != std::string::npos);
 
+    std::size_t expectedPlunges = 0;
+    for (const Cam3DLevel& level : levels) expectedPlunges += level.toolpaths.size();
+
     std::size_t plungeCount = 0;
     std::size_t pos = 0;
     while ((pos = content.find("G1 Z", pos)) != std::string::npos) {
         ++plungeCount;
         pos += 1;
     }
-    REQUIRE(plungeCount == levels.size());
+    REQUIRE(plungeCount == expectedPlunges);
 }
 
 TEST_CASE("writeMultiLevelGCode fails cleanly on an empty level list", "[core3d][cam3d]") {
