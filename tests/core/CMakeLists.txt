@@ -70,7 +70,8 @@ if(LCAD_ENABLE_3D)
             Persistence3DTests.cpp
             AssemblyTests.cpp
             TechDrawTests.cpp
-            SheetMetalTests.cpp)
+            SheetMetalTests.cpp
+            BimTests.cpp)
     endif()
 endif()
 

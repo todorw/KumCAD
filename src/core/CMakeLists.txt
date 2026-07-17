@@ -205,7 +205,9 @@ if(LCAD_ENABLE_3D)
             core3d/TechDraw.h
             core3d/TechDraw.cpp
             core3d/SheetMetal.h
-            core3d/SheetMetal.cpp)
+            core3d/SheetMetal.cpp
+            core3d/Bim.h
+            core3d/Bim.cpp)
         message(STATUS "3D modeling core enabled (OpenCASCADE ${OpenCASCADE_VERSION})")
     else()
         message(STATUS "OpenCASCADE not found; building without the 3D modeling core")

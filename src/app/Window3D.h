@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/core3d/Bim.h"
 #include "core/core3d/Document3D.h"
 #include "core/core3d/SheetMetal.h"
 
@@ -51,6 +52,17 @@ private:
     void addSheetMetalPart();
     void exportFlatPattern();
 
+    // Phase 3.3: a BIM model lives alongside the feature tree rather than
+    // inside it (walls/openings/slabs aren't Feature3D types) -- its
+    // shapes are drawn into the same viewport and folded into the same
+    // "Generate Drawing Views" export, but are otherwise a separate model.
+    void addBimWall();
+    void addBimOpening();
+    void addBimSlab();
+    void importIfcLite();
+    void exportIfcLite();
+    void exportOpeningSchedule();
+
     lcad::Document3D m_document;
     Viewport3D* m_viewport = nullptr;
     QListWidget* m_featureList = nullptr;
@@ -58,4 +70,6 @@ private:
 
     lcad::SheetMetalPart m_lastSheetMetalPart;
     bool m_hasSheetMetalPart = false;
+
+    lcad::BimModel m_bimModel;
 };
