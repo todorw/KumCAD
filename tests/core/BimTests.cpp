@@ -2,12 +2,15 @@
 #include "core/document/Document.h"
 #include "core/geometry/Table.h"
 
+#include <BRepBndLib.hxx>
 #include <BRepGProp.hxx>
+#include <Bnd_Box.hxx>
 #include <GProp_GProps.hxx>
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <cmath>
 #include <filesystem>
 
 using namespace lcad;
@@ -169,6 +172,159 @@ TEST_CASE("writeIfcLite/readIfcLite round-trips walls, openings, and slabs", "[c
 TEST_CASE("readIfcLite fails cleanly on a missing file", "[core3d][bim]") {
     BimModel model;
     REQUIRE_FALSE(readIfcLite(model, "/nonexistent/path/kumcad_never_exists.ifc"));
+}
+
+TEST_CASE("buildBimShapes builds a rectangular column with the expected volume and base elevation", "[core3d][bim]") {
+    BimModel model;
+    Column column;
+    column.x = 1000.0;
+    column.y = 500.0;
+    column.baseElevation = 0.0;
+    column.height = 3000.0;
+    column.width = 400.0;
+    column.depth = 300.0;
+    model.columns.push_back(column);
+
+    const BimShapes shapes = buildBimShapes(model);
+    REQUIRE(shapes.columnShapes.size() == 1);
+    REQUIRE_FALSE(shapes.columnShapes[0].IsNull());
+    REQUIRE(volumeOf(shapes.columnShapes[0]) == Approx(400.0 * 300.0 * 3000.0).margin(1.0));
+
+    Bnd_Box bounds;
+    BRepBndLib::Add(shapes.columnShapes[0], bounds);
+    double xmin = 0, ymin = 0, zmin = 0, xmax = 0, ymax = 0, zmax = 0;
+    bounds.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+    REQUIRE(zmin == Approx(0.0).margin(1.0));
+    REQUIRE(zmax == Approx(3000.0).margin(1.0));
+}
+
+TEST_CASE("buildBimShapes builds a round column matching the cylinder volume formula, at its base elevation",
+         "[core3d][bim]") {
+    BimModel model;
+    Column column;
+    column.x = 0.0;
+    column.y = 0.0;
+    column.baseElevation = 1000.0;
+    column.height = 2500.0;
+    column.width = 500.0; // diameter -- radius 250
+    column.round = true;
+    model.columns.push_back(column);
+
+    const BimShapes shapes = buildBimShapes(model);
+    REQUIRE_FALSE(shapes.columnShapes[0].IsNull());
+    const double radius = column.width / 2.0;
+    REQUIRE(volumeOf(shapes.columnShapes[0]) == Approx(M_PI * radius * radius * column.height).epsilon(1e-3));
+
+    Bnd_Box bounds;
+    BRepBndLib::Add(shapes.columnShapes[0], bounds);
+    double xmin = 0, ymin = 0, zmin = 0, xmax = 0, ymax = 0, zmax = 0;
+    bounds.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+    REQUIRE(zmin == Approx(1000.0).margin(1.0));
+}
+
+TEST_CASE("buildBimShapes builds a beam with the expected volume, sitting at its own elevation", "[core3d][bim]") {
+    BimModel model;
+    Beam beam;
+    beam.x1 = 0.0;
+    beam.y1 = 0.0;
+    beam.x2 = 4000.0;
+    beam.y2 = 0.0;
+    beam.elevation = 2700.0;
+    beam.width = 300.0;
+    beam.depth = 400.0;
+    model.beams.push_back(beam);
+
+    const BimShapes shapes = buildBimShapes(model);
+    REQUIRE(shapes.beamShapes.size() == 1);
+    REQUIRE_FALSE(shapes.beamShapes[0].IsNull());
+    REQUIRE(volumeOf(shapes.beamShapes[0]) == Approx(4000.0 * 300.0 * 400.0).margin(1.0));
+
+    Bnd_Box bounds;
+    BRepBndLib::Add(shapes.beamShapes[0], bounds);
+    double xmin = 0, ymin = 0, zmin = 0, xmax = 0, ymax = 0, zmax = 0;
+    bounds.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+    REQUIRE(zmin == Approx(2700.0).margin(1.0));
+    REQUIRE(zmax == Approx(3100.0).margin(1.0));
+}
+
+TEST_CASE("combinedBimShape fuses columns and beams into the compound too", "[core3d][bim]") {
+    BimModel model;
+    Column column;
+    column.height = 3000.0;
+    model.columns.push_back(column);
+    Beam beam;
+    beam.x2 = 3000.0;
+    model.beams.push_back(beam);
+
+    const BimShapes shapes = buildBimShapes(model);
+    const TopoDS_Shape combined = combinedBimShape(shapes);
+    REQUIRE_FALSE(combined.IsNull());
+}
+
+TEST_CASE("writeIfcLite/readIfcLite round-trips columns, beams, and spaces", "[core3d][bim]") {
+    TempPath temp;
+    BimModel model;
+
+    Column column;
+    column.x = 1000.0;
+    column.y = 2000.0;
+    column.baseElevation = 0.0;
+    column.height = 3000.0;
+    column.width = 400.0;
+    column.depth = 400.0;
+    column.round = true;
+    model.columns.push_back(column);
+
+    Beam beam;
+    beam.x1 = 0.0;
+    beam.y1 = 0.0;
+    beam.x2 = 5000.0;
+    beam.y2 = 0.0;
+    beam.elevation = 2700.0;
+    beam.width = 300.0;
+    beam.depth = 400.0;
+    model.beams.push_back(beam);
+
+    Space space;
+    space.name = "Living Room";
+    space.boundary = {{0, 0}, {4000, 0}, {4000, 3000}, {0, 3000}};
+    model.spaces.push_back(space);
+
+    REQUIRE(writeIfcLite(model, temp.path.string()));
+
+    BimModel loaded;
+    REQUIRE(readIfcLite(loaded, temp.path.string()));
+
+    REQUIRE(loaded.columns.size() == 1);
+    REQUIRE(loaded.columns[0].x == Approx(1000.0));
+    REQUIRE(loaded.columns[0].height == Approx(3000.0));
+    REQUIRE(loaded.columns[0].round);
+
+    REQUIRE(loaded.beams.size() == 1);
+    REQUIRE(loaded.beams[0].x2 == Approx(5000.0));
+    REQUIRE(loaded.beams[0].elevation == Approx(2700.0));
+
+    REQUIRE(loaded.spaces.size() == 1);
+    REQUIRE(loaded.spaces[0].name == "Living Room");
+    REQUIRE(loaded.spaces[0].boundary.size() == 4);
+    REQUIRE(loaded.spaces[0].boundary[2].first == Approx(4000.0));
+}
+
+TEST_CASE("buildRoomScheduleTable computes exact area and perimeter for a rectangular space", "[core3d][bim]") {
+    BimModel model;
+    Space space;
+    space.name = "Office";
+    space.boundary = {{0, 0}, {4000, 0}, {4000, 3000}, {0, 3000}}; // 4m x 3m rectangle
+    model.spaces.push_back(space);
+
+    Document doc2d;
+    TableEntity* table = buildRoomScheduleTable(doc2d, model, Point2D(0, 0));
+    REQUIRE(table != nullptr);
+    REQUIRE(table->rows() == 2); // header + 1 space
+    REQUIRE(table->cellText(0, 0) == "Name");
+    REQUIRE(table->cellText(1, 0) == "Office");
+    REQUIRE(std::stod(table->cellText(1, 1)) == Approx(4000.0 * 3000.0).margin(1.0));
+    REQUIRE(std::stod(table->cellText(1, 2)) == Approx(2.0 * (4000.0 + 3000.0)).margin(1.0));
 }
 
 TEST_CASE("buildOpeningScheduleTable produces one row per opening plus a header", "[core3d][bim]") {

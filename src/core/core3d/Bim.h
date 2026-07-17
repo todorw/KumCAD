@@ -43,21 +43,61 @@ struct Slab {
     double elevation = 0.0;
 };
 
+// A vertical structural member centered at (x,y) in plan, running from
+// baseElevation up to baseElevation+height -- rectangular (width x
+// depth) by default, or circular (radius == width/2, depth unused) when
+// round is set. Covers the common straight prismatic case, not tapered
+// or non-prismatic columns.
+struct Column {
+    double x = 0.0, y = 0.0;
+    double baseElevation = 0.0;
+    double height = 3000.0;
+    double width = 300.0, depth = 300.0; // depth unused when round
+    bool round = false;
+};
+
+// A horizontal structural member running (x1,y1)-(x2,y2) in plan, its
+// own rectangular cross-section (width horizontal across the beam,
+// depth vertical) sitting with its bottom face at elevation -- the same
+// centerline-and-local-frame convention Wall already uses, just placed
+// at an arbitrary Z instead of always starting at 0.
+struct Beam {
+    double x1 = 0.0, y1 = 0.0, x2 = 1000.0, y2 = 0.0;
+    double elevation = 2700.0;
+    double width = 300.0, depth = 400.0;
+};
+
+// A room/space boundary in plan -- unlike Wall/Slab/Column/Beam, this is
+// deliberately NEVER built into a 3D solid (see buildBimShapes): a space
+// is fundamentally a labeled area for schedules (buildRoomScheduleTable
+// below), the same real distinction IFC itself draws between IfcSpace
+// and physical building elements.
+struct Space {
+    std::string name = "Room";
+    std::vector<std::pair<double, double>> boundary;
+};
+
 struct BimModel {
     std::vector<Wall> walls;
     std::vector<Opening> openings;
     std::vector<Slab> slabs;
+    std::vector<Column> columns;
+    std::vector<Beam> beams;
+    std::vector<Space> spaces;
 };
 
 struct BimShapes {
-    std::vector<TopoDS_Shape> wallShapes; // parallel to model.walls, with that wall's openings already cut
-    std::vector<TopoDS_Shape> slabShapes; // parallel to model.slabs
+    std::vector<TopoDS_Shape> wallShapes;   // parallel to model.walls, with that wall's openings already cut
+    std::vector<TopoDS_Shape> slabShapes;   // parallel to model.slabs
+    std::vector<TopoDS_Shape> columnShapes; // parallel to model.columns
+    std::vector<TopoDS_Shape> beamShapes;   // parallel to model.beams
 };
 
-// Builds every wall (openings assigned to it cut out) and every slab.
-// A wall/slab that fails to build (degenerate dimensions) gets a null
-// shape at its index rather than shrinking the vectors, so indices stay
-// aligned with model.walls/model.slabs.
+// Builds every wall (openings assigned to it cut out), slab, column, and
+// beam -- model.spaces never gets a shape (see Space's own comment). An
+// element that fails to build (degenerate dimensions) gets a null shape
+// at its index rather than shrinking the vectors, so indices stay
+// aligned with the model's own element vectors.
 BimShapes buildBimShapes(const BimModel& model);
 
 // Fuses every non-null shape in shapes into one compound, for feeding into
@@ -69,7 +109,9 @@ TopoDS_Shape combinedBimShape(const BimShapes& shapes);
 // ISO-10303-21 (STEP physical file) framing, but the entity types/
 // attributes are this codebase's own simplified schema (wall centerline +
 // height + thickness; opening's host wall + offset + dimensions; slab
-// boundary + thickness + elevation) -- NOT real IFC4 entities. Real IFC
+// boundary + thickness + elevation; column position/base/height/section;
+// beam centerline/elevation/section; space name + boundary) -- NOT real
+// IFC4 entities. Real IFC
 // geometry (IfcExtrudedAreaSolid over swept profile defs, a full spatial
 // placement tree, property sets...) is much deeper than this sprint's
 // scope, and no IFC library (IfcOpenShell) is available on this machine to
@@ -88,5 +130,12 @@ bool readIfcLite(BimModel& model, const std::string& path);
 // as Phase 1's WireList/LineList reports did, rather than a new report
 // concept.
 TableEntity* buildOpeningScheduleTable(Document& doc2d, const BimModel& model, Point2D position);
+
+// A room/space schedule (Name, Area, Perimeter) as a real TABLE entity,
+// one row per model.spaces entry -- area via the shoelace formula,
+// perimeter by summing consecutive boundary segment lengths (closing the
+// loop back to the first point), same simple-polygon assumption Slab's
+// own boundary already makes.
+TableEntity* buildRoomScheduleTable(Document& doc2d, const BimModel& model, Point2D position);
 
 } // namespace lcad

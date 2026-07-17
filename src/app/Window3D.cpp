@@ -479,6 +479,153 @@ private:
     QDoubleSpinBox* m_elevation;
 };
 
+class ColumnDialog : public QDialog {
+public:
+    explicit ColumnDialog(QWidget* parent = nullptr) : QDialog(parent) {
+        setWindowTitle(QStringLiteral("Add Column"));
+        auto* form = new QFormLayout(this);
+        m_x = makeSpin(0.0);
+        m_y = makeSpin(0.0);
+        form->addRow(QStringLiteral("Position X/Y:"), rowOf({m_x, m_y}));
+        m_baseElevation = makeSpin(0.0);
+        form->addRow(QStringLiteral("Base Elevation:"), m_baseElevation);
+        m_height = makeSpin(3000.0);
+        form->addRow(QStringLiteral("Height:"), m_height);
+        m_width = makeSpin(300.0);
+        form->addRow(QStringLiteral("Width (diameter if round):"), m_width);
+        m_depth = makeSpin(300.0);
+        form->addRow(QStringLiteral("Depth (unused if round):"), m_depth);
+        m_round = new QCheckBox(QStringLiteral("Round (circular cross-section)"), this);
+        form->addRow(QString(), m_round);
+
+        auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+        connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+        form->addRow(buttons);
+    }
+
+    lcad::Column result() const {
+        lcad::Column column;
+        column.x = m_x->value();
+        column.y = m_y->value();
+        column.baseElevation = m_baseElevation->value();
+        column.height = m_height->value();
+        column.width = m_width->value();
+        column.depth = m_depth->value();
+        column.round = m_round->isChecked();
+        return column;
+    }
+
+private:
+    QDoubleSpinBox* makeSpin(double value) {
+        auto* spin = new QDoubleSpinBox(this);
+        spin->setRange(-1e7, 1e7);
+        spin->setDecimals(2);
+        spin->setValue(value);
+        return spin;
+    }
+    QWidget* rowOf(std::initializer_list<QWidget*> widgets) {
+        auto* container = new QWidget(this);
+        auto* layout = new QHBoxLayout(container);
+        layout->setContentsMargins(0, 0, 0, 0);
+        for (QWidget* w : widgets) layout->addWidget(w);
+        return container;
+    }
+
+    QDoubleSpinBox *m_x, *m_y, *m_baseElevation, *m_height, *m_width, *m_depth;
+    QCheckBox* m_round;
+};
+
+class BeamDialog : public QDialog {
+public:
+    explicit BeamDialog(QWidget* parent = nullptr) : QDialog(parent) {
+        setWindowTitle(QStringLiteral("Add Beam"));
+        auto* form = new QFormLayout(this);
+        m_x1 = makeSpin(0.0);
+        m_y1 = makeSpin(0.0);
+        m_x2 = makeSpin(4000.0);
+        m_y2 = makeSpin(0.0);
+        form->addRow(QStringLiteral("Start X/Y:"), rowOf({m_x1, m_y1}));
+        form->addRow(QStringLiteral("End X/Y:"), rowOf({m_x2, m_y2}));
+        m_elevation = makeSpin(2700.0);
+        form->addRow(QStringLiteral("Elevation (bottom face):"), m_elevation);
+        m_width = makeSpin(300.0);
+        form->addRow(QStringLiteral("Width:"), m_width);
+        m_depth = makeSpin(400.0);
+        form->addRow(QStringLiteral("Depth:"), m_depth);
+
+        auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+        connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+        form->addRow(buttons);
+    }
+
+    lcad::Beam result() const {
+        lcad::Beam beam;
+        beam.x1 = m_x1->value();
+        beam.y1 = m_y1->value();
+        beam.x2 = m_x2->value();
+        beam.y2 = m_y2->value();
+        beam.elevation = m_elevation->value();
+        beam.width = m_width->value();
+        beam.depth = m_depth->value();
+        return beam;
+    }
+
+private:
+    QDoubleSpinBox* makeSpin(double value) {
+        auto* spin = new QDoubleSpinBox(this);
+        spin->setRange(-1e7, 1e7);
+        spin->setDecimals(2);
+        spin->setValue(value);
+        return spin;
+    }
+    QWidget* rowOf(std::initializer_list<QWidget*> widgets) {
+        auto* container = new QWidget(this);
+        auto* layout = new QHBoxLayout(container);
+        layout->setContentsMargins(0, 0, 0, 0);
+        for (QWidget* w : widgets) layout->addWidget(w);
+        return container;
+    }
+
+    QDoubleSpinBox *m_x1, *m_y1, *m_x2, *m_y2, *m_elevation, *m_width, *m_depth;
+};
+
+class SpaceDialog : public QDialog {
+public:
+    explicit SpaceDialog(QWidget* parent = nullptr) : QDialog(parent) {
+        setWindowTitle(QStringLiteral("Add Room/Space"));
+        auto* form = new QFormLayout(this);
+
+        m_name = new QLineEdit(QStringLiteral("Room"), this);
+        form->addRow(QStringLiteral("Name:"), m_name);
+        m_boundary = new QLineEdit(QStringLiteral("0,0, 4000,0, 4000,3000, 0,3000"), this);
+        form->addRow(QStringLiteral("Boundary (x,y pairs, comma-separated):"), m_boundary);
+
+        auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+        connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+        form->addRow(buttons);
+    }
+
+    lcad::Space result() const {
+        lcad::Space space;
+        space.name = m_name->text().toStdString();
+        std::vector<double> values;
+        for (const QString& token : m_boundary->text().split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+            bool ok = false;
+            const double v = token.trimmed().toDouble(&ok);
+            if (ok) values.push_back(v);
+        }
+        for (std::size_t i = 0; i + 1 < values.size(); i += 2) space.boundary.emplace_back(values[i], values[i + 1]);
+        return space;
+    }
+
+private:
+    QLineEdit* m_name;
+    QLineEdit* m_boundary;
+};
+
 class PipeRunDialog : public QDialog {
 public:
     explicit PipeRunDialog(QWidget* parent = nullptr) : QDialog(parent) {
@@ -748,9 +895,13 @@ Window3D::Window3D(QWidget* parent) : QMainWindow(parent) {
     fileMenu->addAction(QStringLiteral("BIM: Add Wall..."), this, &Window3D::addBimWall);
     fileMenu->addAction(QStringLiteral("BIM: Add Door/Window..."), this, &Window3D::addBimOpening);
     fileMenu->addAction(QStringLiteral("BIM: Add Slab..."), this, &Window3D::addBimSlab);
+    fileMenu->addAction(QStringLiteral("BIM: Add Column..."), this, &Window3D::addBimColumn);
+    fileMenu->addAction(QStringLiteral("BIM: Add Beam..."), this, &Window3D::addBimBeam);
+    fileMenu->addAction(QStringLiteral("BIM: Add Room/Space..."), this, &Window3D::addBimSpace);
     fileMenu->addAction(QStringLiteral("BIM: Import IFC-lite..."), this, &Window3D::importIfcLite);
     fileMenu->addAction(QStringLiteral("BIM: Export IFC-lite..."), this, &Window3D::exportIfcLite);
     fileMenu->addAction(QStringLiteral("BIM: Export Opening Schedule..."), this, &Window3D::exportOpeningSchedule);
+    fileMenu->addAction(QStringLiteral("BIM: Export Room Schedule..."), this, &Window3D::exportRoomSchedule);
     fileMenu->addSeparator();
     fileMenu->addAction(QStringLiteral("Add Pipe Run..."), this, &Window3D::addPipeRun);
     fileMenu->addSeparator();
@@ -1054,11 +1205,10 @@ void Window3D::generateDrawingViews() {
         if (!consumed[static_cast<std::size_t>(i)] && m_document.isValid(i)) tips.push_back(m_document.shapeAt(i));
     }
     const lcad::BimShapes bimShapes = lcad::buildBimShapes(m_bimModel);
-    for (const TopoDS_Shape& shape : bimShapes.wallShapes) {
-        if (!shape.IsNull()) tips.push_back(shape);
-    }
-    for (const TopoDS_Shape& shape : bimShapes.slabShapes) {
-        if (!shape.IsNull()) tips.push_back(shape);
+    for (const auto* shapes : {&bimShapes.wallShapes, &bimShapes.slabShapes, &bimShapes.columnShapes, &bimShapes.beamShapes}) {
+        for (const TopoDS_Shape& shape : *shapes) {
+            if (!shape.IsNull()) tips.push_back(shape);
+        }
     }
     if (tips.empty()) {
         statusBar()->showMessage(QStringLiteral("No solids to draw yet"), 3000);
@@ -1237,6 +1387,36 @@ void Window3D::addBimSlab() {
     refreshViewport();
 }
 
+void Window3D::addBimColumn() {
+    ColumnDialog dialog(this);
+    if (dialog.exec() != QDialog::Accepted) return;
+    m_bimModel.columns.push_back(dialog.result());
+    refreshViewport();
+    statusBar()->showMessage(QStringLiteral("Column %1 added").arg(m_bimModel.columns.size() - 1), 2000);
+}
+
+void Window3D::addBimBeam() {
+    BeamDialog dialog(this);
+    if (dialog.exec() != QDialog::Accepted) return;
+    m_bimModel.beams.push_back(dialog.result());
+    refreshViewport();
+    statusBar()->showMessage(QStringLiteral("Beam %1 added").arg(m_bimModel.beams.size() - 1), 2000);
+}
+
+void Window3D::addBimSpace() {
+    SpaceDialog dialog(this);
+    if (dialog.exec() != QDialog::Accepted) return;
+    const lcad::Space space = dialog.result();
+    if (space.boundary.size() < 3) {
+        statusBar()->showMessage(QStringLiteral("A room/space needs at least 3 boundary points"), 3000);
+        return;
+    }
+    m_bimModel.spaces.push_back(space);
+    statusBar()->showMessage(QStringLiteral("Room/space \"%1\" added (not drawn in 3D -- see Bim.h's Space comment)")
+                                  .arg(QString::fromStdString(space.name)),
+                              3000);
+}
+
 void Window3D::importIfcLite() {
     const QString path = QFileDialog::getOpenFileName(this, QStringLiteral("Import IFC-lite"), QString(),
                                                         QStringLiteral("IFC-lite Files (*.ifc)"));
@@ -1248,16 +1428,21 @@ void Window3D::importIfcLite() {
     }
     m_bimModel = loaded;
     refreshViewport();
-    statusBar()->showMessage(QStringLiteral("Loaded %1 wall(s), %2 opening(s), %3 slab(s)")
+    statusBar()->showMessage(QStringLiteral("Loaded %1 wall(s), %2 opening(s), %3 slab(s), %4 column(s), %5 beam(s), "
+                                            "%6 space(s)")
                                   .arg(m_bimModel.walls.size())
                                   .arg(m_bimModel.openings.size())
-                                  .arg(m_bimModel.slabs.size()),
+                                  .arg(m_bimModel.slabs.size())
+                                  .arg(m_bimModel.columns.size())
+                                  .arg(m_bimModel.beams.size())
+                                  .arg(m_bimModel.spaces.size()),
                               4000);
 }
 
 void Window3D::exportIfcLite() {
-    if (m_bimModel.walls.empty() && m_bimModel.slabs.empty()) {
-        statusBar()->showMessage(QStringLiteral("Add a wall or slab first"), 3000);
+    if (m_bimModel.walls.empty() && m_bimModel.slabs.empty() && m_bimModel.columns.empty() && m_bimModel.beams.empty() &&
+        m_bimModel.spaces.empty()) {
+        statusBar()->showMessage(QStringLiteral("Add a wall, slab, column, beam, or room/space first"), 3000);
         return;
     }
     const QString path = QFileDialog::getSaveFileName(this, QStringLiteral("Export IFC-lite"), QString(),
@@ -1291,6 +1476,26 @@ void Window3D::exportOpeningSchedule() {
         return;
     }
     statusBar()->showMessage(QStringLiteral("Opening schedule written to %1").arg(path), 3000);
+}
+
+void Window3D::exportRoomSchedule() {
+    if (m_bimModel.spaces.empty()) {
+        statusBar()->showMessage(QStringLiteral("Add a room/space first"), 3000);
+        return;
+    }
+    const QString path = QFileDialog::getSaveFileName(this, QStringLiteral("Export Room Schedule"), QString(),
+                                                        QStringLiteral("DXF Files (*.dxf)"));
+    if (path.isEmpty()) return;
+
+    lcad::Document doc2d;
+    lcad::buildRoomScheduleTable(doc2d, m_bimModel, lcad::Point2D(0.0, 0.0));
+
+    std::string error;
+    if (!lcad::writeDxf(doc2d, path.toStdString(), &error)) {
+        QMessageBox::warning(this, QStringLiteral("Export Failed"), QString::fromStdString(error));
+        return;
+    }
+    statusBar()->showMessage(QStringLiteral("Room schedule written to %1").arg(path), 3000);
 }
 
 void Window3D::generate3DCamToolpath() {
@@ -1567,11 +1772,10 @@ void Window3D::refreshViewport() {
     // its shapes are drawn into the same viewport here rather than through
     // a separate refresh path.
     const lcad::BimShapes bimShapes = lcad::buildBimShapes(m_bimModel);
-    for (const TopoDS_Shape& shape : bimShapes.wallShapes) {
-        if (!shape.IsNull()) m_viewport->displayShape(shape);
-    }
-    for (const TopoDS_Shape& shape : bimShapes.slabShapes) {
-        if (!shape.IsNull()) m_viewport->displayShape(shape);
+    for (const auto* shapes : {&bimShapes.wallShapes, &bimShapes.slabShapes, &bimShapes.columnShapes, &bimShapes.beamShapes}) {
+        for (const TopoDS_Shape& shape : *shapes) {
+            if (!shape.IsNull()) m_viewport->displayShape(shape);
+        }
     }
 
     m_viewport->fitAll();

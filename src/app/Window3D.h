@@ -67,9 +67,16 @@ private:
     void addBimWall();
     void addBimOpening();
     void addBimSlab();
+    // Structural members (columns/beams) and room/space boundaries --
+    // same "lives alongside the feature tree, not inside it" model as
+    // walls/openings/slabs already use.
+    void addBimColumn();
+    void addBimBeam();
+    void addBimSpace();
     void importIfcLite();
     void exportIfcLite();
     void exportOpeningSchedule();
+    void exportRoomSchedule();
 
     // Phase 3.4: builds a pipe run (see Piping.h) and adds it as an
     // Imported feature, same reuse pattern as addSheetMetalPart().
