@@ -21,11 +21,16 @@ struct AssemblyComponent {
     bool fixed = false;  // fixed components are never moved by Assembly::solve()
 };
 
-// Which pair of reference elements a mate aligns. There's no face/edge
-// picking in the still-unverified 3D viewport (see Viewport3D.h's own
-// disclosure), so each mate is defined directly by a point+direction typed
-// in on each component's local frame -- the same kind of blunt, disclosed
-// scope cut this sprint's siblings (Fillet/Chamfer's "every edge") made.
+// Which pair of reference elements a mate aligns: a point+direction on
+// each component's own local frame, resolvable either by typing numbers
+// in directly or by a real face pick (see Pick3D.h's pickFace and
+// AssemblyWindow's "Pick Face on A/B..." -- there's still no LIVE
+// interactive viewport picking, i.e. no mouse-to-ray conversion wired
+// into Viewport3D's mouse events yet, since that specific piece is the
+// still-unverified-in-this-environment territory; the ray itself is
+// typed in, same as Window3D's "List Edges..." precedent for Fillet/
+// Chamfer, but the actual face geometry it resolves to is real, picked
+// geometry, not a hand-computed guess).
 //
 // Rather than a general nonlinear multi-body DOF solver (what FreeCAD's
 // Assembly workbench or a real mechanical CAD mate stack actually builds --

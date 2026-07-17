@@ -1,6 +1,7 @@
 #include "AssemblyWindow.h"
 #include "Viewport3D.h"
 
+#include "core/core3d/Pick3D.h"
 #include "core/core3d/StepIges.h"
 
 #include <BRepBuilderAPI_Transform.hxx>
@@ -16,6 +17,7 @@
 #include <QHBoxLayout>
 #include <QListWidget>
 #include <QMessageBox>
+#include <QPushButton>
 #include <QStatusBar>
 #include <QStringList>
 #include <QToolBar>
@@ -36,13 +38,66 @@ QString mateTypeName(MateType type) {
     return QStringLiteral("Mate");
 }
 
-// A mate's reference point/direction on each component is typed in
-// directly rather than picked in the viewport -- there's no face/edge
-// picking there yet (see Assembly.h's own disclosure, the same scope cut
-// Fillet/Chamfer made for edges).
+// A ray (origin + direction) to pick a face with, since there's no live
+// interactive viewport picking wired up yet (mouse-to-ray conversion in
+// Viewport3D is the same unverified-in-this-environment territory the
+// rest of the viewport carries) -- this is the same "typed-in, not
+// live-clicked" precedent Window3D's own "List Edges..." action set for
+// Fillet/Chamfer edge selection. A face's exact point+normal is still
+// real, picked geometry (see Pick3D.h) once the ray is given; only the
+// ray's own origin/direction has to be estimated by the user.
+class PickRayDialog : public QDialog {
+public:
+    explicit PickRayDialog(QWidget* parent = nullptr) : QDialog(parent) {
+        setWindowTitle(QStringLiteral("Pick Face (by ray)"));
+        auto* form = new QFormLayout(this);
+
+        m_ox = makeSpin(0.0); m_oy = makeSpin(0.0); m_oz = makeSpin(100.0);
+        form->addRow(QStringLiteral("Ray Origin X/Y/Z:"), rowOf(this, {m_ox, m_oy, m_oz}));
+        m_dx = makeSpin(0.0); m_dy = makeSpin(0.0); m_dz = makeSpin(-1.0);
+        form->addRow(QStringLiteral("Ray Direction X/Y/Z:"), rowOf(this, {m_dx, m_dy, m_dz}));
+
+        auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+        connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+        form->addRow(buttons);
+    }
+
+    lcad::PickRay ray() const {
+        lcad::PickRay r;
+        r.origin = {m_ox->value(), m_oy->value(), m_oz->value()};
+        r.direction = {m_dx->value(), m_dy->value(), m_dz->value()};
+        return r;
+    }
+
+private:
+    static QDoubleSpinBox* makeSpin(double value) {
+        auto* spin = new QDoubleSpinBox;
+        spin->setRange(-1e6, 1e6);
+        spin->setDecimals(3);
+        spin->setValue(value);
+        return spin;
+    }
+    static QWidget* rowOf(QWidget* parent, std::initializer_list<QWidget*> widgets) {
+        auto* container = new QWidget(parent);
+        auto* layout = new QHBoxLayout(container);
+        layout->setContentsMargins(0, 0, 0, 0);
+        for (QWidget* w : widgets) layout->addWidget(w);
+        return container;
+    }
+
+    QDoubleSpinBox *m_ox, *m_oy, *m_oz, *m_dx, *m_dy, *m_dz;
+};
+
+// A mate's reference point/direction on each component can be typed in
+// directly, or resolved from a real face pick (see PickRayDialog above and
+// Pick3D.h) -- picking happens against the component's own LOCAL-frame
+// shape (matching Mate's own "point/direction in ITS OWN local frame"
+// contract), not its current world placement.
 class AddMateDialog : public QDialog {
 public:
-    AddMateDialog(const std::vector<AssemblyComponent>& components, QWidget* parent = nullptr) : QDialog(parent) {
+    AddMateDialog(const std::vector<AssemblyComponent>& components, QWidget* parent = nullptr)
+        : QDialog(parent), m_components(components) {
         setWindowTitle(QStringLiteral("Add Mate"));
         auto* form = new QFormLayout(this);
 
@@ -67,10 +122,18 @@ public:
         form->addRow(QStringLiteral("A point X/Y/Z:"), rowOf({m_ax, m_ay, m_az}));
         m_adx = makeSpin(0.0); m_ady = makeSpin(0.0); m_adz = makeSpin(1.0);
         form->addRow(QStringLiteral("A direction X/Y/Z:"), rowOf({m_adx, m_ady, m_adz}));
+        auto* pickA = new QPushButton(QStringLiteral("Pick Face on A..."), this);
+        connect(pickA, &QPushButton::clicked, this, [this] { pickFaceInto(m_compA, m_ax, m_ay, m_az, m_adx, m_ady, m_adz); });
+        form->addRow(QString(), pickA);
+
         m_bx = makeSpin(0.0); m_by = makeSpin(0.0); m_bz = makeSpin(0.0);
         form->addRow(QStringLiteral("B point X/Y/Z:"), rowOf({m_bx, m_by, m_bz}));
         m_bdx = makeSpin(0.0); m_bdy = makeSpin(0.0); m_bdz = makeSpin(1.0);
         form->addRow(QStringLiteral("B direction X/Y/Z:"), rowOf({m_bdx, m_bdy, m_bdz}));
+        auto* pickB = new QPushButton(QStringLiteral("Pick Face on B..."), this);
+        connect(pickB, &QPushButton::clicked, this, [this] { pickFaceInto(m_compB, m_bx, m_by, m_bz, m_bdx, m_bdy, m_bdz); });
+        form->addRow(QString(), pickB);
+
         m_value = makeSpin(0.0);
         form->addRow(QStringLiteral("Distance offset / Angle degrees:"), m_value);
 
@@ -110,12 +173,38 @@ private:
         return container;
     }
 
+    // Runs PickRayDialog against componentCombo's currently-selected
+    // component's own (local-frame) shape, and on a real hit fills the
+    // given point/direction spinboxes with the picked face's exact
+    // point/outward normal.
+    void pickFaceInto(QComboBox* componentCombo, QDoubleSpinBox* px, QDoubleSpinBox* py, QDoubleSpinBox* pz,
+                      QDoubleSpinBox* dx, QDoubleSpinBox* dy, QDoubleSpinBox* dz) {
+        const int compIndex = componentCombo->currentData().toInt();
+        if (compIndex < 0 || compIndex >= static_cast<int>(m_components.size())) return;
+
+        PickRayDialog dialog(this);
+        if (dialog.exec() != QDialog::Accepted) return;
+
+        const auto hit = lcad::pickFace(m_components[static_cast<std::size_t>(compIndex)].shape, dialog.ray());
+        if (!hit) {
+            QMessageBox::warning(this, QStringLiteral("Pick Failed"), QStringLiteral("That ray didn't hit any face."));
+            return;
+        }
+        px->setValue(hit->point[0]);
+        py->setValue(hit->point[1]);
+        pz->setValue(hit->point[2]);
+        dx->setValue(hit->normal[0]);
+        dy->setValue(hit->normal[1]);
+        dz->setValue(hit->normal[2]);
+    }
+
     QComboBox* m_typeCombo = nullptr;
     QComboBox* m_compA = nullptr;
     QComboBox* m_compB = nullptr;
     QDoubleSpinBox *m_ax, *m_ay, *m_az, *m_adx, *m_ady, *m_adz;
     QDoubleSpinBox *m_bx, *m_by, *m_bz, *m_bdx, *m_bdy, *m_bdz;
     QDoubleSpinBox* m_value = nullptr;
+    const std::vector<AssemblyComponent>& m_components;
 };
 
 } // namespace
