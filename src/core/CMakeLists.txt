@@ -88,6 +88,7 @@ add_library(lcad_core STATIC
     pcb/CopperPour.cpp
     pcb/Autorouter.h
     pcb/Autorouter.cpp
+    pcb/LengthTuning.cpp
     electrical/ElectricalLibrary.h
     electrical/ElectricalLibrary.cpp
     electrical/WireNumbering.h

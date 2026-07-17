@@ -160,6 +160,7 @@ add_executable(kumcad WIN32
     commands/TCaseCommand.h
     commands/TCaseCommand.cpp
     commands/TranCommand.cpp
+    commands/LengthTuneCommand.cpp
     commands/ExpressToolCommands.cpp
     commands/DimAngularCommand.h
     commands/DimAngularCommand.cpp

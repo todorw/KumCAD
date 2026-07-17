@@ -21,6 +21,7 @@
 #include "commands/LayerStateCommand.h"
 #include "commands/TCaseCommand.h"
 #include "commands/TranCommand.h"
+#include "commands/LengthTuneCommand.h"
 #include "commands/ExpressToolCommands.h"
 #include "commands/DimAngularCommand.h"
 #include "commands/DimCommand.h"
@@ -850,6 +851,14 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         }
     } else if (cmd == QLatin1String("TRAN")) {
         startCommand(std::make_unique<TranCommand>(m_document), QStringLiteral("TRAN"));
+    } else if (cmd == QLatin1String("LENGTHTUNE")) {
+        const std::vector<lcad::EntityId> ids = selectionForModify();
+        if (ids.size() != 1 || !m_document.findEntity(ids[0]) ||
+            m_document.findEntity(ids[0])->type() != lcad::EntityType::Track) {
+            if (!ids.empty()) m_commandLine.appendLine(QStringLiteral("*Select exactly one track*"));
+        } else {
+            startCommand(std::make_unique<LengthTuneCommand>(m_document, ids[0]), QStringLiteral("LENGTHTUNE"));
+        }
     } else if (cmd == QLatin1String("WIRENUM")) {
         lcad::assignWireNumbers(m_document);
         m_commandLine.appendLine(QStringLiteral("*Wire numbers assigned*"));
