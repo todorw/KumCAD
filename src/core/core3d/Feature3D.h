@@ -73,6 +73,14 @@ enum class FeatureType {
                    // multi-segment/curved sweep would need
                    // BRepOffsetAPI_MakePipeShell's own explicit corner-
                    // transition modes instead, which this doesn't attempt
+    Draft,         // adds a p1-degree draft angle to inputA's faceIndices
+                   // (only planar/cylindrical/conical faces can actually
+                   // be drafted -- OCCT's own restriction, not this
+                   // codebase's), pulled along (dirX,dirY,dirZ), relative
+                   // to the neutral plane through (posX,posY,posZ) with
+                   // that same direction as its own normal -- the common
+                   // "draft measured from the pull direction" convention,
+                   // via BRepOffsetAPI_DraftAngle
     Imported,      // a shape read from an external STEP/IGES file (see
                    // StepIges.h) or loaded back from a .kcad3d's embedded
                    // BRep blob (see Persistence3D.h). Has no parametric

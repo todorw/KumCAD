@@ -81,6 +81,7 @@ QString typeName(FeatureType type) {
     case FeatureType::Shell: return QStringLiteral("Shell");
     case FeatureType::Loft: return QStringLiteral("Loft");
     case FeatureType::Sweep: return QStringLiteral("Sweep");
+    case FeatureType::Draft: return QStringLiteral("Draft");
     case FeatureType::Imported: return QStringLiteral("Imported");
     }
     return QStringLiteral("Feature");

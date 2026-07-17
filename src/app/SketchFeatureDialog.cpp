@@ -42,6 +42,7 @@ SketchFeatureDialog::SketchFeatureDialog(const lcad::Document3D& document, QWidg
     m_typeCombo->addItem(QStringLiteral("Shell"), static_cast<int>(FeatureType::Shell));
     m_typeCombo->addItem(QStringLiteral("Loft"), static_cast<int>(FeatureType::Loft));
     m_typeCombo->addItem(QStringLiteral("Sweep"), static_cast<int>(FeatureType::Sweep));
+    m_typeCombo->addItem(QStringLiteral("Draft"), static_cast<int>(FeatureType::Draft));
     form->addRow(QStringLiteral("Type:"), m_typeCombo);
     connect(m_typeCombo, &QComboBox::currentIndexChanged, this, &SketchFeatureDialog::updateHint);
 
@@ -99,7 +100,7 @@ SketchFeatureDialog::SketchFeatureDialog(const lcad::Document3D& document, QWidg
 
     m_faceIndices = new QLineEdit(this);
     m_faceIndices->setPlaceholderText(QStringLiteral("required -- which face(s) to open, see Pick3D.h's pickFace"));
-    form->addRow(QStringLiteral("Shell Face Indices (comma-separated):"), m_faceIndices);
+    form->addRow(QStringLiteral("Shell/Draft Face Indices (comma-separated):"), m_faceIndices);
 
     m_sketchIndices = new QLineEdit(this);
     m_sketchIndices->setPlaceholderText(QStringLiteral("required, 2+, in order -- e.g. 0,1,2"));
@@ -159,6 +160,11 @@ void SketchFeatureDialog::updateHint() {
     case FeatureType::Sweep:
         m_hintLabel->setText(QStringLiteral("Sweep: sweeps Sketch (the profile) along Path Sketch's own single "
                                             "straight line (multi-segment/curved paths aren't supported)."));
+        break;
+    case FeatureType::Draft:
+        m_hintLabel->setText(QStringLiteral("Draft: adds a Radius-field-as-degrees taper to Target's listed Face "
+                                            "Indices, pulled along Normal, relative to the neutral plane through "
+                                            "Position with that same direction as its own normal."));
         break;
     default:
         break;

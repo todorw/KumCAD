@@ -10,11 +10,11 @@
 #include <BRepFilletAPI_MakeFillet.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
+#include <BRepOffsetAPI_DraftAngle.hxx>
 #include <BRepOffsetAPI_MakePipe.hxx>
 #include <BRepOffsetAPI_MakeThickSolid.hxx>
 #include <BRepOffsetAPI_ThruSections.hxx>
 #include <BRepTools.hxx>
-#include <gp_Dir.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCone.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
@@ -31,6 +31,7 @@
 #include <gp_Ax1.hxx>
 #include <gp_Ax2.hxx>
 #include <gp_Dir.hxx>
+#include <gp_Pln.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Trsf.hxx>
 #include <gp_Vec.hxx>
@@ -451,6 +452,48 @@ void Document3D::recomputeOne(int index) {
         pipeBuilder.Build();
         ok = pipeBuilder.IsDone();
         if (ok) shape = pipeBuilder.Shape();
+        break;
+    }
+    case FeatureType::Draft: {
+        const double dirMag = std::sqrt(f.dirX * f.dirX + f.dirY * f.dirY + f.dirZ * f.dirZ);
+        if (f.inputA < 0 || f.inputA >= index || !isValid(f.inputA) || f.faceIndices.empty() || dirMag < 1e-9) {
+            ok = false;
+            break;
+        }
+        const TopoDS_Shape& target = m_shapes[static_cast<std::size_t>(f.inputA)];
+        TopTools_IndexedMapOfShape faceMap;
+        TopExp::MapShapes(target, TopAbs_FACE, faceMap);
+
+        const gp_Dir pullDir(f.dirX / dirMag, f.dirY / dirMag, f.dirZ / dirMag);
+        // The neutral plane's own normal is the pull direction itself --
+        // the common "draft angle measured from the pull direction"
+        // convention, and the only one expressible without a second
+        // direction field this codebase's Feature3D doesn't have.
+        const gp_Pln neutralPlane(gp_Pnt(f.posX, f.posY, f.posZ), pullDir);
+        const double angleRad = f.p1 * M_PI / 180.0;
+
+        BRepOffsetAPI_DraftAngle draftBuilder(target);
+        int addedCount = 0;
+        bool anyAddFailed = false;
+        for (int faceIndex : f.faceIndices) {
+            if (faceIndex < 0 || faceIndex >= faceMap.Extent()) continue;
+            draftBuilder.Add(TopoDS::Face(faceMap(faceIndex + 1)), pullDir, angleRad, neutralPlane);
+            if (!draftBuilder.AddDone()) {
+                anyAddFailed = true;
+                break;
+            }
+            ++addedCount;
+        }
+        // Same "zero faces actually added" caution Fillet/Chamfer/Shell
+        // already apply -- Build() below isn't safe to call blind here
+        // either.
+        if (anyAddFailed || addedCount == 0) {
+            ok = false;
+            break;
+        }
+        draftBuilder.Build();
+        ok = draftBuilder.IsDone();
+        if (ok) shape = draftBuilder.Shape();
         break;
     }
     case FeatureType::LinearPattern:

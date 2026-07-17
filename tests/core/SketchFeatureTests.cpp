@@ -406,6 +406,67 @@ TEST_CASE("Document3D Sweep rejects an empty path or out-of-range sketch indices
     REQUIRE_FALSE(doc.isValid(doc.addFeature(badIndex)));
 }
 
+TEST_CASE("Document3D Draft tapers a box's side face to the exact expected trapezoidal-prism volume",
+         "[core3d][draft][pick]") {
+    Document3D doc;
+    Feature3D box;
+    box.type = FeatureType::Box;
+    box.p1 = box.p2 = box.p3 = 20.0;
+    const int boxIdx = doc.addFeature(box);
+
+    // Find the box's own +X face via Pick3D, the same mechanism a
+    // viewport click would use.
+    PickRay ray;
+    ray.origin = {50.0, 10.0, 10.0};
+    ray.direction = {-1.0, 0.0, 0.0};
+    const auto picked = pickFace(doc.shapeAt(boxIdx), ray);
+    REQUIRE(picked.has_value());
+
+    Feature3D draft;
+    draft.type = FeatureType::Draft;
+    draft.inputA = boxIdx;
+    draft.faceIndices = {picked->faceIndex};
+    draft.p1 = 10.0; // degrees
+    draft.dirX = 0.0;
+    draft.dirY = 0.0;
+    draft.dirZ = 1.0; // pull direction == neutral plane normal, +Z
+    draft.posX = draft.posY = draft.posZ = 0.0; // neutral plane through the bottom face, z=0
+    const int draftIdx = doc.addFeature(draft);
+
+    REQUIRE(doc.isValid(draftIdx));
+
+    // The +X face pivots about its own unchanged bottom edge (on the
+    // neutral plane, z=0), tapering inward as Z increases -- the
+    // resulting solid is a trapezoidal prism: at height z, the x-extent
+    // is (20 - z*tan(angle)), constant across the full 20-unit Y depth.
+    const double angleRad = 10.0 * M_PI / 180.0;
+    const double expectedVolume = 20.0 * (20.0 * 20.0 - std::tan(angleRad) * (20.0 * 20.0 / 2.0));
+    REQUIRE(volumeOf(doc.shapeAt(draftIdx)) == Approx(expectedVolume).epsilon(1e-3));
+}
+
+TEST_CASE("Document3D Draft rejects an empty faceIndices or a zero-length pull direction", "[core3d][draft]") {
+    Document3D doc;
+    Feature3D box;
+    box.type = FeatureType::Box;
+    box.p1 = box.p2 = box.p3 = 20.0;
+    const int boxIdx = doc.addFeature(box);
+
+    Feature3D noFaces;
+    noFaces.type = FeatureType::Draft;
+    noFaces.inputA = boxIdx;
+    noFaces.p1 = 5.0;
+    noFaces.dirZ = 1.0;
+    REQUIRE_FALSE(doc.isValid(doc.addFeature(noFaces)));
+
+    Feature3D zeroDir;
+    zeroDir.type = FeatureType::Draft;
+    zeroDir.inputA = boxIdx;
+    zeroDir.faceIndices = {0};
+    zeroDir.p1 = 5.0;
+    zeroDir.dirX = zeroDir.dirY = zeroDir.dirZ = 0.0;
+    REQUIRE_FALSE(doc.isValid(doc.addFeature(zeroDir)));
+}
+
 TEST_CASE("Document3D LinearPattern fuses count non-overlapping copies", "[core3d][pattern]") {
     Document3D doc;
     Feature3D box;
