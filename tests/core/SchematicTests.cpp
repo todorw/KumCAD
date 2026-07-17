@@ -252,13 +252,28 @@ TEST_CASE("registerBuiltinSymbols adds a usable, idempotent parts library", "[sc
     Document doc;
     registerBuiltinSymbols(doc);
 
-    for (const char* name : {"R", "C", "D", "CONN2", "IC"}) {
+    for (const char* name : {"R", "C", "D", "CONN2", "IC", "LED", "Q_NPN", "Q_PNP", "L", "SW", "CONN3", "CONN4"}) {
         const BlockDefinition* block = doc.findBlock(name);
         REQUIRE(block);
         REQUIRE(block->isSymbol());
     }
     REQUIRE(doc.findBlock("R")->pins.size() == 2);
     REQUIRE(doc.findBlock("IC")->pins.size() == 4);
+    REQUIRE(doc.findBlock("Q_NPN")->pins.size() == 3);
+    REQUIRE(doc.findBlock("Q_PNP")->pins.size() == 3);
+    REQUIRE(doc.findBlock("CONN3")->pins.size() == 3);
+    REQUIRE(doc.findBlock("CONN4")->pins.size() == 4);
+
+    // Every schematic symbol must have a matching "<name>_FP" footprint
+    // with the same pin/pad count, or a board using that part could never
+    // be laid out at all -- previously true of C, D and CONN2.
+    for (const char* name : {"R", "C", "D", "CONN2", "IC", "LED", "Q_NPN", "Q_PNP", "L", "SW", "CONN3", "CONN4"}) {
+        const BlockDefinition* symbol = doc.findBlock(name);
+        const BlockDefinition* footprint = doc.findBlock(std::string(name) + "_FP");
+        REQUIRE(footprint);
+        REQUIRE(footprint->isFootprint());
+        REQUIRE(footprint->pads.size() == symbol->pins.size());
+    }
 
     // Calling it again must not duplicate or reset anything a user already
     // customized on a builtin block.
