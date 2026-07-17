@@ -22,6 +22,7 @@ add_executable(lcad_core_tests
     SchematicTests.cpp
     SheetsTests.cpp
     PcbTests.cpp
+    AutorouterTests.cpp
     SpecctraWriterTests.cpp
     CopperPourTests.cpp
     ElectricalTests.cpp

@@ -4,6 +4,7 @@
 #include "core/geometry/Polyline.h"
 #include "core/geometry/Track.h"
 #include "core/geometry/Via.h"
+#include "core/pcb/Autorouter.h"
 #include "core/pcb/CopperPour.h"
 #include "core/pcb/GerberWriter.h"
 #include "core/pcb/Ratsnest.h"
@@ -146,6 +147,65 @@ std::optional<QString> CopperPourCommand::onText(const QString& text) {
                                                              m_ownNetPositions, m_gridSize, clearance);
         if (ids.empty()) return QStringLiteral("*Pour produced no copper -- check boundary/grid size*");
         return QStringLiteral("*Copper pour: %1 piece(s)*").arg(ids.size());
+    }
+    default:
+        return std::nullopt;
+    }
+}
+
+std::optional<QString> AutorouteCommand::onText(const QString& text) {
+    switch (m_stage) {
+    case Stage::NetlistPath: {
+        std::ifstream in(text.trimmed().toStdString(), std::ios::binary);
+        if (!in) return QStringLiteral("*Could not open %1*\nEnter netlist file path:").arg(text.trimmed());
+        std::ostringstream buffer;
+        buffer << in.rdbuf();
+        m_nets = lcad::parseNetlist(buffer.str());
+        m_params.layer = m_document.currentLayer();
+        m_stage = Stage::GridSize;
+        return QStringLiteral("Grid size <0.5>:");
+    }
+    case Stage::GridSize: {
+        if (!text.trimmed().isEmpty()) {
+            bool ok = false;
+            const double value = text.trimmed().toDouble(&ok);
+            if (!ok || value <= 0.0) return QStringLiteral("*Invalid grid size*");
+            m_params.gridSize = value;
+        }
+        m_stage = Stage::TrackWidth;
+        return QStringLiteral("Track width <0.25>:");
+    }
+    case Stage::TrackWidth: {
+        if (!text.trimmed().isEmpty()) {
+            bool ok = false;
+            const double value = text.trimmed().toDouble(&ok);
+            if (!ok || value <= 0.0) return QStringLiteral("*Invalid track width*");
+            m_params.trackWidth = value;
+        }
+        m_stage = Stage::Clearance;
+        return QStringLiteral("Clearance <0.2>:");
+    }
+    case Stage::Clearance: {
+        m_finished = true;
+        if (!text.trimmed().isEmpty()) {
+            bool ok = false;
+            const double value = text.trimmed().toDouble(&ok);
+            if (!ok || value < 0.0) return QStringLiteral("*Invalid clearance*");
+            m_params.clearance = value;
+        }
+        const lcad::AutorouteResult result = lcad::autoroute(m_document, m_nets, m_params);
+        if (result.failedCount == 0) {
+            return QStringLiteral("*Autoroute: %1 connection(s) routed*").arg(result.routedCount);
+        }
+        QString failed;
+        for (const std::string& name : result.failedNetNames) {
+            if (!failed.isEmpty()) failed += QStringLiteral(", ");
+            failed += QString::fromStdString(name);
+        }
+        return QStringLiteral("*Autoroute: %1 routed, %2 failed (%3)*")
+            .arg(result.routedCount)
+            .arg(result.failedCount)
+            .arg(failed);
     }
     default:
         return std::nullopt;

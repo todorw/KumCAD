@@ -2,6 +2,7 @@
 
 #include "commands/DrawCommand.h"
 #include "core/document/Document.h"
+#include "core/pcb/Autorouter.h"
 #include "core/pcb/Ratsnest.h"
 
 #include <vector>
@@ -150,6 +151,33 @@ private:
     lcad::Document& m_document;
     Stage m_stage = Stage::NetlistPath;
     std::vector<lcad::ImportedNet> m_nets;
+    bool m_finished = false;
+};
+
+// AUTOROUTE: netlist file path, then grid size / track width / clearance
+// (each with a default) -- runs the in-house Lee/maze grid autorouter (see
+// core/pcb/Autorouter.h) on the current layer for every net in that
+// netlist, adding one TrackEntity per successfully routed connection.
+class AutorouteCommand : public DrawCommand {
+public:
+    explicit AutorouteCommand(lcad::Document& document) : m_document(document) {}
+
+    QString start() override { return QStringLiteral("AUTOROUTE  Enter netlist file path:"); }
+    std::optional<QString> onPoint(const lcad::Point2D& pt) override {
+        (void)pt;
+        return std::nullopt;
+    }
+    bool wantsTextInput() const override { return true; }
+    std::optional<QString> onText(const QString& text) override;
+    bool isFinished() const override { return m_finished; }
+    void cancel() override { m_finished = true; }
+
+private:
+    enum class Stage { NetlistPath, GridSize, TrackWidth, Clearance };
+    lcad::Document& m_document;
+    Stage m_stage = Stage::NetlistPath;
+    std::vector<lcad::ImportedNet> m_nets;
+    lcad::AutorouteParams m_params;
     bool m_finished = false;
 };
 

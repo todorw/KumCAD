@@ -77,6 +77,8 @@ add_library(lcad_core STATIC
     pcb/SpecctraWriter.cpp
     pcb/CopperPour.h
     pcb/CopperPour.cpp
+    pcb/Autorouter.h
+    pcb/Autorouter.cpp
     electrical/ElectricalLibrary.h
     electrical/ElectricalLibrary.cpp
     electrical/WireNumbering.h
