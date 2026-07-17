@@ -223,3 +223,31 @@ private:
     lcad::Document& m_document;
     bool m_finished = false;
 };
+
+// FOOTPRINTGEN: footprint name, then a family + parameters line (see
+// core/pcb/FootprintGenerator.h) -- generates a real IPC-style parametric
+// footprint instead of a one-off hardcoded one. Format:
+//   QFP:pinCount:pitch:bodyWidth:bodyLength:padWidth:padLength
+//   SOIC:pinCount:pitch:bodyWidth:bodyLength:padWidth:padLength
+//   HEADER:pinCount:rowCount:pitch
+class FootprintGenCommand : public DrawCommand {
+public:
+    explicit FootprintGenCommand(lcad::Document& document) : m_document(document) {}
+
+    QString start() override { return QStringLiteral("FOOTPRINTGEN  Enter new footprint name:"); }
+    std::optional<QString> onPoint(const lcad::Point2D& pt) override {
+        (void)pt;
+        return std::nullopt;
+    }
+    bool wantsTextInput() const override { return true; }
+    std::optional<QString> onText(const QString& text) override;
+    bool isFinished() const override { return m_finished; }
+    void cancel() override { m_finished = true; }
+
+private:
+    enum class Stage { Name, FamilyAndParams };
+    lcad::Document& m_document;
+    Stage m_stage = Stage::Name;
+    std::string m_name;
+    bool m_finished = false;
+};

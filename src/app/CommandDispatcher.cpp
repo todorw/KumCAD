@@ -697,6 +697,8 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         startCommand(std::make_unique<DsnExportCommand>(m_document), QStringLiteral("DSNEXPORT"));
     } else if (cmd == QLatin1String("AUTOROUTE")) {
         startCommand(std::make_unique<AutorouteCommand>(m_document), QStringLiteral("AUTOROUTE"));
+    } else if (cmd == QLatin1String("FOOTPRINTGEN")) {
+        startCommand(std::make_unique<FootprintGenCommand>(m_document), QStringLiteral("FOOTPRINTGEN"));
     } else if (cmd == QLatin1String("PCB3D")) {
 #ifdef LCAD_HAS_OCCT
         auto* window = new Board3DWindow(m_document, lcad::CopperStackup{}, nullptr);

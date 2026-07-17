@@ -6,6 +6,7 @@
 #include "core/geometry/Via.h"
 #include "core/pcb/Autorouter.h"
 #include "core/pcb/CopperPour.h"
+#include "core/pcb/FootprintGenerator.h"
 #include "core/pcb/GerberWriter.h"
 #include "core/pcb/Ratsnest.h"
 #include "core/pcb/SpecctraWriter.h"
@@ -302,4 +303,58 @@ std::optional<QString> PickAndPlaceCommand::onText(const QString& text) {
         return QStringLiteral("*%1*").arg(QString::fromStdString(error));
     }
     return QStringLiteral("*Pick-and-place file written to %1*").arg(text.trimmed());
+}
+
+std::optional<QString> FootprintGenCommand::onText(const QString& text) {
+    if (m_stage == Stage::Name) {
+        const std::string name = text.trimmed().toStdString();
+        if (name.empty()) return QStringLiteral("*Enter a name*");
+        m_name = name;
+        m_stage = Stage::FamilyAndParams;
+        return QStringLiteral("Family + params <QFP:44:0.8:10:10:0.4:1.5 | SOIC:8:1.27:5:4:0.6:1.5 | "
+                              "HEADER:4:1:2.54>:");
+    }
+
+    m_finished = true;
+    const QStringList fields = text.trimmed().split(QLatin1Char(':'), Qt::SkipEmptyParts);
+    if (fields.isEmpty()) return QStringLiteral("*Invalid format*");
+    const QString family = fields[0].toUpper();
+
+    bool ok = true;
+    if (family == QLatin1String("QFP") || family == QLatin1String("SOIC")) {
+        if (fields.size() != 7) return QStringLiteral("*Expected family:pinCount:pitch:bodyWidth:bodyLength:"
+                                                       "padWidth:padLength*");
+        lcad::GullWingParams params;
+        params.sideCount = family == QLatin1String("QFP") ? 4 : 2;
+        params.pinCount = fields[1].toInt(&ok);
+        if (ok) params.pitch = fields[2].toDouble(&ok);
+        if (ok) params.bodyWidth = fields[3].toDouble(&ok);
+        if (ok) params.bodyLength = fields[4].toDouble(&ok);
+        if (ok) params.padWidth = fields[5].toDouble(&ok);
+        if (ok) params.padLength = fields[6].toDouble(&ok);
+        if (!ok || !lcad::generateGullWingFootprint(m_document, m_name, params)) {
+            return QStringLiteral("*Could not generate that footprint -- check the parameters and that \"%1\" "
+                                  "isn't already a registered block*")
+                .arg(QString::fromStdString(m_name));
+        }
+        return QStringLiteral("*Footprint \"%1\" generated (%2 pads)*")
+            .arg(QString::fromStdString(m_name))
+            .arg(params.pinCount);
+    }
+    if (family == QLatin1String("HEADER")) {
+        if (fields.size() != 4) return QStringLiteral("*Expected HEADER:pinCount:rowCount:pitch*");
+        lcad::PinHeaderParams params;
+        params.pinCount = fields[1].toInt(&ok);
+        if (ok) params.rowCount = fields[2].toInt(&ok);
+        if (ok) params.pitch = fields[3].toDouble(&ok);
+        if (!ok || !lcad::generatePinHeaderFootprint(m_document, m_name, params)) {
+            return QStringLiteral("*Could not generate that footprint -- check the parameters and that \"%1\" "
+                                  "isn't already a registered block*")
+                .arg(QString::fromStdString(m_name));
+        }
+        return QStringLiteral("*Footprint \"%1\" generated (%2 pads)*")
+            .arg(QString::fromStdString(m_name))
+            .arg(params.pinCount * params.rowCount);
+    }
+    return QStringLiteral("*Unknown family \"%1\" -- expected QFP, SOIC, or HEADER*").arg(family);
 }
