@@ -1140,11 +1140,36 @@ void Window3D::runFemAnalysis() {
     double maxStress = 0.0;
     for (double vm : result.vonMisesStress) maxStress = std::max(maxStress, vm);
 
+    // Auto-exaggerate displacement for visibility: real structural
+    // displacements are usually tiny relative to the part itself, so a
+    // 1:1 scale would show no visible deformation at all -- scale so the
+    // single largest displacement maps to ~10% of the part's own bounding
+    // diagonal, a common convention real FEM viewers use too.
+    if (m_viewport->isAvailable() && maxDisplacement > 1e-12) {
+        Bnd_Box bounds;
+        BRepBndLib::Add(target, bounds);
+        double xmin = 0, ymin = 0, zmin = 0, xmax = 0, ymax = 0, zmax = 0;
+        bounds.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+        const double diagonal = std::sqrt((xmax - xmin) * (xmax - xmin) + (ymax - ymin) * (ymax - ymin) +
+                                          (zmax - zmin) * (zmax - zmin));
+        const double displacementScale = diagonal > 1e-9 ? (diagonal * 0.10) / maxDisplacement : 1.0;
+
+        const lcad::FemVisualization viz = lcad::buildFemVisualization(mesh, result, displacementScale);
+        m_viewport->clearShapes();
+        for (std::size_t i = 0; i < viz.elementShapes.size(); ++i) {
+            if (viz.elementShapes[i].IsNull()) continue;
+            const auto& color = viz.elementColors[i];
+            m_viewport->displayShape(viz.elementShapes[i], color[0], color[1], color[2]);
+        }
+        m_viewport->fitAll();
+    }
+
     QMessageBox::information(this, QStringLiteral("FEM Analysis Complete"),
                               QStringLiteral("Mesh: %1 nodes, %2 tetrahedra\nMax displacement magnitude: %3\n"
                                             "Max von Mises stress: %4\n\n"
-                                            "(A coarse voxel mesh with no results visualization in the 3D "
-                                            "viewport yet -- see Fem.h for the disclosed scope of this pass.)")
+                                            "Displayed in the viewport as a blue (low stress) to red (high "
+                                            "stress) heatmap, deformation exaggerated for visibility -- replaces "
+                                            "the feature tree's own shapes until you edit/add a feature again.")
                                   .arg(mesh.nodes.size())
                                   .arg(mesh.tets.size())
                                   .arg(maxDisplacement)

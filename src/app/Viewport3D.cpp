@@ -4,6 +4,7 @@
 #include <AIS_Shape.hxx>
 #include <Aspect_DisplayConnection.hxx>
 #include <OpenGl_GraphicDriver.hxx>
+#include <Quantity_Color.hxx>
 #include <Standard_Failure.hxx>
 #include <TopoDS_Shape.hxx>
 #include <V3d_View.hxx>
@@ -60,6 +61,13 @@ Viewport3D::~Viewport3D() = default;
 void Viewport3D::displayShape(const TopoDS_Shape& shape) {
     if (!m_available) return;
     Handle(AIS_Shape) presentation = new AIS_Shape(shape);
+    m_context->Display(presentation, Standard_True);
+}
+
+void Viewport3D::displayShape(const TopoDS_Shape& shape, double r, double g, double b) {
+    if (!m_available) return;
+    Handle(AIS_Shape) presentation = new AIS_Shape(shape);
+    presentation->SetColor(Quantity_Color(r, g, b, Quantity_TOC_RGB));
     m_context->Display(presentation, Standard_True);
 }
 

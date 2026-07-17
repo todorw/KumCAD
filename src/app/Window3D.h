@@ -73,8 +73,11 @@ private:
 
     // Phase 3.6: linear-static FEM over the document's own tip shapes (see
     // Fem.h). Reports summary results (max displacement, max von Mises
-    // stress) via a message box -- no results visualization in the still-
-    // unverified 3D viewport this pass, a disclosed scope cut.
+    // stress) via a message box, and displays a blue-to-red von Mises
+    // stress heatmap (deformation exaggerated for visibility) in the
+    // viewport, replacing the feature tree's own shapes until the next
+    // edit -- same unverified-in-this-environment caveat as the rest of
+    // Viewport3D.
     void runFemAnalysis();
 
     lcad::Document3D m_document;

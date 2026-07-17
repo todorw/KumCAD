@@ -3,10 +3,16 @@
 #include "core/sketch/LinearSolve.h"
 
 #include <BRepBndLib.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>
+#include <BRep_Builder.hxx>
 #include <Bnd_Box.hxx>
+#include <TopoDS_Compound.hxx>
+#include <TopoDS_Face.hxx>
 #include <gp_Pnt.hxx>
 
+#include <algorithm>
 #include <cmath>
 #include <unordered_map>
 
@@ -304,6 +310,68 @@ FemResult solveLinearStatic(const FemMesh& mesh, const FemMaterial& material,
 
     result.solved = true;
     return result;
+}
+
+namespace {
+
+TopoDS_Face makeTriFace(const gp_Pnt& a, const gp_Pnt& b, const gp_Pnt& c) {
+    BRepBuilderAPI_MakePolygon poly;
+    poly.Add(a);
+    poly.Add(b);
+    poly.Add(c);
+    poly.Close();
+    if (!poly.IsDone()) return TopoDS_Face();
+    BRepBuilderAPI_MakeFace faceBuilder(poly.Wire());
+    return faceBuilder.IsDone() ? faceBuilder.Face() : TopoDS_Face();
+}
+
+// A compound of the tet's 4 triangular faces -- not a true watertight
+// solid, deliberately (see FemVisualization's own comment in Fem.h).
+TopoDS_Shape buildTetShape(const gp_Pnt& p0, const gp_Pnt& p1, const gp_Pnt& p2, const gp_Pnt& p3) {
+    TopoDS_Compound compound;
+    BRep_Builder builder;
+    builder.MakeCompound(compound);
+    for (const TopoDS_Face& face : {makeTriFace(p0, p1, p2), makeTriFace(p0, p2, p3), makeTriFace(p0, p3, p1),
+                                    makeTriFace(p1, p3, p2)}) {
+        if (!face.IsNull()) builder.Add(compound, face);
+    }
+    return compound;
+}
+
+// Blue (low) -> green -> red (high) -- t clamped to [0,1].
+std::array<double, 3> heatmapColor(double t) {
+    t = std::clamp(t, 0.0, 1.0);
+    if (t < 0.5) {
+        const double s = t / 0.5;
+        return {0.0, s, 1.0 - s};
+    }
+    const double s = (t - 0.5) / 0.5;
+    return {s, 1.0 - s, 0.0};
+}
+
+} // namespace
+
+FemVisualization buildFemVisualization(const FemMesh& mesh, const FemResult& result, double displacementScale) {
+    FemVisualization viz;
+    if (!result.solved || mesh.tets.empty()) return viz;
+
+    double maxStress = 0.0;
+    for (double vm : result.vonMisesStress) maxStress = std::max(maxStress, vm);
+    if (maxStress <= 1e-12) maxStress = 1.0;
+
+    for (std::size_t t = 0; t < mesh.tets.size(); ++t) {
+        const auto& tet = mesh.tets[t];
+        std::array<gp_Pnt, 4> corners;
+        for (int i = 0; i < 4; ++i) {
+            const auto& node = mesh.nodes[static_cast<std::size_t>(tet[static_cast<std::size_t>(i)])];
+            const auto& disp = result.displacements[static_cast<std::size_t>(tet[static_cast<std::size_t>(i)])];
+            corners[static_cast<std::size_t>(i)] = gp_Pnt(node[0] + disp[0] * displacementScale, node[1] + disp[1] * displacementScale,
+                                                           node[2] + disp[2] * displacementScale);
+        }
+        viz.elementShapes.push_back(buildTetShape(corners[0], corners[1], corners[2], corners[3]));
+        viz.elementColors.push_back(heatmapColor(result.vonMisesStress[t] / maxStress));
+    }
+    return viz;
 }
 
 } // namespace lcad

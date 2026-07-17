@@ -71,4 +71,20 @@ struct FemResult {
 FemResult solveLinearStatic(const FemMesh& mesh, const FemMaterial& material,
                             const FemBoundaryCondition& boundaryCondition, const std::vector<FemLoad>& loads);
 
+// One small shape (a compound of 4 triangular faces, not a true watertight
+// solid -- display-only, so there's no need to risk OCCT's shell-sewing/
+// solid-classification edge cases for something never fed back into a
+// boolean op) per tet, at its DEFORMED position (node position +
+// displacement*displacementScale, so the shapes visibly bend/stretch
+// rather than sitting exactly where the undeformed mesh was), with a
+// parallel RGB color in [0,1] per element -- a blue-green-red heatmap of
+// that element's von Mises stress relative to the mesh's own maximum, not
+// an absolute engineering color scale.
+struct FemVisualization {
+    std::vector<TopoDS_Shape> elementShapes;
+    std::vector<std::array<double, 3>> elementColors;
+};
+
+FemVisualization buildFemVisualization(const FemMesh& mesh, const FemResult& result, double displacementScale = 1.0);
+
 } // namespace lcad

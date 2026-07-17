@@ -33,6 +33,12 @@ public:
     // Displays shape in the viewer. No-op if !isAvailable().
     void displayShape(const TopoDS_Shape& shape);
 
+    // Same, but with an explicit RGB color (each in [0,1]) -- used for
+    // per-element heatmap displays (e.g. FEM results, see Fem.h's
+    // buildFemVisualization) where every shape needs its own flat color
+    // rather than the viewer's default material.
+    void displayShape(const TopoDS_Shape& shape, double r, double g, double b);
+
     // Removes every currently displayed shape.
     void clearShapes();
 

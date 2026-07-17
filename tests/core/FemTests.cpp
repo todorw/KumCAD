@@ -7,6 +7,8 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
+
 using namespace lcad;
 using Catch::Approx;
 
@@ -150,4 +152,46 @@ TEST_CASE("solveLinearStatic fails cleanly on an empty mesh", "[core3d][fem]") {
     FemBoundaryCondition bc;
     const FemResult result = solveLinearStatic(empty, material, bc, {});
     REQUIRE_FALSE(result.solved);
+}
+
+TEST_CASE("buildFemVisualization produces one non-null shape and one color per tet", "[core3d][fem][viz]") {
+    const TopoDS_Shape box = BRepPrimAPI_MakeBox(40.0, 20.0, 20.0).Shape();
+    const FemMesh mesh = buildVoxelMesh(box, 4);
+    REQUIRE_FALSE(mesh.tets.empty());
+
+    FemMaterial material;
+    FemBoundaryCondition bc;
+    bc.fixedXMax = 1e-6;
+    std::vector<FemLoad> loads = {{{40.0, 10.0, 10.0}, {1000.0, 0.0, 0.0}}};
+    const FemResult result = solveLinearStatic(mesh, material, bc, loads);
+    REQUIRE(result.solved);
+
+    const FemVisualization viz = buildFemVisualization(mesh, result, 1.0);
+    REQUIRE(viz.elementShapes.size() == mesh.tets.size());
+    REQUIRE(viz.elementColors.size() == mesh.tets.size());
+    for (const auto& shape : viz.elementShapes) REQUIRE_FALSE(shape.IsNull());
+
+    // Every color channel is a valid, finite [0,1] value.
+    for (const auto& color : viz.elementColors) {
+        for (double channel : color) {
+            REQUIRE(channel >= 0.0);
+            REQUIRE(channel <= 1.0);
+        }
+    }
+
+    // The single highest-stress element should read as "hot" (red channel
+    // clearly dominant), matching the blue-green-red heatmap convention.
+    const std::size_t maxIdx = static_cast<std::size_t>(
+        std::max_element(result.vonMisesStress.begin(), result.vonMisesStress.end()) - result.vonMisesStress.begin());
+    REQUIRE(viz.elementColors[maxIdx][0] == Approx(1.0).margin(1e-9));
+    REQUIRE(viz.elementColors[maxIdx][2] == Approx(0.0).margin(1e-9));
+}
+
+TEST_CASE("buildFemVisualization returns empty for an unsolved result", "[core3d][fem][viz]") {
+    const TopoDS_Shape box = BRepPrimAPI_MakeBox(10.0, 10.0, 10.0).Shape();
+    const FemMesh mesh = buildVoxelMesh(box, 2);
+    FemResult unsolved;
+    const FemVisualization viz = buildFemVisualization(mesh, unsolved, 1.0);
+    REQUIRE(viz.elementShapes.empty());
+    REQUIRE(viz.elementColors.empty());
 }
