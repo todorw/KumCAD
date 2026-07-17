@@ -3,6 +3,8 @@
 #include "core/Color.h"
 #include "core/document/LineType.h"
 
+#include <algorithm>
+#include <cmath>
 #include <optional>
 #include <string>
 
@@ -24,7 +26,41 @@ struct PlotStyle {
     std::optional<Color> color;
     std::optional<double> lineweight; // mm
     std::optional<LineType> linetype;
+    // Ink percentage, 100 = full intensity. Real plotters screen by dot
+    // density; a screened plot on white paper reads as the color blended
+    // toward white, which is exactly how it's applied here (see
+    // applyScreening) rather than as a separate alpha channel the print
+    // pipeline would have to understand.
+    double screening = 100.0;
 };
+
+// One row of a CTB-style color-dependent plot style table: overrides keyed
+// by AutoCAD Color Index (1-255) of the entity's *displayed* color, the way
+// a real .ctb maps "everything drawn in color 1 plots with pen X". Coexists
+// with the named (STB) table above; Document::plotStyleMode() selects which
+// one plotAppearance() consults -- AutoCAD likewise makes a drawing either
+// color-dependent or named, never both at once.
+struct CtbEntry {
+    int aci = 1; // 1-255
+    std::optional<Color> color;
+    std::optional<double> lineweight; // mm
+    std::optional<LineType> linetype;
+    double screening = 100.0;
+};
+
+enum class PlotStyleMode {
+    Named,         // layers reference PlotStyle by name (STB behavior)
+    ColorDependent // displayed color's ACI picks a CtbEntry (CTB behavior)
+};
+
+// Screening blends the plotted color toward paper white by ink percentage.
+inline Color applyScreening(const Color& c, double screening) {
+    const double f = std::clamp(screening, 0.0, 100.0) / 100.0;
+    auto mix = [f](unsigned char v) {
+        return static_cast<unsigned char>(std::lround(255.0 - (255.0 - v) * f));
+    };
+    return Color{mix(c.r), mix(c.g), mix(c.b)};
+}
 
 // The color/lineweight/linetype an entity actually plots with: layer, then
 // entity override, then (if the layer has one assigned) the named plot

@@ -119,6 +119,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
     GeoLocation pendingGeo;
     std::vector<LayerState> pendingLayerStates;
     std::vector<PlotStyle> pendingPlotStyles;
+    std::vector<CtbEntry> pendingCtbEntries;
 
     // STYLE table entry being accumulated.
     TextStyle curTextStyle;
@@ -875,6 +876,20 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
                     if (g.code == 420) ps.color = colorFromTrueColor(toInt(g.value));
                     else if (g.code == 40) ps.lineweight = toDouble(g.value);
                     else if (g.code == 6) ps.linetype = lineTypeFromName(g.value);
+                    else if (g.code == 141) ps.screening = std::clamp(toDouble(g.value, 100.0), 0.0, 100.0);
+                }
+            } else if (curHeaderVar == "$KUMCAD_PLOTMODE") {
+                if (g.code == 70 && toInt(g.value) == 1) fresh.setPlotStyleMode(PlotStyleMode::ColorDependent);
+            } else if (curHeaderVar == "$KUMCAD_CTBSTYLE") {
+                if (g.code == 62) {
+                    pendingCtbEntries.push_back(CtbEntry{});
+                    pendingCtbEntries.back().aci = std::clamp(toInt(g.value, 1), 1, 255);
+                } else if (!pendingCtbEntries.empty()) {
+                    CtbEntry& ce = pendingCtbEntries.back();
+                    if (g.code == 420) ce.color = colorFromTrueColor(toInt(g.value));
+                    else if (g.code == 40) ce.lineweight = toDouble(g.value);
+                    else if (g.code == 6) ce.linetype = lineTypeFromName(g.value);
+                    else if (g.code == 141) ce.screening = std::clamp(toDouble(g.value, 100.0), 0.0, 100.0);
                 }
             }
             continue;
@@ -1204,6 +1219,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
     if (haveGeo) fresh.setGeoLocation(pendingGeo);
     for (LayerState& state : pendingLayerStates) fresh.saveLayerState(std::move(state));
     for (PlotStyle& style : pendingPlotStyles) fresh.savePlotStyle(std::move(style));
+    for (const CtbEntry& entry : pendingCtbEntries) fresh.saveCtbEntry(entry);
 
     document = std::move(fresh);
     return true;

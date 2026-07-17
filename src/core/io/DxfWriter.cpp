@@ -627,6 +627,22 @@ bool writeDxf(const Document& document, const std::string& path, std::string* er
         if (style.color) writeGroup(out, 420, trueColor(*style.color));
         if (style.lineweight) writeGroup(out, 40, *style.lineweight);
         if (style.linetype) writeGroup(out, 6, lineTypeName(*style.linetype));
+        if (style.screening < 100.0) writeGroup(out, 141, style.screening);
+    }
+    if (document.plotStyleMode() == PlotStyleMode::ColorDependent) {
+        writeGroup(out, 9, "$KUMCAD_PLOTMODE");
+        writeGroup(out, 70, 1);
+    }
+    for (const CtbEntry& entry : document.ctbEntries()) {
+        // Color-dependent (CTB) table row: same simplified in-drawing
+        // storage as $KUMCAD_PLOTSTYLE, keyed by ACI (group 62) instead
+        // of a name.
+        writeGroup(out, 9, "$KUMCAD_CTBSTYLE");
+        writeGroup(out, 62, entry.aci);
+        if (entry.color) writeGroup(out, 420, trueColor(*entry.color));
+        if (entry.lineweight) writeGroup(out, 40, *entry.lineweight);
+        if (entry.linetype) writeGroup(out, 6, lineTypeName(*entry.linetype));
+        if (entry.screening < 100.0) writeGroup(out, 141, entry.screening);
     }
     writeGroup(out, 0, "ENDSEC");
 

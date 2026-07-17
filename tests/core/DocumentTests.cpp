@@ -267,3 +267,75 @@ TEST_CASE("plotAppearance layers layer, entity override, then plot style", "[doc
     REQUIRE(appearance.lineweight == Approx(0.05));
     REQUIRE(appearance.linetype == lcad::LineType::Dashed); // style doesn't override linetype: falls through
 }
+
+TEST_CASE("applyScreening blends toward paper white by ink percentage", "[document][plotstyle]") {
+    const lcad::Color black{0, 0, 0};
+    const lcad::Color full = lcad::applyScreening(black, 100.0);
+    REQUIRE(static_cast<int>(full.r) == 0);
+    const lcad::Color half = lcad::applyScreening(black, 50.0);
+    REQUIRE(static_cast<int>(half.r) == 128);
+    REQUIRE(static_cast<int>(half.g) == 128);
+    const lcad::Color none = lcad::applyScreening(black, 0.0);
+    REQUIRE(static_cast<int>(none.r) == 255);
+    // Screening a non-gray color keeps its hue direction: 50% of pure red
+    // moves g/b halfway to white but leaves r at full.
+    const lcad::Color red50 = lcad::applyScreening(lcad::Color{255, 0, 0}, 50.0);
+    REQUIRE(static_cast<int>(red50.r) == 255);
+    REQUIRE(static_cast<int>(red50.g) == 128);
+}
+
+TEST_CASE("Color-dependent (CTB) mode picks the pen from the displayed color's ACI", "[document][plotstyle]") {
+    lcad::Document doc;
+    const lcad::LayerId redLayer = doc.addLayer("Red", lcad::Color{255, 0, 0}); // ACI 1
+
+    const lcad::EntityId id = doc.reserveEntityId();
+    doc.addEntity(std::make_unique<lcad::LineEntity>(id, redLayer, lcad::Point2D(0, 0), lcad::Point2D(1, 1)));
+
+    // A named style is assigned too -- CTB mode must ignore it entirely.
+    lcad::PlotStyle named;
+    named.name = "ShouldBeIgnored";
+    named.color = lcad::Color{1, 2, 3};
+    doc.savePlotStyle(named);
+    doc.findLayer(redLayer)->plotStyle = "ShouldBeIgnored";
+
+    lcad::CtbEntry pen;
+    pen.aci = 1; // red
+    pen.color = lcad::Color{0, 0, 0};
+    pen.lineweight = 0.7;
+    doc.saveCtbEntry(pen);
+
+    // Named mode (default): the named style applies, the CTB row doesn't.
+    lcad::PlotAppearance appearance = doc.plotAppearance(*doc.findEntity(id));
+    REQUIRE(static_cast<int>(appearance.color.r) == 1);
+
+    doc.setPlotStyleMode(lcad::PlotStyleMode::ColorDependent);
+    appearance = doc.plotAppearance(*doc.findEntity(id));
+    REQUIRE(static_cast<int>(appearance.color.r) == 0); // CTB pen color, not the named style's
+    REQUIRE(appearance.lineweight == Approx(0.7));
+
+    // An entity drawn in a color with no CTB row plots as displayed.
+    const lcad::EntityId greenId = doc.reserveEntityId();
+    auto green = std::make_unique<lcad::LineEntity>(greenId, redLayer, lcad::Point2D(0, 0), lcad::Point2D(2, 2));
+    green->setColorOverride(lcad::Color{0, 255, 0}); // ACI 3, no entry
+    doc.addEntity(std::move(green));
+    appearance = doc.plotAppearance(*doc.findEntity(greenId));
+    REQUIRE(static_cast<int>(appearance.color.g) == 255);
+
+    // Screening on a CTB row applies to the plotted color.
+    lcad::CtbEntry screened;
+    screened.aci = 3;
+    screened.screening = 50.0;
+    doc.saveCtbEntry(screened);
+    appearance = doc.plotAppearance(*doc.findEntity(greenId));
+    REQUIRE(static_cast<int>(appearance.color.r) == 128); // toward white
+    REQUIRE(static_cast<int>(appearance.color.g) == 255);
+
+    // saveCtbEntry overwrites by ACI; deleteCtbEntry removes.
+    REQUIRE(doc.ctbEntries().size() == 2);
+    screened.screening = 25.0;
+    doc.saveCtbEntry(screened);
+    REQUIRE(doc.ctbEntries().size() == 2);
+    REQUIRE(doc.findCtbEntry(3)->screening == Approx(25.0));
+    REQUIRE(doc.deleteCtbEntry(3));
+    REQUIRE_FALSE(doc.deleteCtbEntry(3));
+}

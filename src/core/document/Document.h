@@ -111,6 +111,17 @@ public:
     const PlotStyle* findPlotStyle(const std::string& name) const;
     void savePlotStyle(PlotStyle style);
     bool deletePlotStyle(const std::string& name);
+    // Color-dependent (CTB) table + mode selector. In ColorDependent mode
+    // plotAppearance ignores layers' named plot styles and instead looks up
+    // the entity's displayed color's ACI in ctbEntries() -- matching real
+    // AutoCAD, where a drawing uses either a .ctb or a .stb, never both.
+    PlotStyleMode plotStyleMode() const { return m_plotStyleMode; }
+    void setPlotStyleMode(PlotStyleMode mode) { m_plotStyleMode = mode; }
+    const std::vector<CtbEntry>& ctbEntries() const { return m_ctbEntries; }
+    CtbEntry* findCtbEntry(int aci);
+    const CtbEntry* findCtbEntry(int aci) const;
+    void saveCtbEntry(CtbEntry entry); // stores/overwrites by ACI
+    bool deleteCtbEntry(int aci);
     // What entity e actually plots with: its layer's color/linetype/
     // lineweight, then its own overrides, then (if the layer has a plot
     // style assigned) that style's overrides on top.
@@ -245,6 +256,8 @@ private:
     std::vector<Layer> m_layers;
     std::vector<LayerState> m_layerStates;
     std::vector<PlotStyle> m_plotStyles;
+    PlotStyleMode m_plotStyleMode = PlotStyleMode::Named;
+    std::vector<CtbEntry> m_ctbEntries;
     LayerId m_nextLayerId = 1;
     LayerId m_currentLayer = 0;
 

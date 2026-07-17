@@ -1294,6 +1294,64 @@ TEST_CASE("DXF round-trips plot styles and their per-layer assignment", "[dxf][p
     REQUIRE(loaded.findLayer(0)->plotStyle.empty()); // layer "0" never had one assigned
 }
 
+TEST_CASE("DXF round-trips the CTB table, plot mode, and screening", "[dxf][plotstyle]") {
+    TempDxfPath temp;
+
+    lcad::Document doc;
+    doc.setPlotStyleMode(lcad::PlotStyleMode::ColorDependent);
+
+    lcad::CtbEntry pen1;
+    pen1.aci = 1;
+    pen1.color = lcad::Color{0, 0, 0};
+    pen1.lineweight = 0.5;
+    pen1.screening = 40.0;
+    doc.saveCtbEntry(pen1);
+
+    lcad::CtbEntry pen3;
+    pen3.aci = 3; // only a linetype override, everything else defaulted
+    pen3.linetype = lcad::LineType::Dashed;
+    doc.saveCtbEntry(pen3);
+
+    // A named style with screening, to check the new group on $KUMCAD_PLOTSTYLE.
+    lcad::PlotStyle named;
+    named.name = "Half Ink";
+    named.screening = 50.0;
+    doc.savePlotStyle(named);
+
+    REQUIRE(lcad::writeDxf(doc, temp.path.string()));
+    lcad::Document loaded;
+    REQUIRE(lcad::readDxf(loaded, temp.path.string()));
+
+    REQUIRE(loaded.plotStyleMode() == lcad::PlotStyleMode::ColorDependent);
+    REQUIRE(loaded.ctbEntries().size() == 2);
+
+    const lcad::CtbEntry* loaded1 = loaded.findCtbEntry(1);
+    REQUIRE(loaded1);
+    REQUIRE(loaded1->color.has_value());
+    REQUIRE(static_cast<int>(loaded1->color->r) == 0);
+    REQUIRE(loaded1->lineweight.has_value());
+    REQUIRE(loaded1->lineweight.value() == Approx(0.5));
+    REQUIRE(loaded1->screening == Approx(40.0));
+
+    const lcad::CtbEntry* loaded3 = loaded.findCtbEntry(3);
+    REQUIRE(loaded3);
+    REQUIRE_FALSE(loaded3->color.has_value());
+    REQUIRE(loaded3->linetype == lcad::LineType::Dashed);
+    REQUIRE(loaded3->screening == Approx(100.0));
+
+    const lcad::PlotStyle* loadedNamed = loaded.findPlotStyle("Half Ink");
+    REQUIRE(loadedNamed);
+    REQUIRE(loadedNamed->screening == Approx(50.0));
+
+    // A default-mode document must not come back color-dependent.
+    lcad::Document plain;
+    REQUIRE(lcad::writeDxf(plain, temp.path.string()));
+    lcad::Document plainLoaded;
+    REQUIRE(lcad::readDxf(plainLoaded, temp.path.string()));
+    REQUIRE(plainLoaded.plotStyleMode() == lcad::PlotStyleMode::Named);
+    REQUIRE(plainLoaded.ctbEntries().empty());
+}
+
 TEST_CASE("DXF round-trips schematic symbols, pins, wires, junctions, and net labels", "[dxf][schematic]") {
     TempDxfPath temp;
 

@@ -2,6 +2,7 @@
 
 #include "core/geometry/Dimension.h"
 #include "core/geometry/Insert.h"
+#include "core/io/DxfColors.h"
 
 #include <algorithm>
 
@@ -101,6 +102,36 @@ bool Document::deletePlotStyle(const std::string& name) {
     return true;
 }
 
+CtbEntry* Document::findCtbEntry(int aci) {
+    auto it = std::find_if(m_ctbEntries.begin(), m_ctbEntries.end(),
+                           [aci](const CtbEntry& e) { return e.aci == aci; });
+    return it != m_ctbEntries.end() ? &(*it) : nullptr;
+}
+
+const CtbEntry* Document::findCtbEntry(int aci) const {
+    auto it = std::find_if(m_ctbEntries.begin(), m_ctbEntries.end(),
+                           [aci](const CtbEntry& e) { return e.aci == aci; });
+    return it != m_ctbEntries.end() ? &(*it) : nullptr;
+}
+
+void Document::saveCtbEntry(CtbEntry entry) {
+    for (CtbEntry& existing : m_ctbEntries) {
+        if (existing.aci == entry.aci) {
+            existing = entry;
+            return;
+        }
+    }
+    m_ctbEntries.push_back(entry);
+}
+
+bool Document::deleteCtbEntry(int aci) {
+    const auto it = std::find_if(m_ctbEntries.begin(), m_ctbEntries.end(),
+                                 [aci](const CtbEntry& e) { return e.aci == aci; });
+    if (it == m_ctbEntries.end()) return false;
+    m_ctbEntries.erase(it);
+    return true;
+}
+
 PlotAppearance Document::plotAppearance(const Entity& e) const {
     const Layer* layer = findLayer(e.layer());
     PlotAppearance result;
@@ -112,11 +143,23 @@ PlotAppearance Document::plotAppearance(const Entity& e) const {
     if (const auto& lw = e.lineweightOverride()) result.lineweight = *lw;
     if (const auto& lt = e.linetypeOverride()) result.linetype = *lt;
 
-    if (layer && !layer->plotStyle.empty()) {
+    if (m_plotStyleMode == PlotStyleMode::ColorDependent) {
+        // CTB behavior: the entity's *displayed* color (after layer/override
+        // resolution above) picks the pen. Named per-layer styles are
+        // ignored in this mode, exactly as real AutoCAD ignores .stb
+        // assignments in a color-dependent drawing.
+        if (const CtbEntry* entry = findCtbEntry(colorToAci(result.color))) {
+            if (entry->color) result.color = *entry->color;
+            if (entry->lineweight) result.lineweight = *entry->lineweight;
+            if (entry->linetype) result.linetype = *entry->linetype;
+            result.color = applyScreening(result.color, entry->screening);
+        }
+    } else if (layer && !layer->plotStyle.empty()) {
         if (const PlotStyle* style = findPlotStyle(layer->plotStyle)) {
             if (style->color) result.color = *style->color;
             if (style->lineweight) result.lineweight = *style->lineweight;
             if (style->linetype) result.linetype = *style->linetype;
+            result.color = applyScreening(result.color, style->screening);
         }
     }
     return result;
