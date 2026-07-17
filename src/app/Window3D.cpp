@@ -7,6 +7,7 @@
 
 #include "core/core3d/Commands3D.h"
 #include "core/core3d/Persistence3D.h"
+#include "core/core3d/Piping.h"
 #include "core/core3d/StepIges.h"
 #include "core/core3d/TechDraw.h"
 #include "core/document/Document.h"
@@ -359,6 +360,43 @@ private:
     QDoubleSpinBox* m_elevation;
 };
 
+class PipeRunDialog : public QDialog {
+public:
+    explicit PipeRunDialog(QWidget* parent = nullptr) : QDialog(parent) {
+        setWindowTitle(QStringLiteral("Add Pipe Run"));
+        auto* form = new QFormLayout(this);
+
+        m_path = new QLineEdit(QStringLiteral("0,0,0, 500,0,0, 500,500,0"), this);
+        form->addRow(QStringLiteral("Path (x,y,z triples, comma-separated):"), m_path);
+        m_radius = new QDoubleSpinBox(this);
+        m_radius->setRange(0.1, 1e6);
+        m_radius->setValue(25.0);
+        form->addRow(QStringLiteral("Outer Radius:"), m_radius);
+
+        auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+        connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+        form->addRow(buttons);
+    }
+
+    lcad::PipeRun result() const {
+        lcad::PipeRun run;
+        run.outerRadius = m_radius->value();
+        std::vector<double> values;
+        for (const QString& token : m_path->text().split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+            bool ok = false;
+            const double v = token.trimmed().toDouble(&ok);
+            if (ok) values.push_back(v);
+        }
+        for (std::size_t i = 0; i + 2 < values.size(); i += 3) run.path.push_back({values[i], values[i + 1], values[i + 2]});
+        return run;
+    }
+
+private:
+    QLineEdit* m_path;
+    QDoubleSpinBox* m_radius;
+};
+
 } // namespace
 
 Window3D::Window3D(QWidget* parent) : QMainWindow(parent) {
@@ -388,6 +426,8 @@ Window3D::Window3D(QWidget* parent) : QMainWindow(parent) {
     fileMenu->addAction(QStringLiteral("BIM: Import IFC-lite..."), this, &Window3D::importIfcLite);
     fileMenu->addAction(QStringLiteral("BIM: Export IFC-lite..."), this, &Window3D::exportIfcLite);
     fileMenu->addAction(QStringLiteral("BIM: Export Opening Schedule..."), this, &Window3D::exportOpeningSchedule);
+    fileMenu->addSeparator();
+    fileMenu->addAction(QStringLiteral("Add Pipe Run..."), this, &Window3D::addPipeRun);
 
     m_viewport = new Viewport3D(this);
     setCentralWidget(m_viewport);
@@ -834,6 +874,28 @@ void Window3D::exportOpeningSchedule() {
         return;
     }
     statusBar()->showMessage(QStringLiteral("Opening schedule written to %1").arg(path), 3000);
+}
+
+void Window3D::addPipeRun() {
+    PipeRunDialog dialog(this);
+    if (dialog.exec() != QDialog::Accepted) return;
+
+    const lcad::PipeRun run = dialog.result();
+    const TopoDS_Shape shape = lcad::buildPipeShape(run);
+    if (shape.IsNull()) {
+        QMessageBox::warning(this, QStringLiteral("Invalid Pipe Run"),
+                              QStringLiteral("Needs at least 2 path points and a positive radius."));
+        return;
+    }
+
+    const int importIdx = m_document.addImportedShape(shape);
+    Feature3D feature;
+    feature.type = FeatureType::Imported;
+    feature.name = "PipeRun";
+    feature.importIndex = importIdx;
+    m_document.commandStack().execute(std::make_unique<AddFeature3DCommand>(m_document, feature));
+    refreshFeatureList();
+    refreshViewport();
 }
 
 void Window3D::refreshFeatureList() {

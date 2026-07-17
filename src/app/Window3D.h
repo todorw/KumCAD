@@ -63,6 +63,10 @@ private:
     void exportIfcLite();
     void exportOpeningSchedule();
 
+    // Phase 3.4: builds a pipe run (see Piping.h) and adds it as an
+    // Imported feature, same reuse pattern as addSheetMetalPart().
+    void addPipeRun();
+
     lcad::Document3D m_document;
     Viewport3D* m_viewport = nullptr;
     QListWidget* m_featureList = nullptr;
