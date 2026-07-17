@@ -125,6 +125,8 @@ add_library(lcad_core STATIC
     document/Commands.h
     document/Document.h
     document/Document.cpp
+    document/DocumentConstraints.h
+    document/DocumentConstraints.cpp
     io/DxfColors.h
     io/DxfColors.cpp
     io/DxfWriter.h

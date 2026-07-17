@@ -181,6 +181,7 @@ add_executable(kumcad WIN32
     commands/SchematicCommands.cpp
     commands/PcbCommands.h
     commands/PcbCommands.cpp
+    commands/ParametricCommands.h
     commands/CivilCommands.h
     commands/CivilCommands.cpp
     commands/CamCommands.h

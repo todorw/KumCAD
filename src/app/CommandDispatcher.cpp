@@ -41,6 +41,7 @@
 #include "commands/CamCommands.h"
 #include "commands/CivilCommands.h"
 #include "commands/PcbCommands.h"
+#include "commands/ParametricCommands.h"
 #include "commands/SchematicCommands.h"
 #include "commands/WireCommand.h"
 #include "commands/LineCommand.h"
@@ -341,6 +342,121 @@ void CommandDispatcher::handleCommandText(const QString& text) {
             startCommand(std::make_unique<FilletCommand>(m_document, lineIds[0], lineIds[1]), QStringLiteral("FILLET"));
         } else {
             m_commandLine.appendLine(QStringLiteral("*Select exactly two lines first, then run FILLET*"));
+        }
+    } else if (cmd == QLatin1String("GCHORIZONTAL") || cmd == QLatin1String("GCVERTICAL") ||
+             cmd == QLatin1String("GCPARALLEL") || cmd == QLatin1String("GCPERPENDICULAR") ||
+             cmd == QLatin1String("GCEQUAL") || cmd == QLatin1String("GCTANGENT") ||
+             cmd == QLatin1String("GCMIDPOINT") || cmd == QLatin1String("GCSYMMETRIC")) {
+        // Geometric constraints (core/document/DocumentConstraints.h) --
+        // no dimension value, so unlike DCRADIUS/DCANGULAR below these
+        // apply immediately once the right selection is already made,
+        // the same "select first, run command" convention FILLET uses.
+        std::vector<lcad::EntityId> lineIds, circleIds, pointIds;
+        for (lcad::EntityId id : (m_view ? m_view->selectedIds() : std::vector<lcad::EntityId>{})) {
+            const lcad::Entity* e = m_document.findEntity(id);
+            if (!e) continue;
+            if (e->type() == lcad::EntityType::Line) lineIds.push_back(id);
+            else if (e->type() == lcad::EntityType::Circle) circleIds.push_back(id);
+            else if (e->type() == lcad::EntityType::Point) pointIds.push_back(id);
+        }
+
+        std::optional<lcad::DocumentConstraint> constraint;
+        QString errorMessage = QStringLiteral("*Selection doesn't match %1*").arg(cmd);
+        if (cmd == QLatin1String("GCHORIZONTAL") || cmd == QLatin1String("GCVERTICAL")) {
+            if (lineIds.size() == 1) {
+                lcad::DocumentConstraint c;
+                c.type = cmd == QLatin1String("GCHORIZONTAL") ? lcad::SketchConstraintType::Horizontal
+                                                              : lcad::SketchConstraintType::Vertical;
+                c.geomA = lineIds[0];
+                constraint = c;
+            } else {
+                errorMessage = QStringLiteral("*Select exactly one line first*");
+            }
+        } else if (cmd == QLatin1String("GCPARALLEL") || cmd == QLatin1String("GCPERPENDICULAR") ||
+                  cmd == QLatin1String("GCEQUAL")) {
+            if (lineIds.size() == 2) {
+                lcad::DocumentConstraint c;
+                c.type = cmd == QLatin1String("GCPARALLEL")   ? lcad::SketchConstraintType::Parallel
+                        : cmd == QLatin1String("GCPERPENDICULAR") ? lcad::SketchConstraintType::Perpendicular
+                                                                  : lcad::SketchConstraintType::Equal;
+                c.geomA = lineIds[0];
+                c.geomB = lineIds[1];
+                constraint = c;
+            } else {
+                errorMessage = QStringLiteral("*Select exactly two lines first*");
+            }
+        } else if (cmd == QLatin1String("GCTANGENT")) {
+            if (lineIds.size() == 1 && circleIds.size() == 1) {
+                lcad::DocumentConstraint c;
+                c.type = lcad::SketchConstraintType::Tangent;
+                c.geomA = lineIds[0];
+                c.geomB = circleIds[0];
+                constraint = c;
+            } else if (circleIds.size() == 2) {
+                lcad::DocumentConstraint c;
+                c.type = lcad::SketchConstraintType::TangentCircleCircle;
+                c.geomA = circleIds[0];
+                c.geomB = circleIds[1];
+                constraint = c;
+            } else {
+                errorMessage = QStringLiteral("*Select one line and one circle, or two circles, first*");
+            }
+        } else if (cmd == QLatin1String("GCMIDPOINT")) {
+            if (lineIds.size() == 1 && pointIds.size() == 1) {
+                lcad::DocumentConstraint c;
+                c.type = lcad::SketchConstraintType::Midpoint;
+                c.geomA = lineIds[0];
+                c.pointA = {pointIds[0], 0};
+                constraint = c;
+            } else {
+                errorMessage = QStringLiteral("*Select exactly one line and one POINT entity first*");
+            }
+        } else if (cmd == QLatin1String("GCSYMMETRIC")) {
+            if (lineIds.size() == 1 && pointIds.size() == 2) {
+                lcad::DocumentConstraint c;
+                c.type = lcad::SketchConstraintType::Symmetric;
+                c.geomA = lineIds[0];
+                c.pointA = {pointIds[0], 0};
+                c.pointB = {pointIds[1], 0};
+                constraint = c;
+            } else {
+                errorMessage = QStringLiteral("*Select exactly two POINT entities and one line (the symmetry axis) first*");
+            }
+        }
+
+        if (constraint) {
+            const lcad::DocumentConstraintResult result = lcad::solveDocumentConstraints(m_document, {*constraint});
+            m_commandLine.appendLine(result.converged
+                                        ? QStringLiteral("*%1 applied*").arg(cmd)
+                                        : QStringLiteral("*%1 solved with residual %2 -- may not be fully satisfied*")
+                                              .arg(cmd)
+                                              .arg(result.finalResidualNorm));
+            emit documentChanged();
+        } else {
+            m_commandLine.appendLine(errorMessage);
+        }
+    } else if (cmd == QLatin1String("DCRADIUS")) {
+        std::vector<lcad::EntityId> circleIds;
+        for (lcad::EntityId id : (m_view ? m_view->selectedIds() : std::vector<lcad::EntityId>{})) {
+            const lcad::Entity* e = m_document.findEntity(id);
+            if (e && e->type() == lcad::EntityType::Circle) circleIds.push_back(id);
+        }
+        if (circleIds.size() == 1) {
+            startCommand(std::make_unique<lcad::DcRadiusCommand>(m_document, circleIds[0]), QStringLiteral("DCRADIUS"));
+        } else {
+            m_commandLine.appendLine(QStringLiteral("*Select exactly one circle first*"));
+        }
+    } else if (cmd == QLatin1String("DCANGULAR")) {
+        std::vector<lcad::EntityId> lineIds;
+        for (lcad::EntityId id : (m_view ? m_view->selectedIds() : std::vector<lcad::EntityId>{})) {
+            const lcad::Entity* e = m_document.findEntity(id);
+            if (e && e->type() == lcad::EntityType::Line) lineIds.push_back(id);
+        }
+        if (lineIds.size() == 2) {
+            startCommand(std::make_unique<lcad::DcAngularCommand>(m_document, lineIds[0], lineIds[1]),
+                        QStringLiteral("DCANGULAR"));
+        } else {
+            m_commandLine.appendLine(QStringLiteral("*Select exactly two lines first*"));
         }
     } else if (cmd == QLatin1String("DIMLINEAR") || cmd == QLatin1String("DLI")) {
         startCommand(std::make_unique<DimCommand>(m_document, false), QStringLiteral("DIMLINEAR"));
