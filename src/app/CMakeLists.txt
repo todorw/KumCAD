@@ -163,6 +163,7 @@ add_executable(kumcad WIN32
     commands/LengthTuneCommand.cpp
     commands/DiffPairCommand.cpp
     commands/WipeoutCommand.cpp
+    commands/LayTransCommand.cpp
     commands/RevcloudCommand.cpp
     commands/LibraryCommands.cpp
     commands/ExpressToolCommands.cpp
