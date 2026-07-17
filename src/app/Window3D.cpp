@@ -872,6 +872,83 @@ private:
     QDoubleSpinBox* m_fixedXMax;
 };
 
+// FEMTHERMAL: steady-state heat conduction -- a fixed-temperature plane
+// (like the structural/modal dialogs' own fixedXMax clamp) plus one
+// point heat source, analogous to FemDialog's own point load.
+class FemThermalDialog : public QDialog {
+public:
+    explicit FemThermalDialog(QWidget* parent = nullptr) : QDialog(parent) {
+        setWindowTitle(QStringLiteral("Run FEM Thermal Analysis"));
+        auto* form = new QFormLayout(this);
+
+        m_divisions = new QSpinBox(this);
+        m_divisions->setRange(1, 12);
+        m_divisions->setValue(5);
+        form->addRow(QStringLiteral("Mesh Divisions (coarse, single digits):"), m_divisions);
+
+        m_conductivity = new QDoubleSpinBox(this);
+        m_conductivity->setRange(1e-6, 1e7);
+        m_conductivity->setDecimals(3);
+        m_conductivity->setValue(50.0);
+        form->addRow(QStringLiteral("Thermal Conductivity:"), m_conductivity);
+
+        m_fixedXMax = new QDoubleSpinBox(this);
+        m_fixedXMax->setRange(-1e6, 1e6);
+        m_fixedXMax->setDecimals(3);
+        m_fixedXMax->setValue(0.0);
+        form->addRow(QStringLiteral("Fix every node with X <= to Temperature:"), m_fixedXMax);
+
+        m_fixedTemperature = new QDoubleSpinBox(this);
+        m_fixedTemperature->setRange(-1e6, 1e6);
+        m_fixedTemperature->setDecimals(3);
+        m_fixedTemperature->setValue(20.0);
+        form->addRow(QStringLiteral("Fixed Temperature:"), m_fixedTemperature);
+
+        m_loadPoint = new QLineEdit(QStringLiteral("100,0,0"), this);
+        form->addRow(QStringLiteral("Heat Source Point (x,y,z, nearest node):"), m_loadPoint);
+        m_heatRate = new QDoubleSpinBox(this);
+        m_heatRate->setRange(-1e9, 1e9);
+        m_heatRate->setDecimals(3);
+        m_heatRate->setValue(1000.0);
+        form->addRow(QStringLiteral("Heat Rate:"), m_heatRate);
+
+        auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+        connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+        form->addRow(buttons);
+    }
+
+    int divisions() const { return m_divisions->value(); }
+
+    lcad::FemThermalMaterial material() const {
+        lcad::FemThermalMaterial material;
+        material.thermalConductivity = m_conductivity->value();
+        return material;
+    }
+
+    lcad::FemThermalBoundaryCondition boundaryCondition() const {
+        lcad::FemThermalBoundaryCondition bc;
+        bc.fixedXMax = m_fixedXMax->value();
+        bc.fixedTemperature = m_fixedTemperature->value();
+        return bc;
+    }
+
+    std::vector<lcad::ThermalLoad> loads() const {
+        const QStringList tokens = m_loadPoint->text().split(QLatin1Char(','), Qt::SkipEmptyParts);
+        std::array<double, 3> point{0.0, 0.0, 0.0};
+        for (int i = 0; i < 3 && i < tokens.size(); ++i) point[static_cast<std::size_t>(i)] = tokens[i].trimmed().toDouble();
+        return {lcad::ThermalLoad{point, m_heatRate->value()}};
+    }
+
+private:
+    QSpinBox* m_divisions;
+    QDoubleSpinBox* m_conductivity;
+    QDoubleSpinBox* m_fixedXMax;
+    QDoubleSpinBox* m_fixedTemperature;
+    QLineEdit* m_loadPoint;
+    QDoubleSpinBox* m_heatRate;
+};
+
 } // namespace
 
 Window3D::Window3D(QWidget* parent) : QMainWindow(parent) {
@@ -913,6 +990,7 @@ Window3D::Window3D(QWidget* parent) : QMainWindow(parent) {
     fileMenu->addSeparator();
     fileMenu->addAction(QStringLiteral("Run FEM Analysis..."), this, &Window3D::runFemAnalysis);
     fileMenu->addAction(QStringLiteral("Run FEM Modal Analysis..."), this, &Window3D::runFemModalAnalysis);
+    fileMenu->addAction(QStringLiteral("Run FEM Thermal Analysis..."), this, &Window3D::runFemThermalAnalysis);
 
     m_viewport = new Viewport3D(this);
     setCentralWidget(m_viewport);
@@ -1740,6 +1818,87 @@ void Window3D::runFemModalAnalysis() {
             .arg(mesh.tets.size())
             .arg(result.angularFrequencySquared)
             .arg(frequencyHz));
+}
+
+void Window3D::runFemThermalAnalysis() {
+    std::vector<bool> consumed(m_document.features().size(), false);
+    for (const auto& f : m_document.features()) {
+        if (f.inputA >= 0) consumed[static_cast<std::size_t>(f.inputA)] = true;
+        if (f.inputB >= 0) consumed[static_cast<std::size_t>(f.inputB)] = true;
+    }
+    TopoDS_Shape target;
+    for (int i = 0; i < static_cast<int>(m_document.features().size()); ++i) {
+        if (consumed[static_cast<std::size_t>(i)] || !m_document.isValid(i)) continue;
+        target = m_document.shapeAt(i);
+        break;
+    }
+    if (target.IsNull()) {
+        statusBar()->showMessage(QStringLiteral("No solids to analyze yet"), 3000);
+        return;
+    }
+
+    FemThermalDialog dialog(this);
+    if (dialog.exec() != QDialog::Accepted) return;
+
+    const lcad::FemMesh mesh = lcad::buildVoxelMesh(target, dialog.divisions());
+    if (mesh.tets.empty()) {
+        QMessageBox::warning(this, QStringLiteral("Meshing Failed"),
+                              QStringLiteral("No tetrahedra were generated -- check the mesh divisions against "
+                                            "the part's size."));
+        return;
+    }
+
+    const lcad::FemThermalResult result =
+        lcad::solveThermalSteadyState(mesh, dialog.material(), dialog.boundaryCondition(), dialog.loads());
+    if (!result.solved) {
+        QMessageBox::warning(this, QStringLiteral("Analysis Failed"),
+                              QStringLiteral("The system could not be solved -- check that some part of the model "
+                                            "actually has a fixed temperature."));
+        return;
+    }
+
+    double minTemp = result.temperatures.empty() ? 0.0 : result.temperatures[0];
+    double maxTemp = minTemp;
+    for (double t : result.temperatures) {
+        minTemp = std::min(minTemp, t);
+        maxTemp = std::max(maxTemp, t);
+    }
+
+    if (m_viewport->isAvailable()) {
+        // Wrap the temperature field into a plain FemResult so
+        // buildFemVisualization (written for stress) can be reused as-is
+        // -- no deformation (temperature alone doesn't displace anything
+        // in this model), and the blue-to-red heatmap becomes cold-to-hot
+        // instead of low-to-high stress.
+        lcad::FemResult asStaticResult;
+        asStaticResult.solved = true;
+        asStaticResult.displacements.assign(mesh.nodes.size(), {0.0, 0.0, 0.0});
+        asStaticResult.vonMisesStress.resize(mesh.tets.size());
+        for (std::size_t t = 0; t < mesh.tets.size(); ++t) {
+            double avg = 0.0;
+            for (int node : mesh.tets[t]) avg += result.temperatures[static_cast<std::size_t>(node)];
+            asStaticResult.vonMisesStress[t] = (avg / 4.0) - minTemp; // buildFemVisualization normalizes by its own max
+        }
+
+        const lcad::FemVisualization viz = lcad::buildFemVisualization(mesh, asStaticResult, 1.0);
+        m_viewport->clearShapes();
+        for (std::size_t i = 0; i < viz.elementShapes.size(); ++i) {
+            if (viz.elementShapes[i].IsNull()) continue;
+            const auto& color = viz.elementColors[i];
+            m_viewport->displayShape(viz.elementShapes[i], color[0], color[1], color[2]);
+        }
+        m_viewport->fitAll();
+    }
+
+    QMessageBox::information(this, QStringLiteral("FEM Thermal Analysis Complete"),
+                              QStringLiteral("Mesh: %1 nodes, %2 tetrahedra\nMin temperature: %3\nMax "
+                                            "temperature: %4\n\nDisplayed in the viewport as a blue (cold) to "
+                                            "red (hot) heatmap -- replaces the feature tree's own shapes until "
+                                            "you edit/add a feature again.")
+                                  .arg(mesh.nodes.size())
+                                  .arg(mesh.tets.size())
+                                  .arg(minTemp)
+                                  .arg(maxTemp));
 }
 
 void Window3D::addPipeRun() {

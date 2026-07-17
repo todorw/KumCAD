@@ -105,6 +105,10 @@ private:
     // FemResult (uniform color, since a mode shape has no stress of its
     // own to heatmap).
     void runFemModalAnalysis();
+    // Steady-state heat conduction (see Fem.h's solveThermalSteadyState),
+    // reusing buildFemVisualization for a cold-to-hot heatmap by wrapping
+    // per-tet average temperature into a plain FemResult (no deformation).
+    void runFemThermalAnalysis();
 
     lcad::Document3D m_document;
     Viewport3D* m_viewport = nullptr;

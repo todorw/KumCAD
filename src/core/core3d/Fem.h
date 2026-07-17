@@ -127,6 +127,46 @@ struct FemModalResult {
 FemModalResult solveModal(const FemMesh& mesh, const FemMaterial& material,
                           const FemBoundaryCondition& boundaryCondition, int maxIterations = 150);
 
+struct FemThermalMaterial {
+    double thermalConductivity = 1.0; // consistent power/(length*temperature) units
+};
+
+// Every node with X <= fixedXMax is held at fixedTemperature -- the same
+// plane-based simplification FemBoundaryCondition already makes for
+// structural analysis, and for the same reason (no face-picking in the
+// still-unverified 3D viewport).
+struct FemThermalBoundaryCondition {
+    double fixedXMax = 0.0;
+    double fixedTemperature = 0.0;
+};
+
+// A heat source/sink (positive = heat entering the model) applied at the
+// single mesh node closest to point, in consistent power units.
+struct ThermalLoad {
+    std::array<double, 3> point{0.0, 0.0, 0.0};
+    double heatRate = 0.0;
+};
+
+struct FemThermalResult {
+    bool solved = false;
+    std::vector<double> temperatures; // parallel to mesh.nodes
+};
+
+// Steady-state heat conduction (-div(k*grad(T)) = 0 away from any load,
+// no internal generation): the scalar-DOF (one temperature per node,
+// not three like displacement) analog of solveLinearStatic, assembled
+// from the exact same per-element shape-function gradients
+// (tetShapeFunctionCoeffs, shared internally) -- the thermal
+// "conductivity matrix" K_e[i][j] = k * volume * grad(N_i).grad(N_j) is
+// the direct scalar-field equivalent of the elasticity stiffness matrix,
+// solved via the same LinearSolve.h dense solver. Returns solved=false
+// under the same conditions solveLinearStatic does (no tets, degenerate
+// element, or singular K -- e.g. nothing fixing an absolute temperature
+// at all).
+FemThermalResult solveThermalSteadyState(const FemMesh& mesh, const FemThermalMaterial& material,
+                                         const FemThermalBoundaryCondition& boundaryCondition,
+                                         const std::vector<ThermalLoad>& loads);
+
 // One small shape (a compound of 4 triangular faces, not a true watertight
 // solid -- display-only, so there's no need to risk OCCT's shell-sewing/
 // solid-classification edge cases for something never fed back into a

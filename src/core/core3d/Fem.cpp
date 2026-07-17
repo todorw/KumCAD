@@ -502,6 +502,95 @@ FemModalResult solveModal(const FemMesh& mesh, const FemMaterial& material,
     return result;
 }
 
+FemThermalResult solveThermalSteadyState(const FemMesh& mesh, const FemThermalMaterial& material,
+                                         const FemThermalBoundaryCondition& boundaryCondition,
+                                         const std::vector<ThermalLoad>& loads) {
+    FemThermalResult result;
+    if (mesh.tets.empty() || mesh.nodes.empty()) return result;
+
+    const std::size_t numNodes = mesh.nodes.size();
+    // One scalar DOF (temperature) per node, unlike the 3-per-node
+    // displacement field -- the conductivity matrix is exactly the
+    // elasticity stiffness matrix's scalar-field analog: k * volume *
+    // grad(N_i).grad(N_j), built from the same per-element shape-
+    // function gradients (tetShapeFunctionCoeffs).
+    std::vector<std::vector<double>> conductivity(numNodes, std::vector<double>(numNodes, 0.0));
+    std::vector<double> heat(numNodes, 0.0);
+
+    for (const auto& tet : mesh.tets) {
+        const std::array<std::array<double, 3>, 4> pts = {mesh.nodes[static_cast<std::size_t>(tet[0])],
+                                                            mesh.nodes[static_cast<std::size_t>(tet[1])],
+                                                            mesh.nodes[static_cast<std::size_t>(tet[2])],
+                                                            mesh.nodes[static_cast<std::size_t>(tet[3])]};
+        std::array<std::array<double, 4>, 4> coeffs{};
+        if (!tetShapeFunctionCoeffs(pts, coeffs)) return result; // a degenerate (zero-volume) tet
+        const double volume = tetVolume(pts[0], pts[1], pts[2], pts[3]);
+
+        for (int a = 0; a < 4; ++a) {
+            for (int b = 0; b < 4; ++b) {
+                const double dot = coeffs[static_cast<std::size_t>(a)][1] * coeffs[static_cast<std::size_t>(b)][1] +
+                                  coeffs[static_cast<std::size_t>(a)][2] * coeffs[static_cast<std::size_t>(b)][2] +
+                                  coeffs[static_cast<std::size_t>(a)][3] * coeffs[static_cast<std::size_t>(b)][3];
+                conductivity[static_cast<std::size_t>(tet[static_cast<std::size_t>(a)])]
+                            [static_cast<std::size_t>(tet[static_cast<std::size_t>(b)])] +=
+                    material.thermalConductivity * volume * dot;
+            }
+        }
+    }
+
+    for (const ThermalLoad& load : loads) {
+        int nearest = -1;
+        double bestDist = 0.0;
+        for (std::size_t n = 0; n < numNodes; ++n) {
+            const auto& p = mesh.nodes[n];
+            const double dx = p[0] - load.point[0], dy = p[1] - load.point[1], dz = p[2] - load.point[2];
+            const double dist = dx * dx + dy * dy + dz * dz;
+            if (nearest < 0 || dist < bestDist) {
+                nearest = static_cast<int>(n);
+                bestDist = dist;
+            }
+        }
+        if (nearest >= 0) heat[static_cast<std::size_t>(nearest)] += load.heatRate;
+    }
+
+    // Unlike solveLinearStatic's boundary condition (always exactly 0
+    // displacement, so simply zeroing a fixed DOF's row/column never
+    // drops anything real), a non-zero prescribed temperature's coupling
+    // into every OTHER equation has to be moved onto their own
+    // right-hand side first -- using the matrix's still-unmodified
+    // values -- or those equations would silently behave as if every
+    // fixed node were held at 0 instead of fixedTemperature. This is the
+    // standard non-homogeneous-Dirichlet FEM technique, done here rather
+    // than solveLinearStatic ever needing it.
+    std::vector<bool> isFixed(numNodes, false);
+    for (std::size_t n = 0; n < numNodes; ++n) isFixed[n] = mesh.nodes[n][0] <= boundaryCondition.fixedXMax;
+
+    if (boundaryCondition.fixedTemperature != 0.0) {
+        for (std::size_t r = 0; r < numNodes; ++r) {
+            if (isFixed[r]) continue;
+            for (std::size_t n = 0; n < numNodes; ++n) {
+                if (!isFixed[n]) continue;
+                heat[r] -= conductivity[r][n] * boundaryCondition.fixedTemperature;
+            }
+        }
+    }
+
+    for (std::size_t n = 0; n < numNodes; ++n) {
+        if (!isFixed[n]) continue;
+        for (std::size_t col = 0; col < numNodes; ++col) conductivity[n][col] = 0.0;
+        for (std::size_t row = 0; row < numNodes; ++row) conductivity[row][n] = 0.0;
+        conductivity[n][n] = 1.0;
+        heat[n] = boundaryCondition.fixedTemperature;
+    }
+
+    std::vector<double> temperatures;
+    if (!solveLinearSystem(conductivity, heat, temperatures)) return result;
+
+    result.temperatures = std::move(temperatures);
+    result.solved = true;
+    return result;
+}
+
 namespace {
 
 TopoDS_Face makeTriFace(const gp_Pnt& a, const gp_Pnt& b, const gp_Pnt& c) {

@@ -269,6 +269,71 @@ TEST_CASE("solveModal fails cleanly on an empty mesh", "[core3d][fem][modal]") {
     REQUIRE_FALSE(result.solved);
 }
 
+TEST_CASE("solveThermalSteadyState under a 1D heat flux matches the classical conduction formula (dT = qL/(kA))",
+         "[core3d][fem][thermal]") {
+    // Same beam mesh (and the same reasoning about why its cross-section
+    // is a single cell, so a uniform end heat flux splits into an exact
+    // quarter share per corner node) as the analogous axial-tension test
+    // above -- steady-state 1D conduction is the thermal twin of the
+    // classical bar-under-tension formula.
+    const double length = 100.0, width = 20.0, height = 20.0;
+    const TopoDS_Shape beam = BRepPrimAPI_MakeBox(length, width, height).Shape();
+    const FemMesh mesh = buildVoxelMesh(beam, 5);
+    REQUIRE_FALSE(mesh.tets.empty());
+
+    FemThermalMaterial material;
+    material.thermalConductivity = 50.0;
+
+    FemThermalBoundaryCondition bc;
+    bc.fixedXMax = 1e-6;
+    bc.fixedTemperature = 20.0;
+
+    const double totalHeatRate = 1000.0;
+    const double area = width * height;
+
+    std::vector<ThermalLoad> loads;
+    for (const auto& node : mesh.nodes) {
+        if (node[0] < length - 1e-6) continue; // only the far (x = length) face
+        ThermalLoad load;
+        load.point = node;
+        load.heatRate = totalHeatRate / 4.0; // 4 corner nodes on that face
+        loads.push_back(load);
+    }
+    REQUIRE(loads.size() == 4);
+
+    const FemThermalResult result = solveThermalSteadyState(mesh, material, bc, loads);
+    REQUIRE(result.solved);
+
+    const double expectedDeltaT = totalHeatRate * length / (area * material.thermalConductivity);
+
+    double averageFarTemp = 0.0;
+    int endNodeCount = 0;
+    for (std::size_t i = 0; i < mesh.nodes.size(); ++i) {
+        if (mesh.nodes[i][0] < length - 1e-6) continue;
+        averageFarTemp += result.temperatures[i];
+        ++endNodeCount;
+    }
+    averageFarTemp /= endNodeCount;
+
+    // Same generous coarse-mesh tolerance the mechanical analog uses, for
+    // the same reason (this mesh's cross-section is a single skewed-tet
+    // cell).
+    REQUIRE(averageFarTemp - bc.fixedTemperature == Approx(expectedDeltaT).epsilon(0.10));
+
+    for (std::size_t i = 0; i < mesh.nodes.size(); ++i) {
+        if (mesh.nodes[i][0] > bc.fixedXMax) continue;
+        REQUIRE(result.temperatures[i] == Approx(bc.fixedTemperature).margin(1e-9));
+    }
+}
+
+TEST_CASE("solveThermalSteadyState fails cleanly on an empty mesh", "[core3d][fem][thermal]") {
+    FemMesh empty;
+    FemThermalMaterial material;
+    FemThermalBoundaryCondition bc;
+    const FemThermalResult result = solveThermalSteadyState(empty, material, bc, {});
+    REQUIRE_FALSE(result.solved);
+}
+
 TEST_CASE("buildFemVisualization produces one non-null shape and one color per tet", "[core3d][fem][viz]") {
     const TopoDS_Shape box = BRepPrimAPI_MakeBox(40.0, 20.0, 20.0).Shape();
     const FemMesh mesh = buildVoxelMesh(box, 4);
