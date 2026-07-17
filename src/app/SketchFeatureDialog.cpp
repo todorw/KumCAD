@@ -40,6 +40,7 @@ SketchFeatureDialog::SketchFeatureDialog(const lcad::Document3D& document, QWidg
     m_typeCombo->addItem(QStringLiteral("Polar Pattern"), static_cast<int>(FeatureType::PolarPattern));
     m_typeCombo->addItem(QStringLiteral("Mirror"), static_cast<int>(FeatureType::Mirror));
     m_typeCombo->addItem(QStringLiteral("Shell"), static_cast<int>(FeatureType::Shell));
+    m_typeCombo->addItem(QStringLiteral("Loft"), static_cast<int>(FeatureType::Loft));
     form->addRow(QStringLiteral("Type:"), m_typeCombo);
     connect(m_typeCombo, &QComboBox::currentIndexChanged, this, &SketchFeatureDialog::updateHint);
 
@@ -93,6 +94,10 @@ SketchFeatureDialog::SketchFeatureDialog(const lcad::Document3D& document, QWidg
     m_faceIndices->setPlaceholderText(QStringLiteral("required -- which face(s) to open, see Pick3D.h's pickFace"));
     form->addRow(QStringLiteral("Shell Face Indices (comma-separated):"), m_faceIndices);
 
+    m_sketchIndices = new QLineEdit(this);
+    m_sketchIndices->setPlaceholderText(QStringLiteral("required, 2+, in order -- e.g. 0,1,2"));
+    form->addRow(QStringLiteral("Loft Sketch Indices (comma-separated):"), m_sketchIndices);
+
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
@@ -140,6 +145,10 @@ void SketchFeatureDialog::updateHint() {
                                             "the listed Face Indices (required -- find them via a pick, see "
                                             "Pick3D.h's pickFace)."));
         break;
+    case FeatureType::Loft:
+        m_hintLabel->setText(QStringLiteral("Loft: builds a solid through the listed Sketch Indices (2+, in order) "
+                                            "spread evenly along Height."));
+        break;
     default:
         break;
     }
@@ -168,6 +177,11 @@ Feature3D SketchFeatureDialog::result() const {
         bool ok = false;
         const int value = token.trimmed().toInt(&ok);
         if (ok) f.faceIndices.push_back(value);
+    }
+    for (const QString& token : m_sketchIndices->text().split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+        bool ok = false;
+        const int value = token.trimmed().toInt(&ok);
+        if (ok) f.sketchIndices.push_back(value);
     }
     return f;
 }

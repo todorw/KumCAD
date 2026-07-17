@@ -9,6 +9,8 @@
 #include <BRepFilletAPI_MakeChamfer.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
 #include <BRepOffsetAPI_MakeThickSolid.hxx>
+#include <BRepOffsetAPI_ThruSections.hxx>
+#include <BRepTools.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCone.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
@@ -339,6 +341,48 @@ void Document3D::recomputeOne(int index) {
         shellBuilder.MakeThickSolidByJoin(target, facesToRemove, -f.p1, 1e-3);
         ok = shellBuilder.IsDone();
         if (ok) shape = shellBuilder.Shape();
+        break;
+    }
+    case FeatureType::Loft: {
+        // A Sketch always lies at its own local Z=0 (see Pad's own
+        // comment on this) -- Loft's p1 is the total height, each
+        // profile evenly spaced along it in listed order (profile 0 at
+        // Z=0, the last at Z=p1), the same "reuse p1 contextually"
+        // convention this codebase already uses for Pad/Shell/etc.
+        if (f.sketchIndices.size() < 2 || f.p1 <= 1e-9) {
+            ok = false;
+            break;
+        }
+        BRepOffsetAPI_ThruSections loftBuilder(true); // true = build a solid, not just a shell surface
+        bool everyProfileValid = true;
+        const double stepZ = f.p1 / static_cast<double>(f.sketchIndices.size() - 1);
+        for (std::size_t i = 0; i < f.sketchIndices.size(); ++i) {
+            const int sketchIdx = f.sketchIndices[i];
+            if (sketchIdx < 0 || sketchIdx >= static_cast<int>(m_sketches.size())) {
+                everyProfileValid = false;
+                break;
+            }
+            const auto face = sketchToFace(m_sketches[static_cast<std::size_t>(sketchIdx)]);
+            if (!face) {
+                everyProfileValid = false;
+                break;
+            }
+            TopoDS_Shape faceShape = *face;
+            const double z = static_cast<double>(i) * stepZ;
+            if (std::abs(z) > 1e-12) {
+                gp_Trsf move;
+                move.SetTranslation(gp_Vec(0.0, 0.0, z));
+                faceShape = BRepBuilderAPI_Transform(faceShape, move, true).Shape();
+            }
+            loftBuilder.AddWire(BRepTools::OuterWire(TopoDS::Face(faceShape)));
+        }
+        if (!everyProfileValid) {
+            ok = false;
+            break;
+        }
+        loftBuilder.Build();
+        ok = loftBuilder.IsDone();
+        if (ok) shape = loftBuilder.Shape();
         break;
     }
     case FeatureType::LinearPattern:

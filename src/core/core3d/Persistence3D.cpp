@@ -51,7 +51,7 @@ std::string decodeToken(const std::string& s) {
 
 std::string serializeDocument(const Document3D& doc) {
     std::ostringstream out;
-    out << "KCAD3D 2\n";
+    out << "KCAD3D 3\n";
 
     const auto& sketches = doc.sketches();
     out << "SKETCHES " << sketches.size() << "\n";
@@ -92,6 +92,9 @@ std::string serializeDocument(const Document3D& doc) {
         out << "\n";
         out << "FACEINDICES " << f.faceIndices.size();
         for (int faceIndex : f.faceIndices) out << " " << faceIndex;
+        out << "\n";
+        out << "SKETCHINDICES " << f.sketchIndices.size();
+        for (int sketchIdx : f.sketchIndices) out << " " << sketchIdx;
         out << "\n";
     }
 
@@ -216,6 +219,19 @@ bool parseDocumentText(const std::string& text, ParsedDocument3D& parsed) {
                 int faceIndex = -1;
                 in >> faceIndex;
                 f.faceIndices.push_back(faceIndex);
+            }
+        }
+        // Loft's multi-sketch profile list arrived in format version 3;
+        // a version-2 (or older) file has no Loft features to lose,
+        // since the feature type didn't exist yet either.
+        if (version >= 3) {
+            if (!expectTag(in, "SKETCHINDICES")) return false;
+            std::size_t sketchIndexCount = 0;
+            in >> sketchIndexCount;
+            for (std::size_t s = 0; s < sketchIndexCount; ++s) {
+                int sketchIdx = -1;
+                in >> sketchIdx;
+                f.sketchIndices.push_back(sketchIdx);
             }
         }
         if (!in) return false;

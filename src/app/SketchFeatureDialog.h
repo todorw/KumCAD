@@ -44,4 +44,5 @@ private:
     QDoubleSpinBox* m_dirZ = nullptr;
     QLineEdit* m_edgeIndices = nullptr;
     QLineEdit* m_faceIndices = nullptr;
+    QLineEdit* m_sketchIndices = nullptr;
 };

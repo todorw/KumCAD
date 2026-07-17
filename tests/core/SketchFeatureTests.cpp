@@ -264,6 +264,72 @@ TEST_CASE("Document3D Shell with no faceIndices is invalid, not a sealed hollow 
     REQUIRE_FALSE(doc.isValid(shellIdx));
 }
 
+TEST_CASE("Document3D Loft between two circles builds a frustum with the exact classical volume",
+         "[core3d][loft]") {
+    Document3D doc;
+    Sketch bottom;
+    bottom.addCircle(bottom.addPoint(Point2D(0, 0), true), 10.0);
+    Sketch top;
+    top.addCircle(top.addPoint(Point2D(0, 0), true), 5.0);
+    const int bottomIdx = doc.addSketch(bottom);
+    const int topIdx = doc.addSketch(top);
+
+    Feature3D loft;
+    loft.type = FeatureType::Loft;
+    loft.sketchIndices = {bottomIdx, topIdx};
+    loft.p1 = 20.0; // total height
+    const int loftIdx = doc.addFeature(loft);
+
+    REQUIRE(doc.isValid(loftIdx));
+    const double r1 = 10.0, r2 = 5.0, height = 20.0;
+    const double expectedVolume = (M_PI * height / 3.0) * (r1 * r1 + r1 * r2 + r2 * r2);
+    REQUIRE(volumeOf(doc.shapeAt(loftIdx)) == Approx(expectedVolume).epsilon(0.02));
+}
+
+TEST_CASE("Document3D Loft through three profiles builds a single continuous solid", "[core3d][loft]") {
+    Document3D doc;
+    Sketch bottom;
+    bottom.addCircle(bottom.addPoint(Point2D(0, 0), true), 8.0);
+    Sketch middle;
+    middle.addCircle(middle.addPoint(Point2D(0, 0), true), 10.0);
+    Sketch top;
+    top.addCircle(top.addPoint(Point2D(0, 0), true), 6.0);
+    const int bottomIdx = doc.addSketch(bottom);
+    const int middleIdx = doc.addSketch(middle);
+    const int topIdx = doc.addSketch(top);
+
+    Feature3D loft;
+    loft.type = FeatureType::Loft;
+    loft.sketchIndices = {bottomIdx, middleIdx, topIdx};
+    loft.p1 = 30.0;
+    const int loftIdx = doc.addFeature(loft);
+
+    REQUIRE(doc.isValid(loftIdx));
+    // A bulging middle profile means strictly more volume than a plain
+    // 2-profile taper between the same end radii would give.
+    const double twoProfileApprox = (M_PI * 30.0 / 3.0) * (8.0 * 8.0 + 8.0 * 6.0 + 6.0 * 6.0);
+    REQUIRE(volumeOf(doc.shapeAt(loftIdx)) > twoProfileApprox);
+}
+
+TEST_CASE("Document3D Loft rejects fewer than 2 profiles or a non-positive height", "[core3d][loft]") {
+    Document3D doc;
+    Sketch circle;
+    circle.addCircle(circle.addPoint(Point2D(0, 0), true), 5.0);
+    const int idx = doc.addSketch(circle);
+
+    Feature3D oneProfile;
+    oneProfile.type = FeatureType::Loft;
+    oneProfile.sketchIndices = {idx};
+    oneProfile.p1 = 10.0;
+    REQUIRE_FALSE(doc.isValid(doc.addFeature(oneProfile)));
+
+    Feature3D zeroHeight;
+    zeroHeight.type = FeatureType::Loft;
+    zeroHeight.sketchIndices = {idx, idx};
+    zeroHeight.p1 = 0.0;
+    REQUIRE_FALSE(doc.isValid(doc.addFeature(zeroHeight)));
+}
+
 TEST_CASE("Document3D LinearPattern fuses count non-overlapping copies", "[core3d][pattern]") {
     Document3D doc;
     Feature3D box;

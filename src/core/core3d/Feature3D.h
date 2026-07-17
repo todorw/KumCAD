@@ -57,6 +57,12 @@ enum class FeatureType {
                    // shell isn't buildable/useful here, so an empty
                    // faceIndices is invalid, unlike Fillet/Chamfer's
                    // "empty means every edge" convention)
+    Loft,          // builds a solid through 2+ sketch profiles
+                   // (sketchIndices, each a Document3D::sketches() index),
+                   // in listed order, via BRepOffsetAPI_ThruSections --
+                   // a ruled (ThruSections' own default, no interior
+                   // smoothing) surface between consecutive profiles'
+                   // outer wires
     Imported,      // a shape read from an external STEP/IGES file (see
                    // StepIges.h) or loaded back from a .kcad3d's embedded
                    // BRep blob (see Persistence3D.h). Has no parametric
@@ -120,6 +126,11 @@ struct Feature3D {
     // same numbering Pick3D.h's pickFace returns -- so a real face pick
     // can drive this directly, same as edgeIndices does for Fillet/Chamfer.
     std::vector<int> faceIndices;
+
+    // The profile sketches to loft through, in order -- Loft only (needs
+    // 2+; sketchIndex above is unused for this type since it's not just
+    // one profile).
+    std::vector<int> sketchIndices;
 
     static bool isBoolean(FeatureType t) { return t == FeatureType::Union || t == FeatureType::Cut || t == FeatureType::Intersect; }
     bool isBoolean() const { return isBoolean(type); }
