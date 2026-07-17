@@ -6,10 +6,15 @@
 
 namespace lcad {
 
-// A PCB via: a drilled, plated hole connecting whichever copper layers
-// touch it at this position (no true layer-stackup routing rules yet --
-// see core/pcb/Ratsnest.h -- so a via here just marks "these coincide" the
-// same way JunctionEntity does for schematic wires).
+// A PCB via: a drilled, plated hole connecting copper layers at this
+// position. Without a CopperStackup (see core/pcb/Stackup.h) passed to
+// computeRatsnest/runDrc, a via just marks "these coincide" across every
+// copper layer, the same way JunctionEntity does for schematic wires --
+// the project's original, single-plane behavior. With a real stackup,
+// throughHole (the default) still spans every layer in it -- a real
+// through-hole via always does. Setting throughHole to false makes it a
+// blind/buried via spanning only [fromLayer,toLayer] (order doesn't
+// matter) of that stackup; fromLayer/toLayer are otherwise unused.
 class ViaEntity : public Entity {
 public:
     ViaEntity(EntityId id, LayerId layer, Point2D position, double diameter = 0.6, double drillDiameter = 0.3)
@@ -18,6 +23,10 @@ public:
     const Point2D& position() const { return m_position; }
     double diameter() const { return m_diameter; }
     double drillDiameter() const { return m_drillDiameter; }
+
+    bool throughHole = true;
+    LayerId fromLayer = 0;
+    LayerId toLayer = 0;
 
     EntityType type() const override { return EntityType::Via; }
     BoundingBox boundingBox() const override {

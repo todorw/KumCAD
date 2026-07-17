@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/geometry/Point2D.h"
+#include "core/pcb/Stackup.h"
 
 #include <string>
 #include <vector>
@@ -44,6 +45,11 @@ struct RatsnestLine {
 // JunctionEntity's role), then a minimum spanning tree connects whichever
 // clusters remain separate. Pins that don't resolve to a placed pad are
 // silently skipped.
-std::vector<RatsnestLine> computeRatsnest(const Document& doc, const std::vector<ImportedNet>& nets);
+//
+// stackup defaults to empty, meaning every Track/Via is one shared copper
+// plane regardless of layer (see CopperStackup's own comment in
+// Stackup.h) -- pass a real stackup to make connectivity layer-aware.
+std::vector<RatsnestLine> computeRatsnest(const Document& doc, const std::vector<ImportedNet>& nets,
+                                          const CopperStackup& stackup = {});
 
 } // namespace lcad

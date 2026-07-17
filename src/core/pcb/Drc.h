@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/Ids.h"
+#include "core/pcb/Stackup.h"
 
 #include <string>
 #include <vector>
@@ -34,10 +35,16 @@ struct DrcViolation {
 //    rules.minClearance. Two simplifications, both disclosed: (a)
 //    pads/tracks/vias are approximated as circles/capsules -- a rect pad's
 //    clearance uses its larger half-dimension as a radius, not exact
-//    polygon-to-polygon distance; (b) there's no true multi-layer copper
-//    stackup model yet (see ViaEntity's own comment), so this check is
-//    layer-agnostic -- a real two-layer board could have safely-overlapping
-//    top/bottom traces this flags as violations.
-std::vector<DrcViolation> runDrc(const Document& doc, const DrcRules& rules = {});
+//    polygon-to-polygon distance; (b) without a real (non-empty) stackup
+//    argument (see core/pcb/Stackup.h), this check is layer-agnostic -- a
+//    real two-layer board could have safely-overlapping top/bottom traces
+//    this flags as violations. Passing a real stackup makes the clearance
+//    check layer-aware for Track-vs-Track pairs specifically (skipped
+//    when both tracks resolve to different stackup layers); Via/Pad
+//    clearance stays layer-agnostic even then, since neither carries a
+//    per-layer position of its own yet (Pad) or is meaningfully
+//    restricted to one layer at all (a via's whole point is to occupy
+//    the drill site on every layer it spans).
+std::vector<DrcViolation> runDrc(const Document& doc, const DrcRules& rules = {}, const CopperStackup& stackup = {});
 
 } // namespace lcad
