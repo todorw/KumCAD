@@ -1,12 +1,15 @@
 #include "commands/PcbCommands.h"
 
 #include "core/document/Commands.h"
+#include "core/geometry/Polyline.h"
 #include "core/geometry/Track.h"
 #include "core/geometry/Via.h"
+#include "core/pcb/CopperPour.h"
 #include "core/pcb/GerberWriter.h"
 #include "core/pcb/Ratsnest.h"
 #include "core/pcb/SpecctraWriter.h"
 
+#include <algorithm>
 #include <fstream>
 #include <sstream>
 
@@ -66,6 +69,87 @@ std::optional<QString> RatsnestCommand::onText(const QString& text) {
         .arg(nets.size())
         .arg(lines.size())
         .arg(totalLength, 0, 'f', 2);
+}
+
+std::optional<QString> CopperPourCommand::onPoint(const lcad::Point2D& pt) {
+    if (m_stage != Stage::Pick) return std::nullopt;
+
+    const lcad::PolylineEntity* best = nullptr;
+    double bestDist = m_pickTolerance;
+    for (const lcad::Entity* e : m_document.entities()) {
+        if (e->type() != lcad::EntityType::Polyline) continue;
+        const auto* pl = static_cast<const lcad::PolylineEntity*>(e);
+        if (!pl->closed()) continue;
+        const double d = pl->distanceTo(pt);
+        if (d <= bestDist) {
+            bestDist = d;
+            best = pl;
+        }
+    }
+    if (!best) return QStringLiteral("*No closed polyline there*\nSelect a closed polyline boundary:");
+
+    m_boundary = best->flattenedVertices();
+    m_stage = Stage::NetlistPath;
+    return QStringLiteral("Enter netlist file path:");
+}
+
+std::optional<QString> CopperPourCommand::onText(const QString& text) {
+    switch (m_stage) {
+    case Stage::NetlistPath: {
+        std::ifstream in(text.trimmed().toStdString(), std::ios::binary);
+        if (!in) return QStringLiteral("*Could not open %1*\nEnter netlist file path:").arg(text.trimmed());
+        std::ostringstream buffer;
+        buffer << in.rdbuf();
+        m_nets = lcad::parseNetlist(buffer.str());
+        m_stage = Stage::NetName;
+        return QStringLiteral("Enter net name to pour:");
+    }
+    case Stage::NetName: {
+        const std::string name = text.trimmed().toStdString();
+        const auto netIt = std::find_if(m_nets.begin(), m_nets.end(), [&](const lcad::ImportedNet& n) { return n.name == name; });
+        if (netIt == m_nets.end()) return QStringLiteral("*No net named \"%1\" in that netlist*").arg(text.trimmed());
+
+        for (const lcad::ImportedNetPin& pin : netIt->pins) {
+            for (const lcad::Entity* e : m_document.entities()) {
+                if (e->type() != lcad::EntityType::Insert) continue;
+                const auto* insert = static_cast<const lcad::InsertEntity*>(e);
+                if (!insert->block() || !insert->block()->isFootprint()) continue;
+                const std::string* refdes = insert->attributeValue("REFDES");
+                if (!refdes || *refdes != pin.refDes) continue;
+                for (const auto& padWorld : insert->padWorldPositions()) {
+                    if (padWorld.pad->number == pin.pinNumber) m_ownNetPositions.push_back(padWorld.position);
+                }
+            }
+        }
+        m_stage = Stage::GridSize;
+        return QStringLiteral("Grid size <0.5>:");
+    }
+    case Stage::GridSize: {
+        if (!text.trimmed().isEmpty()) {
+            bool ok = false;
+            const double value = text.trimmed().toDouble(&ok);
+            if (!ok || value <= 0.0) return QStringLiteral("*Invalid grid size*");
+            m_gridSize = value;
+        }
+        m_stage = Stage::Clearance;
+        return QStringLiteral("Clearance <0.2>:");
+    }
+    case Stage::Clearance: {
+        m_finished = true;
+        double clearance = 0.2;
+        if (!text.trimmed().isEmpty()) {
+            bool ok = false;
+            clearance = text.trimmed().toDouble(&ok);
+            if (!ok || clearance < 0.0) return QStringLiteral("*Invalid clearance*");
+        }
+        const auto ids = lcad::buildCopperPourWithClearance(m_document, m_document.currentLayer(), m_boundary,
+                                                             m_ownNetPositions, m_gridSize, clearance);
+        if (ids.empty()) return QStringLiteral("*Pour produced no copper -- check boundary/grid size*");
+        return QStringLiteral("*Copper pour: %1 piece(s)*").arg(ids.size());
+    }
+    default:
+        return std::nullopt;
+    }
 }
 
 std::optional<QString> DsnExportCommand::onText(const QString& text) {

@@ -99,6 +99,35 @@ private:
     bool m_finished = false;
 };
 
+// COPPERPOUR: select a closed polyline boundary, then a netlist file path
+// and a net name (resolves that net's own placed pads as clearance-exempt
+// positions the same way RATSNEST does), then grid size and clearance --
+// builds an auto-clearance copper pour (see core/pcb/CopperPour.h) on the
+// current layer.
+class CopperPourCommand : public DrawCommand {
+public:
+    CopperPourCommand(lcad::Document& document, double pickTolerance)
+        : m_document(document), m_pickTolerance(pickTolerance) {}
+
+    QString start() override { return QStringLiteral("COPPERPOUR  Select a closed polyline boundary:"); }
+    std::optional<QString> onPoint(const lcad::Point2D& pt) override;
+    bool wantsTextInput() const override { return m_stage != Stage::Pick; }
+    std::optional<QString> onText(const QString& text) override;
+    bool isFinished() const override { return m_finished; }
+    void cancel() override { m_finished = true; }
+
+private:
+    enum class Stage { Pick, NetlistPath, NetName, GridSize, Clearance };
+    lcad::Document& m_document;
+    double m_pickTolerance;
+    Stage m_stage = Stage::Pick;
+    std::vector<lcad::Point2D> m_boundary;
+    std::vector<lcad::ImportedNet> m_nets;
+    std::vector<lcad::Point2D> m_ownNetPositions;
+    double m_gridSize = 0.5;
+    bool m_finished = false;
+};
+
 // DSNEXPORT: netlist file path, then output file path -- writes a
 // Specctra DSN file (see core/pcb/SpecctraWriter.h) for external
 // autorouters (FreeRouting etc.) instead of an in-house autorouter.
