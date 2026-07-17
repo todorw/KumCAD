@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 namespace lcad {
 
@@ -32,12 +33,14 @@ enum class FeatureType {
     Revolve,   // revolve sketchIndex's face by p1 degrees around the axis
                // through (posX,posY,posZ) with direction (dirX,dirY,dirZ).
                // inputA/cutMode work the same as Pad (Revolve/Groove).
-    Fillet,    // rounds every edge of inputA by radius p1 -- a real, if
-               // blunt, simplification: no per-edge selection (needs 3D
-               // edge-picking in a viewport this session can't verify --
-               // see Viewport3D.h's own disclosure).
-    Chamfer,   // bevels every edge of inputA by distance p1 -- same
-               // all-edges simplification as Fillet.
+    Fillet,    // rounds edgeIndices of inputA by radius p1 -- if
+               // edgeIndices is empty, rounds EVERY edge instead (the
+               // original, still-supported "blunt" mode). edgeIndices are
+               // indices into TopExp::MapShapes(inputA's shape, TopAbs_EDGE,
+               // ...)'s ordering, the same numbering Pick3D.h's pickEdge
+               // returns -- so a real edge pick can drive this directly.
+    Chamfer,   // bevels edgeIndices of inputA by distance p1 -- same
+               // "empty means every edge" convention as Fillet.
     LinearPattern, // replicates inputA count times along (dirX,dirY,dirZ),
                    // spacing p1, fused into one shape (including the original)
     PolarPattern,  // replicates inputA count times around the axis through
@@ -101,6 +104,10 @@ struct Feature3D {
 
     // Which Document3D::importedShapes() entry this feature is -- Imported only.
     int importIndex = -1;
+
+    // Specific edges to round/bevel -- Fillet/Chamfer only. Empty means
+    // "every edge" (see FeatureType::Fillet's own comment).
+    std::vector<int> edgeIndices;
 
     static bool isBoolean(FeatureType t) { return t == FeatureType::Union || t == FeatureType::Cut || t == FeatureType::Intersect; }
     bool isBoolean() const { return isBoolean(type); }

@@ -17,6 +17,13 @@
 
 #include <Bnd_Box.hxx>
 #include <BRepBndLib.hxx>
+#include <BRep_Tool.hxx>
+#include <TopExp.hxx>
+#include <TopoDS.hxx>
+#include <TopoDS_Edge.hxx>
+#include <TopoDS_Vertex.hxx>
+#include <TopTools_IndexedMapOfShape.hxx>
+#include <gp_Pnt.hxx>
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -625,6 +632,7 @@ Window3D::Window3D(QWidget* parent) : QMainWindow(parent) {
     toolbar->addAction(QStringLiteral("Intersect"), this, [this] { applyBoolean(FeatureType::Intersect); });
     toolbar->addSeparator();
     toolbar->addAction(QStringLiteral("Edit..."), this, &Window3D::editSelectedFeature);
+    toolbar->addAction(QStringLiteral("List Edges..."), this, &Window3D::listSelectedFeatureEdges);
     toolbar->addAction(QStringLiteral("New Sketch..."), this, &Window3D::openSketchEditor);
     toolbar->addAction(QStringLiteral("Add Sketch Feature..."), this, &Window3D::addSketchFeature);
     toolbar->addSeparator();
@@ -717,6 +725,35 @@ void Window3D::editSelectedFeature() {
     m_document.commandStack().execute(std::make_unique<UpdateFeature3DCommand>(m_document, index, dialog.result()));
     refreshFeatureList();
     refreshViewport();
+}
+
+void Window3D::listSelectedFeatureEdges() {
+    const auto selected = m_featureList->selectionModel()->selectedRows();
+    if (selected.size() != 1) {
+        statusBar()->showMessage(QStringLiteral("Select exactly one feature first"), 3000);
+        return;
+    }
+    const int index = selected[0].row();
+    if (!m_document.isValid(index)) {
+        statusBar()->showMessage(QStringLiteral("That feature isn't valid"), 3000);
+        return;
+    }
+
+    TopTools_IndexedMapOfShape edgeMap;
+    TopExp::MapShapes(m_document.shapeAt(index), TopAbs_EDGE, edgeMap);
+
+    QString report = QStringLiteral("%1 edge(s) -- index: midpoint (x, y, z)\n").arg(edgeMap.Extent());
+    for (int i = 1; i <= edgeMap.Extent(); ++i) {
+        const TopoDS_Edge edge = TopoDS::Edge(edgeMap(i));
+        TopoDS_Vertex v1, v2;
+        TopExp::Vertices(edge, v1, v2);
+        if (v1.IsNull() || v2.IsNull()) continue;
+        const gp_Pnt p1 = BRep_Tool::Pnt(v1);
+        const gp_Pnt p2 = BRep_Tool::Pnt(v2);
+        const gp_Pnt mid((p1.X() + p2.X()) / 2.0, (p1.Y() + p2.Y()) / 2.0, (p1.Z() + p2.Z()) / 2.0);
+        report += QStringLiteral("%1: (%2, %3, %4)\n").arg(i - 1).arg(mid.X(), 0, 'f', 2).arg(mid.Y(), 0, 'f', 2).arg(mid.Z(), 0, 'f', 2);
+    }
+    QMessageBox::information(this, QStringLiteral("Feature Edges"), report);
 }
 
 void Window3D::openSketchEditor() {

@@ -1,4 +1,5 @@
 #include "core/core3d/Document3D.h"
+#include "core/core3d/Pick3D.h"
 
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>
@@ -147,6 +148,70 @@ TEST_CASE("Document3D Chamfer bevels every edge of a box, changing its volume sl
     const double chamferVolume = volumeOf(doc.shapeAt(chamferIdx));
     REQUIRE(chamferVolume < boxVolume);
     REQUIRE(chamferVolume > boxVolume * 0.9);
+}
+
+TEST_CASE("Document3D Fillet with specific edgeIndices rounds less material than every-edge mode",
+          "[core3d][fillet][pick]") {
+    Document3D doc;
+    Feature3D box;
+    box.type = FeatureType::Box;
+    box.p1 = box.p2 = box.p3 = 20.0;
+    const int boxIdx = doc.addFeature(box);
+    const double boxVolume = 20.0 * 20.0 * 20.0;
+
+    // Find a real edge via Pick3D (the same mechanism a viewport click
+    // would use), rather than assuming which OCCT edge index is which.
+    PickRay ray;
+    ray.origin = {20.1, 20.0, -50.0};
+    ray.direction = {0.0, 0.0, 1.0};
+    const auto picked = pickEdge(doc.shapeAt(boxIdx), ray, 0.5);
+    REQUIRE(picked.has_value());
+
+    Feature3D oneEdgeFillet;
+    oneEdgeFillet.type = FeatureType::Fillet;
+    oneEdgeFillet.inputA = boxIdx;
+    oneEdgeFillet.p1 = 2.0;
+    oneEdgeFillet.edgeIndices = {picked->edgeIndex};
+    const int oneEdgeIdx = doc.addFeature(oneEdgeFillet);
+    REQUIRE(doc.isValid(oneEdgeIdx));
+    const double oneEdgeVolume = volumeOf(doc.shapeAt(oneEdgeIdx));
+
+    Feature3D everyEdgeFillet;
+    everyEdgeFillet.type = FeatureType::Fillet;
+    everyEdgeFillet.inputA = boxIdx;
+    everyEdgeFillet.p1 = 2.0;
+    const int everyEdgeIdx = doc.addFeature(everyEdgeFillet);
+    REQUIRE(doc.isValid(everyEdgeIdx));
+    const double everyEdgeVolume = volumeOf(doc.shapeAt(everyEdgeIdx));
+
+    // Rounding just one of the box's 12 edges removes strictly less
+    // material than rounding all of them, but still strictly less than
+    // the sharp box's own volume.
+    REQUIRE(oneEdgeVolume < boxVolume);
+    REQUIRE(oneEdgeVolume > everyEdgeVolume);
+}
+
+TEST_CASE("Document3D Fillet where every edgeIndices entry is out of range is invalid, not a silent no-op",
+          "[core3d][fillet][pick]") {
+    // A real edge case, not just a hypothetical: BRepFilletAPI_MakeFillet::
+    // Build() throws if asked to build with zero edges actually added (the
+    // first version of this out-of-range handling assumed it would
+    // gracefully no-op instead -- caught by this test throwing, not by
+    // review).
+    Document3D doc;
+    Feature3D box;
+    box.type = FeatureType::Box;
+    box.p1 = box.p2 = box.p3 = 20.0;
+    const int boxIdx = doc.addFeature(box);
+
+    Feature3D fillet;
+    fillet.type = FeatureType::Fillet;
+    fillet.inputA = boxIdx;
+    fillet.p1 = 2.0;
+    fillet.edgeIndices = {999}; // out of range -- no edge actually gets added
+    const int filletIdx = doc.addFeature(fillet);
+
+    REQUIRE_FALSE(doc.isValid(filletIdx));
 }
 
 TEST_CASE("Document3D LinearPattern fuses count non-overlapping copies", "[core3d][pattern]") {

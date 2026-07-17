@@ -23,6 +23,11 @@ private:
     void addPrimitive(lcad::FeatureType type);
     void applyBoolean(lcad::FeatureType type);
     void editSelectedFeature();
+    // Reports the selected feature's own edge indices (see Pick3D.h's
+    // pickEdge numbering) with a world-space midpoint each, so a user can
+    // work out which index to type into SketchFeatureDialog's Fillet/
+    // Chamfer Edge Indices field without live interactive picking.
+    void listSelectedFeatureEdges();
     void openSketchEditor();
     void addSketchFeature();
     void undo();

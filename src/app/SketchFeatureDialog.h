@@ -9,6 +9,7 @@ class QDoubleSpinBox;
 class QSpinBox;
 class QCheckBox;
 class QLabel;
+class QLineEdit;
 
 // A single dialog covering every Sprint-3 sketch-based/derived feature type
 // (Pad/Pocket, Revolve/Groove, Fillet, Linear/Polar Pattern, Mirror) --
@@ -41,4 +42,5 @@ private:
     QDoubleSpinBox* m_dirX = nullptr;
     QDoubleSpinBox* m_dirY = nullptr;
     QDoubleSpinBox* m_dirZ = nullptr;
+    QLineEdit* m_edgeIndices = nullptr;
 };

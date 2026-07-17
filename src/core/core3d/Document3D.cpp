@@ -247,12 +247,32 @@ void Document3D::recomputeOne(int index) {
         // A raw TopExp_Explorer visits an edge once per adjacent face, so
         // a box's 12 edges (each shared by 2 faces) would be added twice
         // each -- BRepFilletAPI_MakeFillet rejects that. TopExp::MapShapes
-        // gives each edge exactly once.
+        // gives each edge exactly once, in the same 1-based ordering
+        // Pick3D.h's pickEdge numbers edges by (0-based there; +1 here).
         TopTools_IndexedMapOfShape edgeMap;
         TopExp::MapShapes(target, TopAbs_EDGE, edgeMap);
         BRepFilletAPI_MakeFillet filletBuilder(target);
-        for (int i = 1; i <= edgeMap.Extent(); ++i) {
-            filletBuilder.Add(f.p1, TopoDS::Edge(edgeMap(i)));
+        int addedCount = 0;
+        if (f.edgeIndices.empty()) {
+            for (int i = 1; i <= edgeMap.Extent(); ++i) {
+                filletBuilder.Add(f.p1, TopoDS::Edge(edgeMap(i)));
+                ++addedCount;
+            }
+        } else {
+            for (int edgeIndex : f.edgeIndices) {
+                if (edgeIndex < 0 || edgeIndex >= edgeMap.Extent()) continue;
+                filletBuilder.Add(f.p1, TopoDS::Edge(edgeMap(edgeIndex + 1)));
+                ++addedCount;
+            }
+        }
+        // BRepFilletAPI_MakeFillet::Build() throws if asked to build with
+        // zero edges added (e.g. every requested edgeIndices entry was out
+        // of range) -- a real edge case caught by a test expecting a
+        // graceful no-op, not by inspection. Treated as an invalid
+        // feature, the same way any other out-of-range reference is.
+        if (addedCount == 0) {
+            ok = false;
+            break;
         }
         filletBuilder.Build(); // unlike the primitive builders, this one doesn't build in its constructor
         ok = filletBuilder.IsDone();
@@ -268,8 +288,22 @@ void Document3D::recomputeOne(int index) {
         TopTools_IndexedMapOfShape edgeMap;
         TopExp::MapShapes(target, TopAbs_EDGE, edgeMap);
         BRepFilletAPI_MakeChamfer chamferBuilder(target);
-        for (int i = 1; i <= edgeMap.Extent(); ++i) {
-            chamferBuilder.Add(f.p1, TopoDS::Edge(edgeMap(i)));
+        int addedCount = 0;
+        if (f.edgeIndices.empty()) {
+            for (int i = 1; i <= edgeMap.Extent(); ++i) {
+                chamferBuilder.Add(f.p1, TopoDS::Edge(edgeMap(i)));
+                ++addedCount;
+            }
+        } else {
+            for (int edgeIndex : f.edgeIndices) {
+                if (edgeIndex < 0 || edgeIndex >= edgeMap.Extent()) continue;
+                chamferBuilder.Add(f.p1, TopoDS::Edge(edgeMap(edgeIndex + 1)));
+                ++addedCount;
+            }
+        }
+        if (addedCount == 0) {
+            ok = false;
+            break;
         }
         chamferBuilder.Build();
         ok = chamferBuilder.IsDone();

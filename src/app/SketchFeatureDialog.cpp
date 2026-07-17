@@ -6,6 +6,7 @@
 #include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QLabel>
+#include <QLineEdit>
 #include <QSpinBox>
 #include <QVBoxLayout>
 
@@ -83,6 +84,10 @@ SketchFeatureDialog::SketchFeatureDialog(const lcad::Document3D& document, QWidg
     form->addRow(QStringLiteral("Direction/Axis/Normal Y:"), m_dirY);
     form->addRow(QStringLiteral("Direction/Axis/Normal Z:"), m_dirZ);
 
+    m_edgeIndices = new QLineEdit(this);
+    m_edgeIndices->setPlaceholderText(QStringLiteral("blank = every edge"));
+    form->addRow(QStringLiteral("Fillet/Chamfer Edge Indices (comma-separated, see Pick3D.h):"), m_edgeIndices);
+
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
@@ -105,12 +110,13 @@ void SketchFeatureDialog::updateHint() {
                                             "Revolve with Cut Mode)."));
         break;
     case FeatureType::Fillet:
-        m_hintLabel->setText(QStringLiteral("Fillet: rounds every edge of Target by Radius. No per-edge selection "
-                                            "in this pass -- it's all-or-nothing."));
+        m_hintLabel->setText(QStringLiteral("Fillet: rounds Target's edges by Radius -- every edge if Edge Indices "
+                                            "is blank, or just the listed ones (find indices via a pick, see "
+                                            "Pick3D.h's pickEdge)."));
         break;
     case FeatureType::Chamfer:
-        m_hintLabel->setText(QStringLiteral("Chamfer: bevels every edge of Target by the Height/Angle/Radius/"
-                                            "Spacing field's value. Same all-edges simplification as Fillet."));
+        m_hintLabel->setText(QStringLiteral("Chamfer: bevels Target's edges by the Height/Angle/Radius/Spacing "
+                                            "field's value -- same Edge Indices convention as Fillet."));
         break;
     case FeatureType::LinearPattern:
         m_hintLabel->setText(QStringLiteral("Linear Pattern: replicates Target Count times along Direction, spaced "
@@ -143,5 +149,10 @@ Feature3D SketchFeatureDialog::result() const {
     f.dirX = m_dirX->value();
     f.dirY = m_dirY->value();
     f.dirZ = m_dirZ->value();
+    for (const QString& token : m_edgeIndices->text().split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+        bool ok = false;
+        const int value = token.trimmed().toInt(&ok);
+        if (ok) f.edgeIndices.push_back(value);
+    }
     return f;
 }
