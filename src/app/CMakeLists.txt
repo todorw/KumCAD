@@ -164,6 +164,7 @@ add_executable(kumcad WIN32
     commands/DiffPairCommand.cpp
     commands/WipeoutCommand.cpp
     commands/LayTransCommand.cpp
+    commands/AuditCommand.cpp
     commands/RevcloudCommand.cpp
     commands/LibraryCommands.cpp
     commands/ExpressToolCommands.cpp

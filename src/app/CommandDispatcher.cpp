@@ -25,6 +25,7 @@
 #include "commands/DiffPairCommand.h"
 #include "commands/WipeoutCommand.h"
 #include "commands/LayTransCommand.h"
+#include "commands/AuditCommand.h"
 #include "commands/RevcloudCommand.h"
 #include "commands/LibraryCommands.h"
 #include "commands/ExpressToolCommands.h"
@@ -877,6 +878,8 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         }
     } else if (cmd == QLatin1String("TRAN")) {
         startCommand(std::make_unique<TranCommand>(m_document), QStringLiteral("TRAN"));
+    } else if (cmd == QLatin1String("AUDIT")) {
+        startCommand(std::make_unique<AuditCommand>(m_document), QStringLiteral("AUDIT"));
     } else if (cmd == QLatin1String("LAYTRANS")) {
         startCommand(std::make_unique<LayTransCommand>(m_document), QStringLiteral("LAYTRANS"));
     } else if (cmd == QLatin1String("WIPEOUT")) {

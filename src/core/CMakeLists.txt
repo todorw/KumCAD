@@ -141,6 +141,7 @@ add_library(lcad_core STATIC
     document/ExpressTools.cpp
     document/PartLibrary.cpp
     document/LayerTranslator.cpp
+    document/Audit.cpp
     document/Fields.h
     document/Fields.cpp
     document/DataExtraction.h

@@ -13,6 +13,7 @@ add_executable(lcad_core_tests
     ExpressToolsTests.cpp
     PartLibraryTests.cpp
     LayerTranslatorTests.cpp
+    AuditTests.cpp
     CommandStackTests.cpp
     DxfIoTests.cpp
     DwgIoTests.cpp
