@@ -20,6 +20,16 @@ struct DrcRules {
     double minTrackWidth = 0.15;
     double minViaDiameter = 0.3;
     double minViaDrillDiameter = 0.2;
+
+    // Both default OFF: unlike the checks above (always on), these two
+    // have no natural "already disabled" input the way an empty
+    // nets/netClasses list does, so they're opt-in flags instead --
+    // turning them on can't silently change behavior for any existing
+    // caller that never asked for them.
+    bool checkCourtyards = false; // flag any two footprints whose own bounding box, expanded by courtyardMargin, overlaps
+    double courtyardMargin = 0.25;
+    bool checkSilkscreenOverPad = false; // flag any footprint's own silkscreen graphics coming within silkscreenClearance of ANY pad (its own or another's)
+    double silkscreenClearance = 0.0;
 };
 
 struct DrcViolation {
@@ -62,6 +72,19 @@ struct DrcViolation {
 // when either side has no matching class) -- both real KiCad
 // conventions. Passing nets without netClasses (or vice versa) has no
 // effect; both are needed together for per-class rules to apply.
+//
+// Two more checks, both opt-in via rules.checkCourtyards/
+// checkSilkscreenOverPad (default off -- see DrcRules's own comment on
+// why these can't just default from an empty list the way stackup/net
+// classes do): courtyard overlap (no dedicated courtyard layer/shape
+// exists in this codebase, so each footprint's own INSERT bounding box,
+// expanded by courtyardMargin, stands in for one -- a real, disclosed
+// approximation) between any two footprints; and silkscreen-over-pad
+// (a footprint's own body/silkscreen graphics, via InsertEntity's
+// instantiate(), coming within silkscreenClearance of ANY pad, its own
+// included -- reuses each entity's own distanceTo() against every pad
+// approximated as a circle, the same convention the clearance check
+// above already uses for pads).
 std::vector<DrcViolation> runDrc(const Document& doc, const DrcRules& rules = {}, const CopperStackup& stackup = {},
                                  const std::vector<ImportedNet>& nets = {}, const std::vector<NetClass>& netClasses = {});
 

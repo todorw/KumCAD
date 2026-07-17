@@ -272,6 +272,51 @@ std::vector<DrcViolation> runDrc(const Document& doc, const DrcRules& rules, con
         }
     }
 
+    if (rules.checkCourtyards) {
+        std::vector<std::pair<EntityId, BoundingBox>> courtyards;
+        for (const auto* fp : footprints) {
+            BoundingBox box = fp->boundingBox();
+            if (!box.isValid()) continue;
+            box.min.x -= rules.courtyardMargin;
+            box.min.y -= rules.courtyardMargin;
+            box.max.x += rules.courtyardMargin;
+            box.max.y += rules.courtyardMargin;
+            courtyards.push_back({fp->id(), box});
+        }
+        for (std::size_t i = 0; i < courtyards.size(); ++i) {
+            for (std::size_t j = i + 1; j < courtyards.size(); ++j) {
+                const BoundingBox& a = courtyards[i].second;
+                const BoundingBox& b = courtyards[j].second;
+                const bool overlap = a.min.x < b.max.x && a.max.x > b.min.x && a.min.y < b.max.y && a.max.y > b.min.y;
+                if (overlap) violations.push_back({"Courtyard overlap between footprints", courtyards[i].first});
+            }
+        }
+    }
+
+    if (rules.checkSilkscreenOverPad) {
+        struct PadInfo {
+            Point2D position;
+            double radius;
+        };
+        std::vector<PadInfo> allPadInfos;
+        for (const auto* fp : footprints) {
+            for (const auto& padWorld : fp->padWorldPositions()) {
+                allPadInfos.push_back({padWorld.position, std::max(padWorld.pad->width, padWorld.pad->height) / 2.0});
+            }
+        }
+        for (const auto* fp : footprints) {
+            const std::vector<std::unique_ptr<Entity>> bodyEntities = fp->instantiate();
+            for (const auto& bodyEntity : bodyEntities) {
+                for (const PadInfo& pad : allPadInfos) {
+                    const double gap = bodyEntity->distanceTo(pad.position) - pad.radius;
+                    if (gap < rules.silkscreenClearance) {
+                        violations.push_back({"Silkscreen over pad (gap " + std::to_string(gap) + ")", fp->id()});
+                    }
+                }
+            }
+        }
+    }
+
     return violations;
 }
 

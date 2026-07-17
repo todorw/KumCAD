@@ -721,7 +721,15 @@ void CommandDispatcher::handleCommandText(const QString& text) {
     } else if (cmd == QLatin1String("PROFILE")) {
         startCommand(std::make_unique<ProfileCommand>(m_document), QStringLiteral("PROFILE"));
     } else if (cmd == QLatin1String("DRC")) {
-        const std::vector<lcad::DrcViolation> violations = lcad::runDrc(m_document);
+        // The interactive DRC command turns on every check this library
+        // supports, including the two opt-in ones (courtyard overlap,
+        // silkscreen-over-pad) -- runDrc's own default keeps them off
+        // for API/test backward compatibility, not because a real user
+        // running DRC here wouldn't want them.
+        lcad::DrcRules rules;
+        rules.checkCourtyards = true;
+        rules.checkSilkscreenOverPad = true;
+        const std::vector<lcad::DrcViolation> violations = lcad::runDrc(m_document, rules);
         m_commandLine.appendLine(QStringLiteral("*DRC: %1 violation(s)*").arg(violations.size()));
         for (const lcad::DrcViolation& v : violations) {
             m_commandLine.appendLine(QStringLiteral("  %1").arg(QString::fromStdString(v.message)));

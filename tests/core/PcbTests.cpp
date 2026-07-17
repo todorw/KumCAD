@@ -126,6 +126,73 @@ TEST_CASE("runDrc flags a via whose drill isn't smaller than its own pad", "[pcb
     REQUIRE(hasDrillIssue);
 }
 
+TEST_CASE("runDrc flags overlapping footprint courtyards only when checkCourtyards is enabled", "[pcb][drc]") {
+    Document doc;
+    registerBuiltinSymbols(doc);
+    const BlockDefinition* rfp = doc.findBlock("R_FP");
+
+    auto r1 = std::make_unique<InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), rfp, Point2D(0, 0));
+    const EntityId r1Id = r1->id();
+    doc.addEntity(std::move(r1));
+    // R_FP's own body spans local x in [-2,12] -- placed only 2 units
+    // away, R2's courtyard (even before any margin) already overlaps R1's.
+    auto r2 = std::make_unique<InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), rfp, Point2D(2, 0));
+    doc.addEntity(std::move(r2));
+
+    const std::vector<DrcViolation> defaultRun = runDrc(doc);
+    REQUIRE(std::none_of(defaultRun.begin(), defaultRun.end(),
+                        [](const DrcViolation& v) { return v.message.find("Courtyard") != std::string::npos; }));
+
+    DrcRules rules;
+    rules.checkCourtyards = true;
+    const std::vector<DrcViolation> checkedRun = runDrc(doc, rules);
+    const bool flagged = std::any_of(checkedRun.begin(), checkedRun.end(), [&](const DrcViolation& v) {
+        return v.entityId == r1Id && v.message.find("Courtyard") != std::string::npos;
+    });
+    REQUIRE(flagged);
+}
+
+TEST_CASE("runDrc does not flag well-separated footprints' courtyards", "[pcb][drc]") {
+    Document doc;
+    registerBuiltinSymbols(doc);
+    const BlockDefinition* rfp = doc.findBlock("R_FP");
+    doc.addEntity(std::make_unique<InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), rfp, Point2D(0, 0)));
+    doc.addEntity(std::make_unique<InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), rfp, Point2D(100, 0)));
+
+    DrcRules rules;
+    rules.checkCourtyards = true;
+    const std::vector<DrcViolation> violations = runDrc(doc, rules);
+    REQUIRE(std::none_of(violations.begin(), violations.end(),
+                        [](const DrcViolation& v) { return v.message.find("Courtyard") != std::string::npos; }));
+}
+
+TEST_CASE("runDrc flags silkscreen over a pad only when checkSilkscreenOverPad is enabled", "[pcb][drc]") {
+    Document doc;
+    registerBuiltinSymbols(doc);
+    const BlockDefinition* rfp = doc.findBlock("R_FP");
+
+    auto r1 = std::make_unique<InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), rfp, Point2D(0, 0));
+    const EntityId r1Id = r1->id();
+    doc.addEntity(std::move(r1));
+    // R1's own silkscreen top edge sits at world y=2 (local body top).
+    // R2's own pad 1 (local (0,0)) lands exactly there.
+    auto r2 = std::make_unique<InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), rfp, Point2D(5, 2));
+    doc.addEntity(std::move(r2));
+
+    const std::vector<DrcViolation> defaultRun = runDrc(doc);
+    REQUIRE(std::none_of(defaultRun.begin(), defaultRun.end(), [&](const DrcViolation& v) {
+        return v.entityId == r1Id && v.message.find("Silkscreen") != std::string::npos;
+    }));
+
+    DrcRules rules;
+    rules.checkSilkscreenOverPad = true;
+    const std::vector<DrcViolation> checkedRun = runDrc(doc, rules);
+    const bool flagged = std::any_of(checkedRun.begin(), checkedRun.end(), [&](const DrcViolation& v) {
+        return v.entityId == r1Id && v.message.find("Silkscreen") != std::string::npos;
+    });
+    REQUIRE(flagged);
+}
+
 TEST_CASE("runDrc flags unconnected copper closer than the clearance and clears once joined",
          "[pcb][drc]") {
     Document doc;
