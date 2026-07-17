@@ -1,7 +1,9 @@
 #include "core/core3d/Document3D.h"
 #include "core/core3d/Pick3D.h"
 
+#include <BRepBndLib.hxx>
 #include <BRepGProp.hxx>
+#include <Bnd_Box.hxx>
 #include <GProp_GProps.hxx>
 
 #include <catch2/catch_approx.hpp>
@@ -507,4 +509,66 @@ TEST_CASE("Document3D Mirror fuses a solid with its reflection across a plane", 
 
     REQUIRE(doc.isValid(mirrorIdx));
     REQUIRE(volumeOf(doc.shapeAt(mirrorIdx)) == Approx(2 * 5.0 * 5.0 * 5.0).margin(1e-3));
+}
+
+TEST_CASE("Document3D Pad on a non-default sketch plane produces correctly oriented geometry", "[core3d][pad][plane]") {
+    // A rectangle sketched on the XZ plane, padded along that plane's own
+    // normal (world -Y): the resulting solid must span X and Z (the
+    // sketch's own footprint) and Y (the pad thickness), NOT span Y and Z
+    // like a flat-XY-plane pad would if the placement were silently
+    // ignored.
+    Document3D doc;
+    Sketch sketch = makeRectangleSketch(10.0, 5.0); // local (x,y) -> world (x, 0, y) on the XZ plane
+    sketch.setPlacement(SketchPlane::XZ());
+    const int sketchIdx = doc.addSketch(sketch);
+
+    Feature3D pad;
+    pad.type = FeatureType::Pad;
+    pad.sketchIndex = sketchIdx;
+    pad.p1 = 3.0; // thickness, along the pad direction
+    pad.dirX = 0.0;
+    pad.dirY = -1.0; // XZ plane's own normal
+    pad.dirZ = 0.0;
+    const int padIdx = doc.addFeature(pad);
+
+    REQUIRE(doc.isValid(padIdx));
+    const TopoDS_Shape& shape = doc.shapeAt(padIdx);
+    REQUIRE(volumeOf(shape) == Approx(10.0 * 5.0 * 3.0).margin(1e-6));
+
+    Bnd_Box box;
+    BRepBndLib::Add(shape, box);
+    double xmin, ymin, zmin, xmax, ymax, zmax;
+    box.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+    REQUIRE((xmax - xmin) == Approx(10.0)); // the sketch's own width, along world X
+    REQUIRE((ymax - ymin) == Approx(3.0));  // the pad thickness, along world Y (the plane's normal)
+    REQUIRE((zmax - zmin) == Approx(5.0));  // the sketch's own height, along world Z
+}
+
+TEST_CASE("Document3D Pad on the YZ plane with an offset places geometry correctly", "[core3d][pad][plane]") {
+    Document3D doc;
+    Sketch sketch = makeRectangleSketch(6.0, 4.0); // local (x,y) -> world (offset, x, y) on the YZ plane
+    sketch.setPlacement(SketchPlane::YZ(12.0));    // offset 12 along world X
+    const int sketchIdx = doc.addSketch(sketch);
+
+    Feature3D pad;
+    pad.type = FeatureType::Pad;
+    pad.sketchIndex = sketchIdx;
+    pad.p1 = 2.0;
+    pad.dirX = 1.0; // YZ plane's own normal
+    pad.dirY = 0.0;
+    pad.dirZ = 0.0;
+    const int padIdx = doc.addFeature(pad);
+
+    REQUIRE(doc.isValid(padIdx));
+    const TopoDS_Shape& shape = doc.shapeAt(padIdx);
+    REQUIRE(volumeOf(shape) == Approx(6.0 * 4.0 * 2.0).margin(1e-6));
+
+    Bnd_Box box;
+    BRepBndLib::Add(shape, box);
+    double xmin, ymin, zmin, xmax, ymax, zmax;
+    box.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+    REQUIRE(xmin == Approx(12.0)); // starts exactly at the plane's own offset
+    REQUIRE((xmax - xmin) == Approx(2.0));
+    REQUIRE((ymax - ymin) == Approx(6.0));
+    REQUIRE((zmax - zmin) == Approx(4.0));
 }

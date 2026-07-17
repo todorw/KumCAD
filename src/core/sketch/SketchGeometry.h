@@ -6,16 +6,53 @@
 
 namespace lcad {
 
-// A 2D sketch, solved by ConstraintSolver.h and (in a later 3D sprint)
-// extruded into a real 3D feature via Pad/Pocket. Scoped to the sketch's
-// own local XY plane only -- placing a sketch on an arbitrary 3D plane is
-// deeper 3D-sprint territory, matching Feature3D's own position-only (no
-// rotation) placement decision.
+// A 2D sketch, solved by ConstraintSolver.h and extruded into a real 3D
+// feature via Pad/Pocket/Revolve/Loft/Sweep. All constraint-solving math
+// stays purely 2D (local x/y) regardless of where the sketch's plane sits
+// in 3D -- see Sketch::placement below.
 //
 // Coincidence between geometry is structural, not a solved constraint: two
 // lines sharing an endpoint literally share the same point index, the way
 // most real sketchers actually represent it internally, rather than a
 // numeric "distance == 0" equation the solver has to satisfy exactly.
+
+// A minimal 3D point/vector -- this module is deliberately zero-OCCT
+// (pure 2D math elsewhere in it), so this is a plain POD rather than
+// pulling in gp_Pnt just for the plane's own placement.
+struct Point3D {
+    double x = 0.0, y = 0.0, z = 0.0;
+};
+
+// A sketch's own local XY plane's placement in 3D space: an origin plus a
+// right-handed (xAxis, yAxis, normal) frame -- the same idea as OCCT's
+// gp_Ax2, kept OCCT-free here since only core3d/SketchToFace.cpp actually
+// needs to build real geometry from it. yAxis is always derived
+// (normal x xAxis), never stored, so the frame can't drift out of
+// orthogonality by editing one field and forgetting another.
+//
+// Defaults to the world XY plane at the origin -- exactly the implicit
+// behavior every sketch had before this existed, so nothing changes
+// unless a sketch's placement is set explicitly (via XY/XZ/YZ below, or
+// by hand for a fully custom plane).
+struct SketchPlane {
+    Point3D origin{0.0, 0.0, 0.0};
+    Point3D normal{0.0, 0.0, 1.0};
+    Point3D xAxis{1.0, 0.0, 0.0};
+
+    // FreeCAD's three datum base planes, each with an optional offset
+    // along its own normal and an optional in-plane rotation (degrees,
+    // about that normal) of the local X axis -- "attachment offset" and
+    // "attachment angle" in FreeCAD's own terms, simplified to just these
+    // two knobs rather than its full attachment-mode system.
+    static SketchPlane XY(double offset = 0.0, double angleDegrees = 0.0);
+    static SketchPlane XZ(double offset = 0.0, double angleDegrees = 0.0);
+    static SketchPlane YZ(double offset = 0.0, double angleDegrees = 0.0);
+
+    Point3D yAxis() const;
+    // Maps a local 2D sketch point into this plane's 3D world position:
+    // origin + xAxis*local.x + yAxis*local.y.
+    Point3D toWorld(const Point2D& local) const;
+};
 
 struct SketchLine {
     int p1 = -1;
@@ -103,6 +140,9 @@ public:
     const std::vector<SketchConstraint>& constraints() const { return m_constraints; }
     std::vector<SketchConstraint>& constraints() { return m_constraints; }
 
+    const SketchPlane& placement() const { return m_placement; }
+    void setPlacement(SketchPlane plane) { m_placement = plane; }
+
 private:
     std::vector<Point2D> m_points;
     std::vector<bool> m_fixed;
@@ -110,6 +150,7 @@ private:
     std::vector<SketchCircle> m_circles;
     std::vector<SketchArc> m_arcs;
     std::vector<SketchConstraint> m_constraints;
+    SketchPlane m_placement; // defaults to the world XY plane, see SketchPlane's own comment
 };
 
 } // namespace lcad

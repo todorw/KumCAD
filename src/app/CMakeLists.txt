@@ -245,6 +245,7 @@ if(LCAD_ENABLE_3D)
             Window3D.h Window3D.cpp
             SketchView.h SketchView.cpp
             SketchEditorDialog.h SketchEditorDialog.cpp
+            SketchPlaneDialog.h SketchPlaneDialog.cpp
             SketchFeatureDialog.h SketchFeatureDialog.cpp
             AssemblyWindow.h AssemblyWindow.cpp
             Board3DWindow.h Board3DWindow.cpp)

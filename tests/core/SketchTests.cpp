@@ -373,3 +373,75 @@ TEST_CASE("analyzeDof counts Midpoint and Symmetric as 2 equations each, not 1",
     REQUIRE(report.remainingDof == 0);
     REQUIRE_FALSE(report.likelyOverConstrained);
 }
+
+TEST_CASE("SketchPlane base planes form correct orthonormal right-handed frames", "[sketch][plane]") {
+    auto checkOrthonormalRightHanded = [](const SketchPlane& p) {
+        const Point3D y = p.yAxis();
+        auto len = [](const Point3D& v) { return std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z); };
+        auto dot = [](const Point3D& a, const Point3D& b) { return a.x * b.x + a.y * b.y + a.z * b.z; };
+        REQUIRE(len(p.xAxis) == Approx(1.0));
+        REQUIRE(len(y) == Approx(1.0));
+        REQUIRE(len(p.normal) == Approx(1.0));
+        REQUIRE(dot(p.xAxis, y) == Approx(0.0).margin(1e-9));
+        REQUIRE(dot(p.xAxis, p.normal) == Approx(0.0).margin(1e-9));
+        REQUIRE(dot(y, p.normal) == Approx(0.0).margin(1e-9));
+        // Right-handed: normal x xAxis == yAxis (by construction), so a
+        // local (1,0) then (0,1) point should sweep the same handedness
+        // as normal itself when crossed.
+        const Point3D cross = {p.normal.y * p.xAxis.z - p.normal.z * p.xAxis.y,
+                               p.normal.z * p.xAxis.x - p.normal.x * p.xAxis.z,
+                               p.normal.x * p.xAxis.y - p.normal.y * p.xAxis.x};
+        REQUIRE(dot(cross, y) == Approx(1.0));
+    };
+
+    checkOrthonormalRightHanded(SketchPlane::XY());
+    checkOrthonormalRightHanded(SketchPlane::XZ());
+    checkOrthonormalRightHanded(SketchPlane::YZ());
+    checkOrthonormalRightHanded(SketchPlane::XY(5.0, 37.0));
+    checkOrthonormalRightHanded(SketchPlane::XZ(-2.0, 90.0));
+    checkOrthonormalRightHanded(SketchPlane::YZ(1.0, 180.0));
+}
+
+TEST_CASE("SketchPlane::XY defaults exactly match the pre-existing implicit flat behavior", "[sketch][plane]") {
+    const SketchPlane plane; // default-constructed, no factory call
+    REQUIRE(plane.origin.x == Approx(0.0));
+    REQUIRE(plane.origin.y == Approx(0.0));
+    REQUIRE(plane.origin.z == Approx(0.0));
+    REQUIRE(plane.normal.z == Approx(1.0));
+    REQUIRE(plane.xAxis.x == Approx(1.0));
+
+    const Point3D w = plane.toWorld(Point2D(3, 4));
+    REQUIRE(w.x == Approx(3.0));
+    REQUIRE(w.y == Approx(4.0));
+    REQUIRE(w.z == Approx(0.0));
+}
+
+TEST_CASE("SketchPlane toWorld maps local points correctly for XZ and YZ base planes", "[sketch][plane]") {
+    // XZ plane: local (x,y) -> world (x, -offset, y) -- offset moves along
+    // the plane's own normal, which for XZ points toward world -Y (the
+    // choice that keeps (xAxis, yAxis, normal) right-handed with
+    // yAxis == world +Z; see SketchPlane::XZ's own implementation).
+    const SketchPlane xz = SketchPlane::XZ(7.0);
+    const Point3D wxz = xz.toWorld(Point2D(2, 3));
+    REQUIRE(wxz.x == Approx(2.0));
+    REQUIRE(wxz.y == Approx(-7.0));
+    REQUIRE(wxz.z == Approx(3.0));
+
+    // YZ plane: local (x,y) -> world (offset, x, y).
+    const SketchPlane yz = SketchPlane::YZ(-4.0);
+    const Point3D wyz = yz.toWorld(Point2D(2, 3));
+    REQUIRE(wyz.x == Approx(-4.0));
+    REQUIRE(wyz.y == Approx(2.0));
+    REQUIRE(wyz.z == Approx(3.0));
+}
+
+TEST_CASE("SketchPlane angle rotates the local X axis within the plane", "[sketch][plane]") {
+    // A 90-degree attachment angle on the XY plane should swap the
+    // effective local X/Y directions (xAxis becomes world +Y).
+    const SketchPlane rotated = SketchPlane::XY(0.0, 90.0);
+    REQUIRE(rotated.xAxis.x == Approx(0.0).margin(1e-9));
+    REQUIRE(rotated.xAxis.y == Approx(1.0));
+    const Point3D y = rotated.yAxis();
+    REQUIRE(y.x == Approx(-1.0));
+    REQUIRE(y.y == Approx(0.0).margin(1e-9));
+}

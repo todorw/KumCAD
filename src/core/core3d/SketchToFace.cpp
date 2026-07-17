@@ -21,6 +21,23 @@ namespace lcad {
 
 namespace {
 
+gp_Pnt toGpPnt(const SketchPlane& plane, const Point2D& local) {
+    const Point3D w = plane.toWorld(local);
+    return gp_Pnt(w.x, w.y, w.z);
+}
+
+// An axis system located at local's world position, whose main direction
+// is the plane's own normal and whose X direction is the plane's own
+// xAxis -- so a Geom_Circle/Geom_TrimmedCurve built on it parameterizes
+// by the SAME angle already computed in local 2D coordinates (atan2 in
+// makeArcEdge), regardless of how the plane itself is rotated in world
+// space.
+gp_Ax2 toGpAx2(const SketchPlane& plane, const Point2D& local) {
+    const Point3D n = plane.normal;
+    const Point3D x = plane.xAxis;
+    return gp_Ax2(toGpPnt(plane, local), gp_Dir(n.x, n.y, n.z), gp_Dir(x.x, x.y, x.z));
+}
+
 struct Loop {
     TopoDS_Wire wire;
     double signedArea = 0.0; // shoelace sign for line/arc loops; a fixed +1-scaled magnitude for circle loops
@@ -119,10 +136,13 @@ TopoDS_Edge makeArcEdge(const Sketch& sketch, const SketchArc& arc, const ChainE
     const double u1 = std::min(startAngle, endAngle);
     const double u2 = std::max(startAngle, endAngle);
 
-    // XDirection pinned to world +X so the circle's own parameter is a
-    // plain polar angle, matching startAngle/endAngle computed via
-    // atan2 -- the same fix SheetMetal.cpp's arc edges needed.
-    const gp_Ax2 axis(gp_Pnt(center.x, center.y, 0.0), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0));
+    // XDirection pinned to the sketch plane's own local +X so the circle's
+    // parameter is a plain polar angle in LOCAL coordinates, matching
+    // startAngle/endAngle computed via atan2 above regardless of how the
+    // plane itself is oriented in world space -- the same fix
+    // SheetMetal.cpp's arc edges needed, generalized past the flat-Z=0
+    // assumption.
+    const gp_Ax2 axis = toGpAx2(sketch.placement(), center);
     Handle(Geom_Circle) circle = new Geom_Circle(axis, arc.radius);
     Handle(Geom_TrimmedCurve) trimmed = new Geom_TrimmedCurve(circle, u1, u2);
     return BRepBuilderAPI_MakeEdge(trimmed).Edge();
@@ -143,7 +163,8 @@ std::optional<TopoDS_Face> sketchToFace(const Sketch& sketch) {
             if (edge.arcIndex < 0) {
                 const Point2D& a = sketch.points()[static_cast<std::size_t>(edge.p1)];
                 const Point2D& b = sketch.points()[static_cast<std::size_t>(edge.p2)];
-                wireBuilder.Add(BRepBuilderAPI_MakeEdge(gp_Pnt(a.x, a.y, 0.0), gp_Pnt(b.x, b.y, 0.0)).Edge());
+                wireBuilder.Add(
+                    BRepBuilderAPI_MakeEdge(toGpPnt(sketch.placement(), a), toGpPnt(sketch.placement(), b)).Edge());
             } else {
                 wireBuilder.Add(makeArcEdge(sketch, sketch.arcs()[static_cast<std::size_t>(edge.arcIndex)], edge));
             }
@@ -159,8 +180,7 @@ std::optional<TopoDS_Face> sketchToFace(const Sketch& sketch) {
     for (const auto& circle : sketch.circles()) {
         if (circle.construction) continue;
         const Point2D& center = sketch.points()[static_cast<std::size_t>(circle.center)];
-        const gp_Ax2 axes(gp_Pnt(center.x, center.y, 0.0), gp_Dir(0, 0, 1));
-        const gp_Circ gpCircle(axes, circle.radius);
+        const gp_Circ gpCircle(toGpAx2(sketch.placement(), center), circle.radius);
         BRepBuilderAPI_MakeWire wireBuilder(BRepBuilderAPI_MakeEdge(gpCircle).Edge());
         if (!wireBuilder.IsDone()) continue;
         loops.push_back({wireBuilder.Wire(), 3.14159265358979323846 * circle.radius * circle.radius});
