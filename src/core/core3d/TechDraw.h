@@ -41,4 +41,36 @@ TechDrawView projectView(const TopoDS_Shape& shape, ViewDirection direction);
 // can be laid out side by side on one sheet.
 void insertViewIntoDocument(Document& doc2d, const TechDrawView& view, double offsetX, double offsetY);
 
+struct AutoDimensionOptions {
+    double offsetX = 0.0, offsetY = 0.0; // must match the same offsets insertViewIntoDocument used for this view
+    double dimensionGap = 5.0;           // how far outside its own measured geometry each dimension line sits
+    bool dimensionEachAxisAlignedEdge = false; // besides the two overall extents, also dimension every distinct visible horizontal/vertical edge
+};
+
+// Adds an overall-width DimensionEntity (horizontal, below the view) and
+// an overall-height one (vertical, left of the view), both measured
+// straight from view's own visible+hidden edge extents -- since
+// ProjectedEdge coordinates for an orthographic view (Front/Top/Right)
+// ARE the model's real dimensions along that view's own two axes (no
+// separate 3D measurement needed), this is exact, not an estimate.
+//
+// Deliberately NOT supported for ViewDirection::Iso: a true isometric
+// projection foreshortens every edge parallel to the 3 principal axes by
+// the same constant factor (~0.8165), so lengths read directly off an
+// Iso view's own plane are not the model's real lengths -- real drafting
+// practice puts dimensions on orthographic views for exactly this
+// reason, and this codebase doesn't attempt the separate isometric-scale
+// correction that would be needed to do it correctly. Silently does
+// nothing useful (no crash, just no dimensions with real meaning) if
+// handed geometry projected under Iso.
+//
+// With dimensionEachAxisAlignedEdge, also adds one Linear dimension per
+// distinct visible (non-hidden) horizontal or vertical edge, deduplicated
+// by its own (axis, position, span) so a repeated/duplicate projected
+// segment isn't dimensioned twice. Real, disclosed limitation: there's no
+// dimension-line stacking/collision avoidance, so a busy view's per-edge
+// dimensions may visually overlap each other or the overall ones -- only
+// the measured values are guaranteed correct, not the layout.
+void autoDimensionView(Document& doc2d, const TechDrawView& view, const AutoDimensionOptions& options = {});
+
 } // namespace lcad

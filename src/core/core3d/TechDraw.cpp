@@ -1,5 +1,6 @@
 #include "core/core3d/TechDraw.h"
 
+#include "core/geometry/Dimension.h"
 #include "core/geometry/Line.h"
 
 #include <BRepAdaptor_Curve.hxx>
@@ -16,6 +17,12 @@
 #include <gp_Ax2.hxx>
 #include <gp_Dir.hxx>
 #include <gp_Pnt.hxx>
+
+#include <algorithm>
+#include <cmath>
+#include <limits>
+#include <set>
+#include <tuple>
 
 namespace lcad {
 
@@ -141,6 +148,70 @@ void insertViewIntoDocument(Document& doc2d, const TechDrawView& view, double of
                                                   Point2D(edge.x2 + offsetX, edge.y2 + offsetY));
         if (edge.hidden) line->setLinetypeOverride(LineType::Hidden);
         doc2d.addEntity(std::move(line));
+    }
+}
+
+void autoDimensionView(Document& doc2d, const TechDrawView& view, const AutoDimensionOptions& options) {
+    if (view.edges.empty()) return;
+
+    constexpr double kEps = 1e-6;
+
+    double minX = std::numeric_limits<double>::max(), minY = std::numeric_limits<double>::max();
+    double maxX = std::numeric_limits<double>::lowest(), maxY = std::numeric_limits<double>::lowest();
+    for (const ProjectedEdge& e : view.edges) {
+        minX = std::min({minX, e.x1, e.x2});
+        minY = std::min({minY, e.y1, e.y2});
+        maxX = std::max({maxX, e.x1, e.x2});
+        maxY = std::max({maxY, e.y1, e.y2});
+    }
+    if (maxX < minX || maxY < minY) return;
+
+    LayerId dimLayer = 0;
+    bool found = false;
+    for (const Layer& layer : doc2d.layers()) {
+        if (layer.name == "DIMENSIONS") {
+            dimLayer = layer.id;
+            found = true;
+            break;
+        }
+    }
+    if (!found) dimLayer = doc2d.addLayer("DIMENSIONS", Color{255, 128, 0});
+
+    const double ox = options.offsetX, oy = options.offsetY;
+    const double gap = options.dimensionGap;
+    auto addLinear = [&](Point2D p1, Point2D p2, Point2D linePoint) {
+        doc2d.addEntity(std::make_unique<DimensionEntity>(doc2d.reserveEntityId(), dimLayer, p1, p2, linePoint, false));
+    };
+
+    // Overall width, below the view; overall height, left of the view --
+    // both exact since the projected coordinates already are the model's
+    // real dimensions for an orthographic view (see this function's own
+    // comment in TechDraw.h about why Iso isn't supported here).
+    addLinear(Point2D(minX + ox, minY + oy), Point2D(maxX + ox, minY + oy),
+             Point2D((minX + maxX) / 2.0 + ox, minY + oy - gap));
+    addLinear(Point2D(minX + ox, minY + oy), Point2D(minX + ox, maxY + oy),
+             Point2D(minX + ox - gap, (minY + maxY) / 2.0 + oy));
+
+    if (!options.dimensionEachAxisAlignedEdge) return;
+
+    auto quantize = [](double v) { return static_cast<long long>(std::llround(v / kEps)); };
+    std::set<std::tuple<int, long long, long long, long long>> seen;
+    for (const ProjectedEdge& e : view.edges) {
+        if (e.hidden) continue;
+        const double dx = e.x2 - e.x1, dy = e.y2 - e.y1;
+        if (std::abs(dy) < kEps && std::abs(dx) > kEps) {
+            const double y = e.y1;
+            const double xa = std::min(e.x1, e.x2), xb = std::max(e.x1, e.x2);
+            const auto key = std::make_tuple(0, quantize(y), quantize(xa), quantize(xb));
+            if (!seen.insert(key).second) continue;
+            addLinear(Point2D(xa + ox, y + oy), Point2D(xb + ox, y + oy), Point2D((xa + xb) / 2.0 + ox, y + oy - gap));
+        } else if (std::abs(dx) < kEps && std::abs(dy) > kEps) {
+            const double x = e.x1;
+            const double ya = std::min(e.y1, e.y2), yb = std::max(e.y1, e.y2);
+            const auto key = std::make_tuple(1, quantize(x), quantize(ya), quantize(yb));
+            if (!seen.insert(key).second) continue;
+            addLinear(Point2D(x + ox, ya + oy), Point2D(x + ox, yb + oy), Point2D(x + ox - gap, (ya + yb) / 2.0 + oy));
+        }
     }
 }
 

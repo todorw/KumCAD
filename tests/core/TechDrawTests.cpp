@@ -1,5 +1,6 @@
 #include "core/core3d/TechDraw.h"
 #include "core/document/Document.h"
+#include "core/geometry/Dimension.h"
 #include "core/geometry/Line.h"
 
 #include <BRepPrimAPI_MakeBox.hxx>
@@ -114,6 +115,81 @@ TEST_CASE("insertViewIntoDocument gives hidden edges a Hidden linetype override"
         if (e->linetypeOverride().has_value() && *e->linetypeOverride() == LineType::Hidden) anyHiddenOverride = true;
     }
     REQUIRE(anyHiddenOverride);
+}
+
+TEST_CASE("autoDimensionView adds exact overall width/height dimensions for an orthographic view",
+         "[core3d][techdraw][dimension]") {
+    const TopoDS_Shape box = BRepPrimAPI_MakeBox(10.0, 5.0, 4.0).Shape();
+    const TechDrawView view = projectView(box, ViewDirection::Front); // spans X=10, Z=4
+
+    Document doc2d;
+    autoDimensionView(doc2d, view);
+
+    std::vector<const DimensionEntity*> dims;
+    for (const Entity* e : doc2d.entities()) {
+        if (e->type() == EntityType::Dimension) dims.push_back(static_cast<const DimensionEntity*>(e));
+    }
+    REQUIRE(dims.size() == 2);
+
+    std::vector<double> values;
+    for (const auto* d : dims) values.push_back(d->geometry().value);
+    std::sort(values.begin(), values.end());
+    REQUIRE(values[0] == Approx(4.0).margin(1e-6));
+    REQUIRE(values[1] == Approx(10.0).margin(1e-6));
+
+    bool foundDimensionsLayer = false;
+    for (const Layer& layer : doc2d.layers()) {
+        if (layer.name == "DIMENSIONS") foundDimensionsLayer = true;
+    }
+    REQUIRE(foundDimensionsLayer);
+}
+
+TEST_CASE("autoDimensionView with dimensionEachAxisAlignedEdge also dimensions every distinct visible edge",
+         "[core3d][techdraw][dimension]") {
+    const TopoDS_Shape box = BRepPrimAPI_MakeBox(10.0, 5.0, 4.0).Shape();
+    const TechDrawView view = projectView(box, ViewDirection::Front); // a plain rectangle outline: 2x horizontal (10), 2x vertical (4)
+
+    Document doc2d;
+    AutoDimensionOptions options;
+    options.dimensionEachAxisAlignedEdge = true;
+    autoDimensionView(doc2d, view, options);
+
+    std::vector<double> values;
+    for (const Entity* e : doc2d.entities()) {
+        if (e->type() == EntityType::Dimension) values.push_back(static_cast<const DimensionEntity*>(e)->geometry().value);
+    }
+    // 2 overall (10, 4) + 4 per-edge (10, 10, 4, 4) = 6 total.
+    REQUIRE(values.size() == 6);
+    std::sort(values.begin(), values.end());
+    const std::vector<double> expected = {4.0, 4.0, 4.0, 10.0, 10.0, 10.0};
+    for (std::size_t i = 0; i < values.size(); ++i) REQUIRE(values[i] == Approx(expected[i]).margin(1e-6));
+}
+
+TEST_CASE("autoDimensionView respects the same offset insertViewIntoDocument used", "[core3d][techdraw][dimension]") {
+    const TopoDS_Shape box = BRepPrimAPI_MakeBox(10.0, 5.0, 4.0).Shape();
+    const TechDrawView view = projectView(box, ViewDirection::Front);
+
+    Document doc2d;
+    insertViewIntoDocument(doc2d, view, 100.0, 200.0);
+    AutoDimensionOptions options;
+    options.offsetX = 100.0;
+    options.offsetY = 200.0;
+    autoDimensionView(doc2d, view, options);
+
+    bool anyDimensionNearOffset = false;
+    for (const Entity* e : doc2d.entities()) {
+        if (e->type() != EntityType::Dimension) continue;
+        const auto* d = static_cast<const DimensionEntity*>(e);
+        if (d->point1().x >= 90.0 && d->point1().y >= 190.0) anyDimensionNearOffset = true;
+    }
+    REQUIRE(anyDimensionNearOffset);
+}
+
+TEST_CASE("autoDimensionView on an empty view adds nothing", "[core3d][techdraw][dimension]") {
+    Document doc2d;
+    const std::size_t before = doc2d.entities().size();
+    autoDimensionView(doc2d, TechDrawView{});
+    REQUIRE(doc2d.entities().size() == before);
 }
 
 TEST_CASE("projectView on a null shape returns no edges", "[core3d][techdraw]") {

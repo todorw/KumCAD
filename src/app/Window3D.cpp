@@ -1091,6 +1091,16 @@ void Window3D::generateDrawingViews() {
         for (const TopoDS_Shape& shape : tips) {
             const lcad::TechDrawView view = lcad::projectView(shape, spec.direction);
             lcad::insertViewIntoDocument(doc2d, view, spec.offsetX, spec.offsetY);
+            // Auto-dimension every orthographic view (not Iso -- see
+            // autoDimensionView's own comment on why a true isometric
+            // projection's lengths aren't the model's real lengths).
+            if (spec.direction != lcad::ViewDirection::Iso) {
+                lcad::AutoDimensionOptions dimOptions;
+                dimOptions.offsetX = spec.offsetX;
+                dimOptions.offsetY = spec.offsetY;
+                dimOptions.dimensionEachAxisAlignedEdge = true;
+                lcad::autoDimensionView(doc2d, view, dimOptions);
+            }
         }
     }
 
@@ -1099,7 +1109,8 @@ void Window3D::generateDrawingViews() {
         QMessageBox::warning(this, QStringLiteral("Export Failed"), QString::fromStdString(error));
         return;
     }
-    statusBar()->showMessage(QStringLiteral("Drawing views (Front/Top/Right/Iso) written to %1").arg(path), 4000);
+    statusBar()->showMessage(
+        QStringLiteral("Drawing views (Front/Top/Right/Iso), auto-dimensioned, written to %1").arg(path), 4000);
 }
 
 void Window3D::addSheetMetalPart() {
