@@ -56,7 +56,23 @@ struct Capsule {
     double radius;
     std::size_t ufRoot;
     int layerTag = -1;
+    std::string netName; // resolved net class lookup key -- see runDrc's own comment
 };
+
+// The larger of the two sides' own net-class clearance, or rules'
+// single global one if either side has no resolved net/matching class
+// (nets/netClasses not supplied, or a net with no class of its own) --
+// the standard KiCad "clearance between two nets is the stricter of
+// their two classes" convention.
+double effectiveClearance(const DrcRules& rules, const std::vector<NetClass>& netClasses, const std::string& netA,
+                          const std::string& netB) {
+    const NetClass* classA = findNetClass(netClasses, netA);
+    const NetClass* classB = findNetClass(netClasses, netB);
+    double clearance = rules.minClearance;
+    if (classA) clearance = std::max(clearance, classA->clearance);
+    if (classB) clearance = std::max(clearance, classB->clearance);
+    return clearance;
+}
 
 double pointSegmentDistance(const Point2D& p, const Point2D& a, const Point2D& b) {
     const Point2D seg = b - a;
@@ -76,7 +92,8 @@ double segmentSegmentDistance(const Point2D& a1, const Point2D& b1, const Point2
 
 } // namespace
 
-std::vector<DrcViolation> runDrc(const Document& doc, const DrcRules& rules, const CopperStackup& stackup) {
+std::vector<DrcViolation> runDrc(const Document& doc, const DrcRules& rules, const CopperStackup& stackup,
+                                 const std::vector<ImportedNet>& nets, const std::vector<NetClass>& netClasses) {
     std::vector<DrcViolation> violations;
 
     std::vector<const TrackEntity*> tracks;
@@ -91,13 +108,11 @@ std::vector<DrcViolation> runDrc(const Document& doc, const DrcRules& rules, con
         }
     }
 
-    for (const auto* track : tracks) {
-        if (track->width() < rules.minTrackWidth) {
-            violations.push_back({"Track width " + std::to_string(track->width()) + " is under the minimum " +
-                                      std::to_string(rules.minTrackWidth),
-                                  track->id()});
-        }
+    std::map<std::pair<std::string, std::string>, std::string> pinToNet;
+    for (const ImportedNet& net : nets) {
+        for (const ImportedNetPin& pin : net.pins) pinToNet[{pin.refDes, pin.pinNumber}] = net.name;
     }
+
     for (const auto* via : vias) {
         if (via->diameter() < rules.minViaDiameter) {
             violations.push_back({"Via diameter " + std::to_string(via->diameter()) + " is under the minimum " +
@@ -183,20 +198,26 @@ std::vector<DrcViolation> runDrc(const Document& doc, const DrcRules& rules, con
         const auto& verts = tracks[ti]->vertices();
         for (std::size_t vi = 0; vi + 1 < verts.size(); ++vi) {
             capsules.push_back({tracks[ti]->id(), verts[vi], verts[vi + 1], tracks[ti]->width() / 2.0,
-                                trackVertexUf[ti][vi], trackTag[ti]});
+                                trackVertexUf[ti][vi], trackTag[ti], {}});
         }
     }
     for (std::size_t i = 0; i < vias.size(); ++i) {
         capsules.push_back({vias[i]->id(), vias[i]->position(), vias[i]->position(), vias[i]->diameter() / 2.0,
-                            viaUf[i], -1});
+                            viaUf[i], -1, {}});
     }
     for (const auto* fp : footprints) {
+        const std::string* refDes = fp->attributeValue("REFDES");
         for (const auto& padWorld : fp->padWorldPositions()) {
             const std::size_t ufIndex = next++;
             for (int tag = 0; tag <= lastTag; ++tag) addToBucket(padWorld.position, tag, ufIndex);
+            std::string netName;
+            if (refDes) {
+                const auto it = pinToNet.find({*refDes, padWorld.pad->number});
+                if (it != pinToNet.end()) netName = it->second;
+            }
             capsules.push_back(
                 {fp->id(), padWorld.position, padWorld.position, std::max(padWorld.pad->width, padWorld.pad->height) / 2.0,
-                 ufIndex, -1});
+                 ufIndex, -1, netName});
         }
     }
 
@@ -206,6 +227,35 @@ std::vector<DrcViolation> runDrc(const Document& doc, const DrcRules& rules, con
     }
     for (Capsule& c : capsules) c.ufRoot = uf.find(c.ufRoot);
 
+    // Propagate each pad's resolved net name to every OTHER capsule
+    // (tracks, vias) sharing its same connectivity root -- neither
+    // stores a net name of its own, but electrically they're on whatever
+    // net any pad in their component resolved to.
+    std::map<std::size_t, std::string> rootNetName;
+    for (const Capsule& c : capsules) {
+        if (!c.netName.empty()) rootNetName.emplace(c.ufRoot, c.netName);
+    }
+    for (Capsule& c : capsules) {
+        if (c.netName.empty()) {
+            const auto it = rootNetName.find(c.ufRoot);
+            if (it != rootNetName.end()) c.netName = it->second;
+        }
+    }
+
+    for (std::size_t ti = 0; ti < tracks.size(); ++ti) {
+        const std::string& netName = rootNetName.count(uf.find(trackVertexUf[ti].front()))
+                                       ? rootNetName.at(uf.find(trackVertexUf[ti].front()))
+                                       : std::string();
+        const NetClass* netClass = findNetClass(netClasses, netName);
+        const double minWidth = netClass ? netClass->trackWidth : rules.minTrackWidth;
+        if (tracks[ti]->width() < minWidth) {
+            violations.push_back({"Track width " + std::to_string(tracks[ti]->width()) + " is under the minimum " +
+                                      std::to_string(minWidth) +
+                                      (netClass ? " for net class \"" + netClass->name + "\"" : ""),
+                                  tracks[ti]->id()});
+        }
+    }
+
     for (std::size_t i = 0; i < capsules.size(); ++i) {
         for (std::size_t j = i + 1; j < capsules.size(); ++j) {
             const Capsule& c1 = capsules[i];
@@ -213,10 +263,10 @@ std::vector<DrcViolation> runDrc(const Document& doc, const DrcRules& rules, con
             if (c1.ownerId == c2.ownerId || c1.ufRoot == c2.ufRoot) continue;
             if (stackupActive && c1.layerTag >= 0 && c2.layerTag >= 0 && c1.layerTag != c2.layerTag) continue;
             const double gap = segmentSegmentDistance(c1.a, c1.b, c2.a, c2.b) - c1.radius - c2.radius;
-            if (gap < rules.minClearance) {
+            const double clearance = effectiveClearance(rules, netClasses, c1.netName, c2.netName);
+            if (gap < clearance) {
                 violations.push_back({"Clearance violation: " + std::to_string(gap < 0 ? 0.0 : gap) +
-                                          " between unconnected copper (minimum " +
-                                          std::to_string(rules.minClearance) + ")",
+                                          " between unconnected copper (minimum " + std::to_string(clearance) + ")",
                                       c1.ownerId});
             }
         }

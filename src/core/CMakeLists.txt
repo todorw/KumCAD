@@ -69,6 +69,8 @@ add_library(lcad_core STATIC
     schematic/Sheets.cpp
     pcb/Stackup.h
     pcb/Stackup.cpp
+    pcb/NetClass.h
+    pcb/NetClass.cpp
     pcb/Ratsnest.h
     pcb/Ratsnest.cpp
     pcb/Drc.h

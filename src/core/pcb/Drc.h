@@ -1,6 +1,8 @@
 #pragma once
 
 #include "core/Ids.h"
+#include "core/pcb/NetClass.h"
+#include "core/pcb/Ratsnest.h"
 #include "core/pcb/Stackup.h"
 
 #include <string>
@@ -45,6 +47,22 @@ struct DrcViolation {
 //    per-layer position of its own yet (Pad) or is meaningfully
 //    restricted to one layer at all (a via's whole point is to occupy
 //    the drill site on every layer it spans).
-std::vector<DrcViolation> runDrc(const Document& doc, const DrcRules& rules = {}, const CopperStackup& stackup = {});
+//
+// nets/netClasses (both default empty) add KiCad-style per-net-class
+// rules on top of the above: with nets supplied, each pad resolves to
+// its own net name (same REFDES+pin matching Ratsnest.h uses) and that
+// name propagates through the SAME connectivity graph this function
+// already builds -- so every Track/Via belonging to a net's copper
+// (even though neither stores a net name of its own) resolves to it
+// too. With netClasses also supplied: a Track narrower than its own
+// net's class's trackWidth is flagged (falling back to
+// rules.minTrackWidth for any net with no matching class); a clearance
+// check between two different nets uses the LARGER of their two
+// classes' own clearance values (falling back to rules.minClearance
+// when either side has no matching class) -- both real KiCad
+// conventions. Passing nets without netClasses (or vice versa) has no
+// effect; both are needed together for per-class rules to apply.
+std::vector<DrcViolation> runDrc(const Document& doc, const DrcRules& rules = {}, const CopperStackup& stackup = {},
+                                 const std::vector<ImportedNet>& nets = {}, const std::vector<NetClass>& netClasses = {});
 
 } // namespace lcad

@@ -173,11 +173,12 @@ public:
     void cancel() override { m_finished = true; }
 
 private:
-    enum class Stage { NetlistPath, GridSize, TrackWidth, Clearance };
+    enum class Stage { NetlistPath, GridSize, TrackWidth, Clearance, NetClasses };
     lcad::Document& m_document;
     Stage m_stage = Stage::NetlistPath;
     std::vector<lcad::ImportedNet> m_nets;
     lcad::AutorouteParams m_params;
+    std::vector<lcad::NetClass> m_netClasses;
     bool m_finished = false;
 };
 

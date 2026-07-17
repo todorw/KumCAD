@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/Ids.h"
+#include "core/pcb/NetClass.h"
 
 #include <string>
 #include <vector>
@@ -49,6 +50,14 @@ struct AutorouteResult {
 //
 // Adds one TrackEntity per successfully routed connection directly to
 // doc, on params.layer.
-AutorouteResult autoroute(Document& doc, const std::vector<ImportedNet>& nets, const AutorouteParams& params = {});
+//
+// netClasses (default empty) overrides params.trackWidth/clearance per
+// connection when that connection's own net resolves to a class (see
+// core/pcb/NetClass.h) -- a "Power" class can route wider than
+// "Default", for instance. A net with no matching class still uses
+// params' own single global values, exactly the pre-existing behavior
+// when netClasses is left empty altogether.
+AutorouteResult autoroute(Document& doc, const std::vector<ImportedNet>& nets, const AutorouteParams& params = {},
+                         const std::vector<NetClass>& netClasses = {});
 
 } // namespace lcad

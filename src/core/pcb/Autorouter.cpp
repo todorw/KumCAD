@@ -29,6 +29,8 @@ struct PlacedPad {
 struct RoutedSegment {
     Point2D a, b;
     std::string netName;
+    double trackWidth = 0.25;
+    double clearance = 0.2;
 };
 
 struct PendingConnection {
@@ -142,7 +144,8 @@ std::vector<Point2D> simplifyPath(const std::vector<Point2D>& raw) {
 
 } // namespace
 
-AutorouteResult autoroute(Document& doc, const std::vector<ImportedNet>& nets, const AutorouteParams& params) {
+AutorouteResult autoroute(Document& doc, const std::vector<ImportedNet>& nets, const AutorouteParams& params,
+                          const std::vector<NetClass>& netClasses) {
     AutorouteResult result;
     if (params.gridSize <= 1e-9) return result;
 
@@ -189,26 +192,37 @@ AutorouteResult autoroute(Document& doc, const std::vector<ImportedNet>& nets, c
         return a.line.a.distanceTo(a.line.b) < b.line.a.distanceTo(b.line.b);
     });
 
-    // Track-vs-track: this track's own half-width + clearance + the
-    // other (same-width) track's own half-width. Track-vs-pad: pad.radius
-    // is already the other feature's FULL extent (not a half-width to
-    // add a second half to), so only this track's own half-width needs
-    // adding on top of it -- using the track-vs-track margin here too
-    // would double-count half a track-width of clearance that was never
-    // actually needed.
-    const double obstacleRadius = params.trackWidth + params.clearance;
-    const double padObstacleRadius = params.trackWidth / 2.0 + params.clearance;
     std::vector<RoutedSegment> routedSegments;
 
     for (const PendingConnection& conn : pending) {
+        // netClasses (see NetClass.h) lets different nets route with
+        // their own track width/clearance -- a net with no matching
+        // class still falls back to params' own single global values,
+        // exactly the pre-existing behavior when netClasses is empty.
+        const NetClass* connClass = findNetClass(netClasses, conn.netName);
+        const double connTrackWidth = connClass ? connClass->trackWidth : params.trackWidth;
+        const double connClearance = connClass ? connClass->clearance : params.clearance;
+
         std::vector<bool> obstacle(static_cast<std::size_t>(nx) * static_cast<std::size_t>(ny), false);
         for (const PlacedPad& pad : allPads) {
             if (!pad.netName.empty() && pad.netName == conn.netName) continue;
-            markNearPoint(obstacle, nx, ny, minX, minY, params.gridSize, pad.position, pad.radius + padObstacleRadius);
+            // Clearance to another net's copper uses the LARGER of the
+            // two nets' own required clearances (the same convention
+            // Drc.h's own per-net-class check uses), not just this
+            // connection's own.
+            const NetClass* padClass = findNetClass(netClasses, pad.netName);
+            const double padClearance = std::max(connClearance, padClass ? padClass->clearance : params.clearance);
+            // pad.radius is already the pad's own full extent (not a
+            // half-width needing a second half added on top of it) --
+            // only this connection's own track half-width needs adding.
+            markNearPoint(obstacle, nx, ny, minX, minY, params.gridSize, pad.position,
+                         pad.radius + connTrackWidth / 2.0 + padClearance);
         }
         for (const RoutedSegment& seg : routedSegments) {
             if (seg.netName == conn.netName) continue;
-            markNearSegment(obstacle, nx, ny, minX, minY, params.gridSize, seg.a, seg.b, obstacleRadius);
+            const double segClearance = std::max(connClearance, seg.clearance);
+            markNearSegment(obstacle, nx, ny, minX, minY, params.gridSize, seg.a, seg.b,
+                           connTrackWidth / 2.0 + segClearance + seg.trackWidth / 2.0);
         }
 
         const GridCell start = toCell(conn.line.a, minX, minY, params.gridSize);
@@ -235,9 +249,9 @@ AutorouteResult autoroute(Document& doc, const std::vector<ImportedNet>& nets, c
         worldPath.back() = conn.line.b;
         const std::vector<Point2D> simplified = simplifyPath(worldPath);
 
-        doc.addEntity(std::make_unique<TrackEntity>(doc.reserveEntityId(), params.layer, simplified, params.trackWidth));
+        doc.addEntity(std::make_unique<TrackEntity>(doc.reserveEntityId(), params.layer, simplified, connTrackWidth));
         for (std::size_t i = 0; i + 1 < simplified.size(); ++i) {
-            routedSegments.push_back({simplified[i], simplified[i + 1], conn.netName});
+            routedSegments.push_back({simplified[i], simplified[i + 1], conn.netName, connTrackWidth, connClearance});
         }
         ++result.routedCount;
     }

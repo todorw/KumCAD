@@ -10,6 +10,8 @@
 #include "core/pcb/Ratsnest.h"
 #include "core/pcb/SpecctraWriter.h"
 
+#include <QStringList>
+
 #include <algorithm>
 #include <fstream>
 #include <sstream>
@@ -186,14 +188,43 @@ std::optional<QString> AutorouteCommand::onText(const QString& text) {
         return QStringLiteral("Clearance <0.2>:");
     }
     case Stage::Clearance: {
-        m_finished = true;
         if (!text.trimmed().isEmpty()) {
             bool ok = false;
             const double value = text.trimmed().toDouble(&ok);
             if (!ok || value < 0.0) return QStringLiteral("*Invalid clearance*");
             m_params.clearance = value;
         }
-        const lcad::AutorouteResult result = lcad::autoroute(m_document, m_nets, m_params);
+        m_stage = Stage::NetClasses;
+        return QStringLiteral("Net class overrides <none> (name:trackWidth:clearance:net1,net2,...; "
+                              "multiple separated by ;):");
+    }
+    case Stage::NetClasses: {
+        m_finished = true;
+        const QString trimmed = text.trimmed();
+        if (!trimmed.isEmpty()) {
+            for (const QString& entry : trimmed.split(QLatin1Char(';'), Qt::SkipEmptyParts)) {
+                const QStringList fields = entry.split(QLatin1Char(':'));
+                if (fields.size() != 4) return QStringLiteral("*Invalid net class \"%1\" -- expected "
+                                                              "name:trackWidth:clearance:net1,net2,...*")
+                                                 .arg(entry);
+                bool widthOk = false, clearanceOk = false;
+                const double trackWidth = fields[1].trimmed().toDouble(&widthOk);
+                const double clearance = fields[2].trimmed().toDouble(&clearanceOk);
+                if (!widthOk || !clearanceOk || trackWidth <= 0.0 || clearance < 0.0) {
+                    return QStringLiteral("*Invalid trackWidth/clearance in net class \"%1\"*").arg(entry);
+                }
+                lcad::NetClass netClass;
+                netClass.name = fields[0].trimmed().toStdString();
+                netClass.trackWidth = trackWidth;
+                netClass.clearance = clearance;
+                for (const QString& netName : fields[3].split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+                    netClass.netNames.push_back(netName.trimmed().toStdString());
+                }
+                m_netClasses.push_back(netClass);
+            }
+        }
+
+        const lcad::AutorouteResult result = lcad::autoroute(m_document, m_nets, m_params, m_netClasses);
         if (result.failedCount == 0) {
             return QStringLiteral("*Autoroute: %1 connection(s) routed*").arg(result.routedCount);
         }
