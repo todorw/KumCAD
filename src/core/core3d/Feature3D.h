@@ -90,6 +90,34 @@ enum class FeatureType {
                    // recipe of its own -- importIndex points into the owning
                    // Document3D's importedShapes(), and recompute just
                    // copies that shape verbatim rather than rebuilding it.
+    Helix,         // a solid coil/spring/thread-like wire: p1=helix radius
+                   // (distance from the axis), p2=pitch (axial rise per
+                   // full turn), p3=height (total axial extent, so
+                   // p3/p2 turns), p4=profile radius (thickness of the
+                   // swept wire). Base point (posX,posY,posZ), axis
+                   // direction (dirX,dirY,dirZ) -- same fields as
+                   // Revolve's own axis. A real, disclosed helix (an
+                   // actual helical spine via a line on a cylindrical
+                   // surface, not a stack of rotated/translated rings),
+                   // swept the same way Sweep already sweeps a profile
+                   // along a path (BRepOffsetAPI_MakePipe) -- a helix is
+                   // G1-continuous by construction, so it never hits
+                   // Sweep's own disclosed sharp-corner limitation.
+    Hole,          // drills into inputA at (posX,posY,posZ) along
+                   // (dirX,dirY,dirZ): p1=diameter, p2=depth (a real,
+                   // disclosed simplification: always a finite depth,
+                   // not a true "through all" that adapts to the
+                   // target's own extent -- give p2 comfortably larger
+                   // than the target to emulate through-all). count
+                   // REUSED as a 3-way hole-type selector (0=Simple,
+                   // 1=Counterbore, 2=Countersink -- the same "reuse an
+                   // existing generic field for a per-type discrete
+                   // choice" convention cutMode already uses for Pad/
+                   // Revolve): Counterbore's recess uses p3=counterbore
+                   // diameter, p4=counterbore depth; Countersink's cone
+                   // uses p3=countersink diameter, p4=full included
+                   // angle in degrees (e.g. 82 or 90, standard drill
+                   // countersink angles).
 };
 
 struct Feature3D {

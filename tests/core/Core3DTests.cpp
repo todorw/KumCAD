@@ -316,3 +316,222 @@ TEST_CASE("An Imported feature is translated to its posX/Y/Z", "[core3d][rotatio
     REQUIRE(xmin == Approx(100.0).margin(1e-6));
     REQUIRE(ymin == Approx(50.0).margin(1e-6));
 }
+
+TEST_CASE("Document3D Helix builds a coil with the exact pipe-volume identity", "[core3d][helix]") {
+    // A pipe/sweep of constant cross-section along ANY curve has volume =
+    // (cross-section area) * (path arc length) exactly, regardless of the
+    // path's shape -- the same volume-conservation identity SheetMetal's
+    // own bend validation already relies on. A helix's own arc length is
+    // exactly turns * sqrt((2*pi*radius)^2 + pitch^2).
+    Document3D doc;
+    Feature3D helix;
+    helix.type = FeatureType::Helix;
+    helix.p1 = 10.0; // helix radius
+    helix.p2 = 2.0;  // pitch
+    helix.p3 = 20.0; // height -> 10 turns
+    helix.p4 = 0.5;  // profile (wire) radius
+    const int helixIdx = doc.addFeature(helix);
+
+    REQUIRE(doc.isValid(helixIdx));
+
+    const double turns = helix.p3 / helix.p2;
+    const double archLength = turns * std::sqrt(std::pow(2.0 * M_PI * helix.p1, 2) + helix.p2 * helix.p2);
+    const double crossSectionArea = M_PI * helix.p4 * helix.p4;
+    const double expectedVolume = crossSectionArea * archLength;
+
+    REQUIRE(volumeOf(doc.shapeAt(helixIdx)) == Approx(expectedVolume).epsilon(0.01));
+}
+
+TEST_CASE("Document3D Helix spans the requested height along its axis", "[core3d][helix]") {
+    Document3D doc;
+    Feature3D helix;
+    helix.type = FeatureType::Helix;
+    helix.p1 = 5.0;
+    helix.p2 = 1.0;
+    helix.p3 = 10.0;
+    helix.p4 = 0.3;
+    helix.posX = helix.posY = helix.posZ = 0.0;
+    helix.dirX = 0.0;
+    helix.dirY = 0.0;
+    helix.dirZ = 1.0;
+    const int helixIdx = doc.addFeature(helix);
+    REQUIRE(doc.isValid(helixIdx));
+
+    Bnd_Box bounds;
+    BRepBndLib::Add(doc.shapeAt(helixIdx), bounds);
+    double xmin, ymin, zmin, xmax, ymax, zmax;
+    bounds.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+    // The coil covers its full nominal height, plus a bit of padding from
+    // the wire's own thickness at each end (exactly how much depends on
+    // the end caps' tilt relative to the axis -- a tighter closed-form
+    // margin isn't attempted here, the exact pipe-volume identity in the
+    // test above is the real correctness proof; this just sanity-checks
+    // axial coverage).
+    REQUIRE(zmin < 1e-6);
+    REQUIRE(zmax > helix.p3 - 1e-6);
+    // A generous bound, not a tight one -- end-cap tilt can add several
+    // times the wire radius of padding for a shallow-pitch coil like this
+    // one (pitch=1 over a radius=5 circumference of ~31.4, so the tangent
+    // -- and thus the end caps -- sit closer to vertical than horizontal).
+    // Just guards against something having gone wildly wrong (e.g. a
+    // second, unwanted full turn's worth of extra height).
+    REQUIRE((zmax - zmin) < helix.p3 * 1.5);
+}
+
+TEST_CASE("Document3D Helix rejects degenerate parameters", "[core3d][helix]") {
+    Document3D doc;
+    Feature3D base;
+    base.type = FeatureType::Helix;
+    base.p1 = 10.0;
+    base.p2 = 2.0;
+    base.p3 = 20.0;
+    base.p4 = 1.0;
+
+    auto tryBuild = [&](Feature3D f) { return doc.isValid(doc.addFeature(f)); };
+
+    Feature3D noRadius = base;
+    noRadius.p1 = 0.0;
+    REQUIRE_FALSE(tryBuild(noRadius));
+
+    Feature3D noPitch = base;
+    noPitch.p2 = 0.0;
+    REQUIRE_FALSE(tryBuild(noPitch));
+
+    Feature3D noHeight = base;
+    noHeight.p3 = 0.0;
+    REQUIRE_FALSE(tryBuild(noHeight));
+
+    Feature3D noProfile = base;
+    noProfile.p4 = 0.0;
+    REQUIRE_FALSE(tryBuild(noProfile));
+
+    Feature3D noDir = base;
+    noDir.dirX = noDir.dirY = noDir.dirZ = 0.0;
+    REQUIRE_FALSE(tryBuild(noDir));
+}
+
+TEST_CASE("Document3D Hole drills a simple through-diameter hole with the exact cylinder volume", "[core3d][hole]") {
+    Document3D doc;
+    Feature3D box;
+    box.type = FeatureType::Box;
+    box.p1 = box.p2 = box.p3 = 20.0;
+    const int boxIdx = doc.addFeature(box);
+    const double boxVolume = 20.0 * 20.0 * 20.0;
+
+    Feature3D hole;
+    hole.type = FeatureType::Hole;
+    hole.inputA = boxIdx;
+    hole.p1 = 4.0; // diameter
+    hole.p2 = 20.0; // full depth (through)
+    hole.posX = hole.posY = 10.0; // centered
+    hole.posZ = 0.0;
+    hole.dirX = 0.0;
+    hole.dirY = 0.0;
+    hole.dirZ = 1.0;
+    hole.count = 0; // Simple
+    const int holeIdx = doc.addFeature(hole);
+
+    REQUIRE(doc.isValid(holeIdx));
+    const double drilledVolume = M_PI * (hole.p1 / 2.0) * (hole.p1 / 2.0) * hole.p2;
+    REQUIRE(volumeOf(doc.shapeAt(holeIdx)) == Approx(boxVolume - drilledVolume).margin(1e-3));
+}
+
+TEST_CASE("Document3D Hole counterbore matches the exact two-diameter-strip volume", "[core3d][hole]") {
+    Document3D doc;
+    Feature3D box;
+    box.type = FeatureType::Box;
+    box.p1 = box.p2 = box.p3 = 20.0;
+    const int boxIdx = doc.addFeature(box);
+    const double boxVolume = 20.0 * 20.0 * 20.0;
+
+    Feature3D hole;
+    hole.type = FeatureType::Hole;
+    hole.inputA = boxIdx;
+    hole.p1 = 4.0;  // through diameter
+    hole.p2 = 20.0; // through depth
+    hole.p3 = 8.0;  // counterbore diameter
+    hole.p4 = 3.0;  // counterbore depth
+    hole.posX = hole.posY = 10.0;
+    hole.posZ = 0.0;
+    hole.dirX = 0.0;
+    hole.dirY = 0.0;
+    hole.dirZ = 1.0;
+    hole.count = 1; // Counterbore
+    const int holeIdx = doc.addFeature(hole);
+
+    REQUIRE(doc.isValid(holeIdx));
+    // Exact tool volume: the WIDE counterbore radius dominates strip
+    // [0,p4] (the narrow hole is a proper subset there), the narrow
+    // radius alone covers the rest [p4,p2].
+    const double wideR = hole.p3 / 2.0, narrowR = hole.p1 / 2.0;
+    const double toolVolume = M_PI * wideR * wideR * hole.p4 + M_PI * narrowR * narrowR * (hole.p2 - hole.p4);
+    REQUIRE(volumeOf(doc.shapeAt(holeIdx)) == Approx(boxVolume - toolVolume).margin(1e-2));
+}
+
+TEST_CASE("Document3D Hole countersink matches the exact frustum-plus-cylinder volume", "[core3d][hole]") {
+    Document3D doc;
+    Feature3D box;
+    box.type = FeatureType::Box;
+    box.p1 = box.p2 = box.p3 = 20.0;
+    const int boxIdx = doc.addFeature(box);
+    const double boxVolume = 20.0 * 20.0 * 20.0;
+
+    Feature3D hole;
+    hole.type = FeatureType::Hole;
+    hole.inputA = boxIdx;
+    hole.p1 = 4.0;  // through diameter
+    hole.p2 = 20.0; // through depth
+    hole.p3 = 8.0;  // countersink diameter
+    hole.p4 = 90.0; // full included angle, degrees
+    hole.posX = hole.posY = 10.0;
+    hole.posZ = 0.0;
+    hole.dirX = 0.0;
+    hole.dirY = 0.0;
+    hole.dirZ = 1.0;
+    hole.count = 2; // Countersink
+    const int holeIdx = doc.addFeature(hole);
+
+    REQUIRE(doc.isValid(holeIdx));
+
+    const double wideR = hole.p3 / 2.0, narrowR = hole.p1 / 2.0;
+    const double countersinkDepth = (wideR - narrowR) / std::tan(hole.p4 * M_PI / 360.0);
+    // Frustum volume (standard formula) + the narrow cylinder's remaining
+    // length below the frustum.
+    const double frustumVolume =
+        (M_PI * countersinkDepth / 3.0) * (wideR * wideR + wideR * narrowR + narrowR * narrowR);
+    const double toolVolume = frustumVolume + M_PI * narrowR * narrowR * (hole.p2 - countersinkDepth);
+    REQUIRE(volumeOf(doc.shapeAt(holeIdx)) == Approx(boxVolume - toolVolume).margin(1e-2));
+}
+
+TEST_CASE("Document3D Hole rejects degenerate parameters", "[core3d][hole]") {
+    Document3D doc;
+    Feature3D box;
+    box.type = FeatureType::Box;
+    box.p1 = box.p2 = box.p3 = 20.0;
+    const int boxIdx = doc.addFeature(box);
+
+    Feature3D base;
+    base.type = FeatureType::Hole;
+    base.inputA = boxIdx;
+    base.p1 = 4.0;
+    base.p2 = 20.0;
+    base.dirZ = 1.0;
+
+    auto tryBuild = [&](Feature3D f) { return doc.isValid(doc.addFeature(f)); };
+
+    Feature3D noTarget = base;
+    noTarget.inputA = -1;
+    REQUIRE_FALSE(tryBuild(noTarget));
+
+    Feature3D noDiameter = base;
+    noDiameter.p1 = 0.0;
+    REQUIRE_FALSE(tryBuild(noDiameter));
+
+    Feature3D noDepth = base;
+    noDepth.p2 = 0.0;
+    REQUIRE_FALSE(tryBuild(noDepth));
+
+    Feature3D noDir = base;
+    noDir.dirX = noDir.dirY = noDir.dirZ = 0.0;
+    REQUIRE_FALSE(tryBuild(noDir));
+}

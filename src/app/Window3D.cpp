@@ -87,6 +87,8 @@ QString typeName(FeatureType type) {
     case FeatureType::Sweep: return QStringLiteral("Sweep");
     case FeatureType::Draft: return QStringLiteral("Draft");
     case FeatureType::Imported: return QStringLiteral("Imported");
+    case FeatureType::Helix: return QStringLiteral("Helix");
+    case FeatureType::Hole: return QStringLiteral("Hole");
     }
     return QStringLiteral("Feature");
 }
@@ -103,6 +105,12 @@ std::vector<QString> paramLabels(FeatureType type) {
     case FeatureType::Torus: return {QStringLiteral("Major Radius"), QStringLiteral("Minor Radius")};
     case FeatureType::Wedge:
         return {QStringLiteral("Dx"), QStringLiteral("Dy"), QStringLiteral("Dz"), QStringLiteral("Ltx")};
+    case FeatureType::Helix:
+        return {QStringLiteral("Helix Radius"), QStringLiteral("Pitch"), QStringLiteral("Height"),
+               QStringLiteral("Profile Radius")};
+    case FeatureType::Hole:
+        return {QStringLiteral("Diameter"), QStringLiteral("Depth"), QStringLiteral("Counterbore/sink Diameter"),
+               QStringLiteral("Counterbore Depth / Countersink Angle")};
     default:
         return {};
     }
@@ -1119,6 +1127,7 @@ Window3D::Window3D(QWidget* parent) : QMainWindow(parent) {
     toolbar->addAction(QStringLiteral("Cone"), this, [this] { addPrimitive(FeatureType::Cone); });
     toolbar->addAction(QStringLiteral("Torus"), this, [this] { addPrimitive(FeatureType::Torus); });
     toolbar->addAction(QStringLiteral("Wedge"), this, [this] { addPrimitive(FeatureType::Wedge); });
+    toolbar->addAction(QStringLiteral("Helix"), this, [this] { addPrimitive(FeatureType::Helix); });
     toolbar->addSeparator();
     toolbar->addAction(QStringLiteral("Union"), this, [this] { applyBoolean(FeatureType::Union); });
     toolbar->addAction(QStringLiteral("Cut"), this, [this] { applyBoolean(FeatureType::Cut); });
@@ -1176,6 +1185,13 @@ void Window3D::addPrimitive(FeatureType type) {
     case FeatureType::Wedge:
         feature.p1 = feature.p2 = feature.p3 = 20.0;
         feature.p4 = 10.0; // Ltx: top face narrower than the base by default
+        break;
+    case FeatureType::Helix:
+        feature.p1 = 10.0; // helix radius
+        feature.p2 = 2.0;  // pitch
+        feature.p3 = 20.0; // height (10 turns)
+        feature.p4 = 1.0;  // profile (wire) radius
+        feature.dirZ = 1.0;
         break;
     default:
         break;

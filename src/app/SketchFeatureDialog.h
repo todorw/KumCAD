@@ -36,6 +36,9 @@ private:
     QComboBox* m_targetCombo = nullptr;
     QCheckBox* m_cutModeCheck = nullptr;
     QDoubleSpinBox* m_p1Spin = nullptr;
+    QDoubleSpinBox* m_p2Spin = nullptr;
+    QDoubleSpinBox* m_p3Spin = nullptr;
+    QDoubleSpinBox* m_p4Spin = nullptr;
     QSpinBox* m_countSpin = nullptr;
     QDoubleSpinBox* m_posX = nullptr;
     QDoubleSpinBox* m_posY = nullptr;

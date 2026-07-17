@@ -347,3 +347,44 @@ TEST_CASE("loadDocument3D reads an older format-5 file (no fingerprints) with sa
     REQUIRE(loaded.findFeature(0)->edgeFingerprints.empty());
     REQUIRE(loaded.findFeature(0)->faceFingerprints.empty());
 }
+
+TEST_CASE("Document3D save/load round-trips Helix and Hole features", "[core3d][persistence][helix][hole]") {
+    TempPath temp;
+    Document3D doc;
+
+    Feature3D box;
+    box.type = FeatureType::Box;
+    box.p1 = box.p2 = box.p3 = 20.0;
+    const int boxIdx = doc.addFeature(box);
+
+    Feature3D helix;
+    helix.type = FeatureType::Helix;
+    helix.p1 = 10.0;
+    helix.p2 = 2.0;
+    helix.p3 = 20.0;
+    helix.p4 = 0.5;
+    const int helixIdx = doc.addFeature(helix);
+
+    Feature3D hole;
+    hole.type = FeatureType::Hole;
+    hole.inputA = boxIdx;
+    hole.p1 = 4.0;
+    hole.p2 = 20.0;
+    hole.p3 = 8.0;
+    hole.p4 = 3.0;
+    hole.posX = hole.posY = 10.0;
+    hole.dirZ = 1.0;
+    hole.count = 1; // Counterbore
+    const int holeIdx = doc.addFeature(hole);
+
+    REQUIRE(saveDocument3D(doc, temp.path.string()));
+    Document3D loaded;
+    REQUIRE(loadDocument3D(loaded, temp.path.string()));
+
+    REQUIRE(loaded.isValid(helixIdx));
+    REQUIRE(volumeOf(loaded.shapeAt(helixIdx)) == Approx(volumeOf(doc.shapeAt(helixIdx))).margin(1e-6));
+
+    REQUIRE(loaded.isValid(holeIdx));
+    REQUIRE(loaded.findFeature(holeIdx)->count == 1);
+    REQUIRE(volumeOf(loaded.shapeAt(holeIdx)) == Approx(volumeOf(doc.shapeAt(holeIdx))).margin(1e-6));
+}

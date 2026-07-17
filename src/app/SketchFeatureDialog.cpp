@@ -45,6 +45,7 @@ SketchFeatureDialog::SketchFeatureDialog(const lcad::Document3D& document, QWidg
     m_typeCombo->addItem(QStringLiteral("Loft"), static_cast<int>(FeatureType::Loft));
     m_typeCombo->addItem(QStringLiteral("Sweep"), static_cast<int>(FeatureType::Sweep));
     m_typeCombo->addItem(QStringLiteral("Draft"), static_cast<int>(FeatureType::Draft));
+    m_typeCombo->addItem(QStringLiteral("Hole"), static_cast<int>(FeatureType::Hole));
     form->addRow(QStringLiteral("Type:"), m_typeCombo);
     connect(m_typeCombo, &QComboBox::currentIndexChanged, this, &SketchFeatureDialog::updateHint);
 
@@ -75,12 +76,22 @@ SketchFeatureDialog::SketchFeatureDialog(const lcad::Document3D& document, QWidg
     form->addRow(QString(), m_cutModeCheck);
 
     m_p1Spin = makeSpin(-1e6, 1e6, 10.0);
-    form->addRow(QStringLiteral("Height / Angle° / Radius / Spacing:"), m_p1Spin);
+    form->addRow(QStringLiteral("Height / Angle° / Radius / Spacing / Hole Diameter:"), m_p1Spin);
+
+    m_p2Spin = makeSpin(-1e6, 1e6, 0.0);
+    form->addRow(QStringLiteral("Hole Depth:"), m_p2Spin);
+    m_p3Spin = makeSpin(-1e6, 1e6, 0.0);
+    form->addRow(QStringLiteral("Hole Counterbore/sink Diameter:"), m_p3Spin);
+    m_p4Spin = makeSpin(-1e6, 1e6, 0.0);
+    form->addRow(QStringLiteral("Hole Counterbore Depth / Countersink Angle:"), m_p4Spin);
 
     m_countSpin = new QSpinBox(this);
-    m_countSpin->setRange(1, 1000);
+    // Range starts at 0 so Hole's own reuse (0=Simple/1=Counterbore/
+    // 2=Countersink, see FeatureType::Hole's own comment) is reachable;
+    // a pattern count of 0 is simply never a meaningful value to set.
+    m_countSpin->setRange(0, 1000);
     m_countSpin->setValue(3);
-    form->addRow(QStringLiteral("Pattern count:"), m_countSpin);
+    form->addRow(QStringLiteral("Pattern Count / Hole Type (0=Simple,1=Counterbore,2=Countersink):"), m_countSpin);
 
     m_posX = makeSpin(-1e6, 1e6, 0.0);
     m_posY = makeSpin(-1e6, 1e6, 0.0);
@@ -168,6 +179,13 @@ void SketchFeatureDialog::updateHint() {
                                             "Indices, pulled along Normal, relative to the neutral plane through "
                                             "Position with that same direction as its own normal."));
         break;
+    case FeatureType::Hole:
+        m_hintLabel->setText(
+            QStringLiteral("Hole: drills into Target at Position along Direction. Diameter/Depth fields set the "
+                          "main hole; Pattern Count/Hole Type selects Simple(0)/Counterbore(1)/Countersink(2) "
+                          "-- Counterbore uses Counterbore Diameter+Depth, Countersink uses Diameter+full "
+                          "included Angle in degrees."));
+        break;
     default:
         break;
     }
@@ -181,6 +199,9 @@ Feature3D SketchFeatureDialog::result() const {
     f.inputA = m_targetCombo->currentData().toInt();
     f.cutMode = m_cutModeCheck->isChecked();
     f.p1 = m_p1Spin->value();
+    f.p2 = m_p2Spin->value();
+    f.p3 = m_p3Spin->value();
+    f.p4 = m_p4Spin->value();
     f.count = m_countSpin->value();
     f.posX = m_posX->value();
     f.posY = m_posY->value();

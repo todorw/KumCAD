@@ -4,6 +4,7 @@
 #include "core/core3d/TopoNaming.h"
 #include "core/util/Expr.h"
 
+#include <BRepAdaptor_Curve.hxx>
 #include <BRepAlgoAPI_Common.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
@@ -11,7 +12,9 @@
 #include <BRepFilletAPI_MakeChamfer.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
+#include <BRepLib.hxx>
 #include <BRepOffsetAPI_DraftAngle.hxx>
 #include <BRepOffsetAPI_MakePipe.hxx>
 #include <BRepOffsetAPI_MakeThickSolid.hxx>
@@ -25,6 +28,8 @@
 #include <BRepPrimAPI_MakeSphere.hxx>
 #include <BRepPrimAPI_MakeTorus.hxx>
 #include <BRepPrimAPI_MakeWedge.hxx>
+#include <GCE2d_MakeSegment.hxx>
+#include <Geom_CylindricalSurface.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
@@ -32,9 +37,12 @@
 #include <TopoDS_Edge.hxx>
 #include <gp_Ax1.hxx>
 #include <gp_Ax2.hxx>
+#include <gp_Circ.hxx>
 #include <gp_Dir.hxx>
+#include <gp_Dir2d.hxx>
 #include <gp_Pln.hxx>
 #include <gp_Pnt.hxx>
+#include <gp_Pnt2d.hxx>
 #include <gp_Trsf.hxx>
 #include <gp_Vec.hxx>
 
@@ -633,6 +641,99 @@ void Document3D::recomputeOne(int index) {
         BRepAlgoAPI_Fuse op(source, mirrored);
         ok = op.IsDone();
         if (ok) shape = op.Shape();
+        break;
+    }
+    case FeatureType::Helix: {
+        const double dirMag = std::sqrt(f.dirX * f.dirX + f.dirY * f.dirY + f.dirZ * f.dirZ);
+        if (f.p1 <= 1e-9 || f.p2 <= 1e-9 || f.p3 <= 1e-9 || f.p4 <= 1e-9 || dirMag < 1e-9) {
+            ok = false;
+            break;
+        }
+        const gp_Ax2 axis(gp_Pnt(f.posX, f.posY, f.posZ), gp_Dir(f.dirX, f.dirY, f.dirZ));
+        Handle(Geom_CylindricalSurface) cylinder = new Geom_CylindricalSurface(axis, f.p1);
+
+        // The helix as a straight line in the cylinder's own (u,v)
+        // parameter space: u = angle around the axis (radians), v = axial
+        // rise -- a line of slope pitch/(2*pi) in that space is exactly a
+        // helix in 3D once mapped through the cylindrical surface. Total
+        // turns = height/pitch, so the line runs u: 0 -> 2*pi*turns.
+        const double turns = f.p3 / f.p2;
+        const gp_Pnt2d p2dStart(0.0, 0.0);
+        const gp_Pnt2d p2dEnd(2.0 * M_PI * turns, f.p3);
+        Handle(Geom2d_TrimmedCurve) line2d = GCE2d_MakeSegment(p2dStart, p2dEnd);
+        TopoDS_Edge helixEdge = BRepBuilderAPI_MakeEdge(line2d, cylinder, 0.0, line2d->LastParameter()).Edge();
+        // An edge built from a 2D curve-on-surface has no 3D curve
+        // representation of its own yet -- BRepAdaptor_Curve's D1 call
+        // below (and MakePipe's own spine walk) need one, or this throws
+        // at runtime rather than failing gracefully. The standard OCCT
+        // fix for exactly this "helix from a curve on a cylinder" recipe.
+        BRepLib::BuildCurves3d(helixEdge);
+        BRepBuilderAPI_MakeWire wireBuilder(helixEdge);
+        if (!wireBuilder.IsDone()) {
+            ok = false;
+            break;
+        }
+        const TopoDS_Wire spine = wireBuilder.Wire();
+
+        // The swept profile (a small circle of radius p4) must sit
+        // perpendicular to the spine's own tangent at its start point --
+        // computed exactly via the edge's first derivative (D1), unlike
+        // Sweep's own straight-line case, which has to approximate this
+        // with a vector-to-vector rotation since its path is user-drawn
+        // rather than built analytically here.
+        BRepAdaptor_Curve curveAdaptor(helixEdge);
+        gp_Pnt startPoint;
+        gp_Vec tangent;
+        curveAdaptor.D1(curveAdaptor.FirstParameter(), startPoint, tangent);
+        if (tangent.Magnitude() < 1e-9) {
+            ok = false;
+            break;
+        }
+        const gp_Ax2 profileAxis(startPoint, gp_Dir(tangent));
+        const TopoDS_Wire profileWire =
+            BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(gp_Circ(profileAxis, f.p4)).Edge()).Wire();
+        const TopoDS_Face profileFace = BRepBuilderAPI_MakeFace(profileWire).Face();
+
+        BRepOffsetAPI_MakePipe pipeBuilder(spine, profileFace);
+        pipeBuilder.Build();
+        ok = pipeBuilder.IsDone();
+        if (ok) shape = pipeBuilder.Shape();
+        break;
+    }
+    case FeatureType::Hole: {
+        const double dirMag = std::sqrt(f.dirX * f.dirX + f.dirY * f.dirY + f.dirZ * f.dirZ);
+        if (f.inputA < 0 || f.inputA >= index || !isValid(f.inputA) || f.p1 <= 1e-9 || f.p2 <= 1e-9 ||
+            dirMag < 1e-9) {
+            ok = false;
+            break;
+        }
+        const TopoDS_Shape& target = m_shapes[static_cast<std::size_t>(f.inputA)];
+        const gp_Ax2 axis(gp_Pnt(f.posX, f.posY, f.posZ), gp_Dir(f.dirX, f.dirY, f.dirZ));
+
+        TopoDS_Shape tool = BRepPrimAPI_MakeCylinder(axis, f.p1 / 2.0, f.p2).Shape();
+        // count is REUSED as the hole-type selector here (see
+        // FeatureType::Hole's own comment): 1=Counterbore, 2=Countersink.
+        if (f.count == 1 && f.p3 > f.p1 && f.p4 > 1e-9) {
+            const TopoDS_Shape counterbore = BRepPrimAPI_MakeCylinder(axis, f.p3 / 2.0, f.p4).Shape();
+            BRepAlgoAPI_Fuse fuseOp(tool, counterbore);
+            if (fuseOp.IsDone()) tool = fuseOp.Shape();
+        } else if (f.count == 2 && f.p3 > f.p1 && f.p4 > 1e-9 && f.p4 < 180.0) {
+            const double countersinkDepth = (f.p3 / 2.0 - f.p1 / 2.0) / std::tan(f.p4 * M_PI / 360.0);
+            if (countersinkDepth > 1e-9) {
+                // BRepPrimAPI_MakeCone(axis, R1, R2, H): R1 at the axis's
+                // own base point, narrowing/widening to R2 at height H --
+                // R1 = p3/2 (wide, at the surface) narrowing to R2 = p1/2
+                // (meeting the drill diameter) over countersinkDepth.
+                const TopoDS_Shape cone =
+                    BRepPrimAPI_MakeCone(axis, f.p3 / 2.0, f.p1 / 2.0, countersinkDepth).Shape();
+                BRepAlgoAPI_Fuse fuseOp(tool, cone);
+                if (fuseOp.IsDone()) tool = fuseOp.Shape();
+            }
+        }
+
+        BRepAlgoAPI_Cut cutOp(target, tool);
+        ok = cutOp.IsDone();
+        if (ok) shape = cutOp.Shape();
         break;
     }
     }
