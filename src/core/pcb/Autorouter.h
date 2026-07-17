@@ -31,10 +31,13 @@ struct AutorouteResult {
 // connections first (a real, if simple, heuristic real routers use too --
 // short connections claim direct paths before long ones have to route
 // around them). A cell is an obstacle for a given connection if it's
-// within trackWidth/2 + clearance + trackWidth/2 of a pad or already-
-// routed track that ISN'T on that connection's own net; a connection's
-// own start/end cells are always force-cleared so a pin's own location
-// never blocks its own route regardless of nearby other-net pads.
+// within trackWidth/2 + clearance + (the other feature's own half-width)
+// of an already-routed track (half-width == trackWidth/2, since every
+// track in one autoroute() call shares params.trackWidth) or a pad
+// (half-width == pad.radius, its own already-full extent) that ISN'T on
+// that connection's own net; a connection's own start/end cells are
+// always force-cleared so a pin's own location never blocks its own
+// route regardless of nearby other-net pads.
 //
 // Real, disclosed simplifications: single layer only (no via insertion or
 // layer-change routing -- see the plan's own "multi-layer copper

@@ -189,14 +189,22 @@ AutorouteResult autoroute(Document& doc, const std::vector<ImportedNet>& nets, c
         return a.line.a.distanceTo(a.line.b) < b.line.a.distanceTo(b.line.b);
     });
 
-    const double obstacleRadius = params.trackWidth + params.clearance; // this track's own half-width + clearance + the other feature's own half-width, approximated
+    // Track-vs-track: this track's own half-width + clearance + the
+    // other (same-width) track's own half-width. Track-vs-pad: pad.radius
+    // is already the other feature's FULL extent (not a half-width to
+    // add a second half to), so only this track's own half-width needs
+    // adding on top of it -- using the track-vs-track margin here too
+    // would double-count half a track-width of clearance that was never
+    // actually needed.
+    const double obstacleRadius = params.trackWidth + params.clearance;
+    const double padObstacleRadius = params.trackWidth / 2.0 + params.clearance;
     std::vector<RoutedSegment> routedSegments;
 
     for (const PendingConnection& conn : pending) {
         std::vector<bool> obstacle(static_cast<std::size_t>(nx) * static_cast<std::size_t>(ny), false);
         for (const PlacedPad& pad : allPads) {
             if (!pad.netName.empty() && pad.netName == conn.netName) continue;
-            markNearPoint(obstacle, nx, ny, minX, minY, params.gridSize, pad.position, pad.radius + obstacleRadius);
+            markNearPoint(obstacle, nx, ny, minX, minY, params.gridSize, pad.position, pad.radius + padObstacleRadius);
         }
         for (const RoutedSegment& seg : routedSegments) {
             if (seg.netName == conn.netName) continue;

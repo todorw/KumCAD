@@ -76,11 +76,16 @@ std::optional<EdgePickResult> pickEdge(const TopoDS_Shape& shape, const PickRay&
     const gp_Pnt origin(ray.origin[0], ray.origin[1], ray.origin[2]);
     const gp_Dir direction(ray.direction[0], ray.direction[1], ray.direction[2]);
 
-    // Perpendicular distance from p to the infinite line through
-    // origin/direction, and the foot-of-perpendicular point itself.
-    auto distanceToLine = [&](const gp_Pnt& p, gp_Pnt& footOut) {
+    // Perpendicular distance from p to origin/direction's own ray (not
+    // the infinite line -- t < 0 means the foot-of-perpendicular falls
+    // behind the ray's own origin, which pickFace already rejects via its
+    // own w < 0 check, so this must match it or a "ray" pick could return
+    // geometry that's actually behind the origin). footTOut is left
+    // unset for a rejected (behind-origin) sample.
+    auto distanceToRay = [&](const gp_Pnt& p, gp_Pnt& footOut) -> std::optional<double> {
         const gp_Vec toPoint(origin, p);
         const double t = toPoint.Dot(gp_Vec(direction));
+        if (t < 0.0) return std::nullopt;
         const gp_Pnt foot = origin.Translated(gp_Vec(direction) * t);
         footOut = foot;
         return p.Distance(foot);
@@ -101,14 +106,14 @@ std::optional<EdgePickResult> pickEdge(const TopoDS_Shape& shape, const PickRay&
             const double u = u1 + (u2 - u1) * (static_cast<double>(s) / kSamples);
             const gp_Pnt p = curve.Value(u);
             gp_Pnt foot;
-            const double distance = distanceToLine(p, foot);
-            if (distance > tolerance) continue;
-            if (best && distance >= best->distance) continue;
+            const std::optional<double> distance = distanceToRay(p, foot);
+            if (!distance || *distance > tolerance) continue;
+            if (best && *distance >= best->distance) continue;
 
             EdgePickResult result;
             result.edgeIndex = i - 1;
             result.point = {p.X(), p.Y(), p.Z()};
-            result.distance = distance;
+            result.distance = *distance;
             best = result;
         }
     }

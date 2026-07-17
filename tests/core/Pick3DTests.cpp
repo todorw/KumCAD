@@ -74,6 +74,20 @@ TEST_CASE("pickEdge finds the nearest edge to a ray passing close to one corner"
     REQUIRE(hit->distance == Approx(0.1).margin(1e-6));
 }
 
+TEST_CASE("pickEdge ignores an edge that lies behind the ray's own origin, matching pickFace's own w>=0 rule",
+         "[core3d][pick]") {
+    const TopoDS_Shape box = BRepPrimAPI_MakeBox(10.0, 10.0, 10.0).Shape();
+    // The box's vertical edges span z in [0,10]. Placing the origin ABOVE
+    // the box and pointing further upward (away from it) means every
+    // point on that edge is behind the ray's own origin along direction,
+    // even though the edge is very close to the underlying INFINITE line.
+    PickRay ray;
+    ray.origin = {10.1, 10.0, 50.0};
+    ray.direction = {0.0, 0.0, 1.0};
+
+    REQUIRE_FALSE(pickEdge(box, ray, 0.5).has_value());
+}
+
 TEST_CASE("pickEdge returns nullopt when nothing is within tolerance", "[core3d][pick]") {
     const TopoDS_Shape box = BRepPrimAPI_MakeBox(10.0, 10.0, 10.0).Shape();
     PickRay ray;
