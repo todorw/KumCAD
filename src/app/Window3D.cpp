@@ -5,6 +5,7 @@
 #include "SketchView.h"
 #include "Viewport3D.h"
 
+#include "core/core3d/Cam3D.h"
 #include "core/core3d/Commands3D.h"
 #include "core/core3d/Persistence3D.h"
 #include "core/core3d/Piping.h"
@@ -397,6 +398,69 @@ private:
     QDoubleSpinBox* m_radius;
 };
 
+class Cam3DDialog : public QDialog {
+public:
+    explicit Cam3DDialog(QWidget* parent = nullptr) : QDialog(parent) {
+        setWindowTitle(QStringLiteral("Generate 3D CAM Toolpath"));
+        auto* form = new QFormLayout(this);
+
+        m_toolDiameter = new QDoubleSpinBox(this);
+        m_toolDiameter->setRange(0.1, 1e4);
+        m_toolDiameter->setValue(6.0);
+        form->addRow(QStringLiteral("Tool Diameter:"), m_toolDiameter);
+
+        m_side = new QComboBox(this);
+        m_side->addItem(QStringLiteral("Outside"), static_cast<int>(lcad::CutSide::Outside));
+        m_side->addItem(QStringLiteral("Inside"), static_cast<int>(lcad::CutSide::Inside));
+        m_side->addItem(QStringLiteral("On Line"), static_cast<int>(lcad::CutSide::OnLine));
+        form->addRow(QStringLiteral("Cut Side:"), m_side);
+
+        m_stepDown = new QDoubleSpinBox(this);
+        m_stepDown->setRange(0.01, 1e4);
+        m_stepDown->setValue(2.0);
+        form->addRow(QStringLiteral("Step Down (Z per level):"), m_stepDown);
+
+        m_feedRate = new QDoubleSpinBox(this);
+        m_feedRate->setRange(1.0, 1e5);
+        m_feedRate->setValue(800.0);
+        form->addRow(QStringLiteral("Feed Rate:"), m_feedRate);
+
+        m_plungeRate = new QDoubleSpinBox(this);
+        m_plungeRate->setRange(1.0, 1e5);
+        m_plungeRate->setValue(200.0);
+        form->addRow(QStringLiteral("Plunge Rate:"), m_plungeRate);
+
+        m_safeHeight = new QDoubleSpinBox(this);
+        m_safeHeight->setRange(0.1, 1e4);
+        m_safeHeight->setValue(10.0);
+        form->addRow(QStringLiteral("Safe Height:"), m_safeHeight);
+
+        auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+        connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+        form->addRow(buttons);
+    }
+
+    lcad::Cam3DParams result() const {
+        lcad::Cam3DParams params;
+        params.toolDiameter = m_toolDiameter->value();
+        params.side = static_cast<lcad::CutSide>(m_side->currentData().toInt());
+        params.stepDown = m_stepDown->value();
+        params.feedRate = m_feedRate->value();
+        params.plungeRate = m_plungeRate->value();
+        params.safeHeight = m_safeHeight->value();
+        return params;
+    }
+
+private:
+    QDoubleSpinBox* m_toolDiameter;
+    QComboBox* m_side;
+    QDoubleSpinBox* m_stepDown;
+    QDoubleSpinBox* m_feedRate;
+    QDoubleSpinBox* m_plungeRate;
+    QDoubleSpinBox* m_safeHeight;
+};
+
 } // namespace
 
 Window3D::Window3D(QWidget* parent) : QMainWindow(parent) {
@@ -428,6 +492,8 @@ Window3D::Window3D(QWidget* parent) : QMainWindow(parent) {
     fileMenu->addAction(QStringLiteral("BIM: Export Opening Schedule..."), this, &Window3D::exportOpeningSchedule);
     fileMenu->addSeparator();
     fileMenu->addAction(QStringLiteral("Add Pipe Run..."), this, &Window3D::addPipeRun);
+    fileMenu->addSeparator();
+    fileMenu->addAction(QStringLiteral("Generate 3D CAM Toolpath..."), this, &Window3D::generate3DCamToolpath);
 
     m_viewport = new Viewport3D(this);
     setCentralWidget(m_viewport);
@@ -874,6 +940,51 @@ void Window3D::exportOpeningSchedule() {
         return;
     }
     statusBar()->showMessage(QStringLiteral("Opening schedule written to %1").arg(path), 3000);
+}
+
+void Window3D::generate3DCamToolpath() {
+    // Same "tip feature" definition as StepIges.h/generateDrawingViews.
+    std::vector<bool> consumed(m_document.features().size(), false);
+    for (const auto& f : m_document.features()) {
+        if (f.inputA >= 0) consumed[static_cast<std::size_t>(f.inputA)] = true;
+        if (f.inputB >= 0) consumed[static_cast<std::size_t>(f.inputB)] = true;
+    }
+    TopoDS_Shape target;
+    int tipCount = 0;
+    for (int i = 0; i < static_cast<int>(m_document.features().size()); ++i) {
+        if (consumed[static_cast<std::size_t>(i)] || !m_document.isValid(i)) continue;
+        ++tipCount;
+        if (target.IsNull()) target = m_document.shapeAt(i);
+    }
+    if (target.IsNull()) {
+        statusBar()->showMessage(QStringLiteral("No solids to machine yet"), 3000);
+        return;
+    }
+
+    Cam3DDialog dialog(this);
+    if (dialog.exec() != QDialog::Accepted) return;
+    const lcad::Cam3DParams params = dialog.result();
+
+    const std::vector<lcad::Cam3DLevel> levels = lcad::sliceIntoLevels(target, params);
+    if (levels.empty()) {
+        QMessageBox::warning(this, QStringLiteral("No Toolpath"),
+                              QStringLiteral("Slicing produced no usable levels -- check step-down and tool "
+                                            "diameter against the part's size."));
+        return;
+    }
+
+    const QString path = QFileDialog::getSaveFileName(this, QStringLiteral("Generate 3D CAM Toolpath"), QString(),
+                                                        QStringLiteral("G-Code Files (*.gcode *.nc)"));
+    if (path.isEmpty()) return;
+
+    std::string error;
+    if (!lcad::writeMultiLevelGCode(levels, params, path.toStdString(), &error)) {
+        QMessageBox::warning(this, QStringLiteral("Export Failed"), QString::fromStdString(error));
+        return;
+    }
+    QString message = QStringLiteral("%1 level(s) written to %2").arg(levels.size()).arg(path);
+    if (tipCount > 1) message += QStringLiteral(" (only the first of %1 solids was machined)").arg(tipCount);
+    statusBar()->showMessage(message, 5000);
 }
 
 void Window3D::addPipeRun() {

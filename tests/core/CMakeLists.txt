@@ -72,7 +72,8 @@ if(LCAD_ENABLE_3D)
             TechDrawTests.cpp
             SheetMetalTests.cpp
             BimTests.cpp
-            PipingTests.cpp)
+            PipingTests.cpp
+            Cam3DTests.cpp)
     endif()
 endif()
 

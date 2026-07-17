@@ -67,6 +67,10 @@ private:
     // Imported feature, same reuse pattern as addSheetMetalPart().
     void addPipeRun();
 
+    // Phase 3.5: slice-based multi-level roughing G-code over the
+    // document's own tip shapes (see Cam3D.h).
+    void generate3DCamToolpath();
+
     lcad::Document3D m_document;
     Viewport3D* m_viewport = nullptr;
     QListWidget* m_featureList = nullptr;
