@@ -10,6 +10,7 @@ list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 add_executable(lcad_core_tests
     GeometryTests.cpp
     DocumentTests.cpp
+    ExpressToolsTests.cpp
     CommandStackTests.cpp
     DxfIoTests.cpp
     DwgIoTests.cpp

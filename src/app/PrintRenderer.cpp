@@ -44,7 +44,7 @@ void renderLayoutPage(QPainter& painter, double resolutionDpi, const lcad::Docum
         const double effScale = vp.viewScale * scale;
         for (const lcad::Entity* e : document.entities()) {
             const lcad::Layer* layer = document.findLayer(e->layer());
-            if (layer && !layer->visible) continue;
+            if (layer && (!layer->visible || layer->frozen)) continue;
             const lcad::PlotAppearance appearance = document.plotAppearance(*e);
             QColor color(appearance.color.r, appearance.color.g, appearance.color.b);
             if (appearance.color.r > 200 && appearance.color.g > 200 && appearance.color.b > 200) color = Qt::black;
@@ -64,7 +64,7 @@ void renderLayoutPage(QPainter& painter, double resolutionDpi, const lcad::Docum
     const int layoutIndex = static_cast<int>(&layout - document.layouts().data());
     for (const lcad::Entity* e : document.paperEntities(layoutIndex)) {
         const lcad::Layer* layer = document.findLayer(e->layer());
-        if (layer && !layer->visible) continue;
+        if (layer && (!layer->visible || layer->frozen)) continue;
         const lcad::PlotAppearance appearance = document.plotAppearance(*e);
         QColor color(appearance.color.r, appearance.color.g, appearance.color.b);
         if (appearance.color.r > 200 && appearance.color.g > 200 && appearance.color.b > 200) color = Qt::black;
@@ -78,7 +78,7 @@ void renderModelPage(QPainter& painter, double resolutionDpi, const lcad::Docume
     const auto entities = document.entities();
     for (const lcad::Entity* e : entities) {
         const lcad::Layer* layer = document.findLayer(e->layer());
-        if (layer && !layer->visible) continue;
+        if (layer && (!layer->visible || layer->frozen)) continue;
         box.expand(e->boundingBox());
     }
 
@@ -103,7 +103,7 @@ void renderModelPage(QPainter& painter, double resolutionDpi, const lcad::Docume
 
     for (const lcad::Entity* e : entities) {
         const lcad::Layer* layer = document.findLayer(e->layer());
-        if (layer && !layer->visible) continue;
+        if (layer && (!layer->visible || layer->frozen)) continue;
 
         const lcad::PlotAppearance appearance = document.plotAppearance(*e);
         // Colors that read well on the dark canvas vanish on paper.

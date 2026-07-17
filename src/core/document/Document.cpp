@@ -21,6 +21,15 @@ LayerId Document::addLayer(const std::string& name, Color color) {
     return id;
 }
 
+bool Document::deleteLayer(LayerId id) {
+    if (id == 0) return false; // layer "0" always exists, as in AutoCAD
+    const auto it = std::find_if(m_layers.begin(), m_layers.end(), [id](const Layer& l) { return l.id == id; });
+    if (it == m_layers.end()) return false;
+    m_layers.erase(it);
+    if (m_currentLayer == id) m_currentLayer = 0;
+    return true;
+}
+
 Layer* Document::findLayer(LayerId id) {
     auto it = std::find_if(m_layers.begin(), m_layers.end(), [id](const Layer& l) { return l.id == id; });
     return it != m_layers.end() ? &(*it) : nullptr;

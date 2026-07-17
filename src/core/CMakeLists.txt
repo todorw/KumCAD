@@ -131,6 +131,7 @@ add_library(lcad_core STATIC
     document/Commands.h
     document/Document.h
     document/Document.cpp
+    document/ExpressTools.cpp
     document/Fields.h
     document/Fields.cpp
     document/DataExtraction.h

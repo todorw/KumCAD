@@ -156,6 +156,9 @@ void MainWindow::setupDocks() {
 
     m_layerPanel = new LayerPanel(m_document, this);
     connect(m_layerPanel, &LayerPanel::layersChanged, m_view, &DrawingView::pruneSelectionForLayerState);
+    // Layer tools (LAYISO/LAYOFF/LAYFRZ/LAYMRG/...) change layers from the
+    // command line; keep the panel's list in sync.
+    connect(m_dispatcher, &CommandDispatcher::documentChanged, m_layerPanel, &LayerPanel::refresh);
     connect(m_layerPanel, &LayerPanel::layersChanged, m_view, QOverload<>::of(&QWidget::update));
     connect(m_layerPanel, &LayerPanel::layersChanged, this, &MainWindow::markDirty);
 

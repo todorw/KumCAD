@@ -86,6 +86,12 @@ public:
     LayerId addLayer(const std::string& name, Color color);
     Layer* findLayer(LayerId id);
     const Layer* findLayer(LayerId id) const;
+    // Removes the layer record itself (LAYDEL/LAYMRG). Refuses layer "0".
+    // The caller is responsible for what happens to entities still on it:
+    // LAYDEL deletes them first, LAYMRG moves them to the target first.
+    // If the deleted layer was current, layer "0" becomes current. Not
+    // undoable, matching purge()'s own layer removal.
+    bool deleteLayer(LayerId id);
     const std::vector<Layer>& layers() const { return m_layers; }
     LayerId currentLayer() const { return m_currentLayer; }
     void setCurrentLayer(LayerId id) { m_currentLayer = id; }

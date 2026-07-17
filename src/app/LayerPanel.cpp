@@ -73,6 +73,7 @@ void LayerPanel::refresh() {
             text += QStringLiteral(" [%1]").arg(QLatin1String(lcad::lineTypeName(layer.linetype)));
         }
         if (layer.locked) text += QStringLiteral(" (locked)");
+        if (layer.frozen) text += QStringLiteral(" (frozen)");
         auto* item = new QListWidgetItem(swatchIcon(layer.color), text);
         item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
         item->setCheckState(layer.visible ? Qt::Checked : Qt::Unchecked);
@@ -137,6 +138,8 @@ void LayerPanel::onContextMenuRequested(const QPoint& pos) {
 
     QMenu menu(this);
     QAction* toggleLockAction = menu.addAction(layer->locked ? QStringLiteral("Unlock Layer") : QStringLiteral("Lock Layer"));
+    QAction* toggleFreezeAction =
+        menu.addAction(layer->frozen ? QStringLiteral("Thaw Layer") : QStringLiteral("Freeze Layer"));
     QMenu* linetypeMenu = menu.addMenu(QStringLiteral("Linetype"));
     for (lcad::LineType type : lcad::allLineTypes()) {
         QAction* action = linetypeMenu->addAction(QLatin1String(lcad::lineTypeName(type)));
@@ -160,6 +163,10 @@ void LayerPanel::onContextMenuRequested(const QPoint& pos) {
     QAction* chosen = menu.exec(m_list->viewport()->mapToGlobal(pos));
     if (chosen == toggleLockAction) {
         layer->locked = !layer->locked;
+        refresh();
+        emit layersChanged();
+    } else if (chosen == toggleFreezeAction) {
+        layer->frozen = !layer->frozen;
         refresh();
         emit layersChanged();
     } else if (chosen && chosen->parent() == linetypeMenu) {

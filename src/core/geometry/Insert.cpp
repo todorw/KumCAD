@@ -27,7 +27,7 @@ const std::string* InsertEntity::attributeValue(const std::string& tag) const {
     return nullptr;
 }
 
-std::vector<std::unique_ptr<Entity>> InsertEntity::instantiate() const {
+std::vector<std::unique_ptr<Entity>> InsertEntity::instantiate(AttributeMode mode) const {
     std::vector<std::unique_ptr<Entity>> result;
     if (!m_block) return result;
     result.reserve(m_block->entities.size());
@@ -59,7 +59,7 @@ std::vector<std::unique_ptr<Entity>> InsertEntity::instantiate() const {
         }
 
         std::unique_ptr<Entity> copy;
-        if (child->type() == EntityType::AttDef) {
+        if (child->type() == EntityType::AttDef && mode == AttributeMode::ResolveToText) {
             // Attribute definitions become the insert's value (or the
             // default) as plain text, like a resolved ATTRIB.
             const auto& attdef = static_cast<const AttDefEntity&>(*child);

@@ -16,6 +16,12 @@ struct Layer {
     LineType linetype = LineType::Continuous;
     bool visible = true;
     bool locked = false;
+    // Frozen (LAYFRZ/LAYTHW): hidden like visible=false, but a distinct
+    // state exactly as in AutoCAD -- LAYON turns off-layers back on without
+    // thawing frozen ones, and vice versa. (AutoCAD also skips regenerating
+    // frozen layers' geometry; rendering here is cheap enough that frozen
+    // and off simply both hide.) DXF: standard layer flag bit 1 (group 70).
+    bool frozen = false;
     double lineweight = 0.25; // mm; entities can override per-entity
     std::string plotStyle; // names a PlotStyle in Document::plotStyles(); empty = plot as displayed
 };

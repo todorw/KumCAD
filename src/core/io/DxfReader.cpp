@@ -153,6 +153,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
     bool curLayerHasTrueColor = false;
     bool curLayerVisible = true;
     bool curLayerLocked = false;
+    bool curLayerFrozen = false;
     LineType curLayerLinetype = LineType::Continuous;
     double curLayerLineweight = 0.25;
     std::string curLayerPlotStyle;
@@ -173,6 +174,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             layer->color = curLayerColor;
             layer->visible = curLayerVisible;
             layer->locked = curLayerLocked;
+            layer->frozen = curLayerFrozen;
             layer->linetype = curLayerLinetype;
             layer->lineweight = curLayerLineweight;
             layer->plotStyle = curLayerPlotStyle;
@@ -182,6 +184,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
         curLayerHasTrueColor = false;
         curLayerVisible = true;
         curLayerLocked = false;
+        curLayerFrozen = false;
         curLayerLinetype = LineType::Continuous;
         curLayerLineweight = 0.25;
         curLayerPlotStyle.clear();
@@ -930,7 +933,9 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
                 // (before or after this group) always wins.
                 if (!curLayerHasTrueColor) curLayerColor = aciToColor(std::abs(aci));
             } else if (g.code == 70) {
-                curLayerLocked = (toInt(g.value) & 4) != 0; // bit 2 = locked/frozen
+                const int flags = toInt(g.value);
+                curLayerFrozen = (flags & 1) != 0; // bit 0 = frozen
+                curLayerLocked = (flags & 4) != 0; // bit 2 = locked
             } else if (g.code == 370) {
                 const int hundredths = toInt(g.value, 25);
                 if (hundredths > 0) curLayerLineweight = hundredths / 100.0;

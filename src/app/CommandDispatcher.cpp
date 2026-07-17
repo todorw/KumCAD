@@ -20,6 +20,7 @@
 #include "commands/DataLinkCommand.h"
 #include "commands/LayerStateCommand.h"
 #include "commands/TCaseCommand.h"
+#include "commands/ExpressToolCommands.h"
 #include "commands/DimAngularCommand.h"
 #include "commands/DimCommand.h"
 #include "commands/DimRadialCommand.h"
@@ -82,7 +83,9 @@
 #include "commands/VpScaleCommand.h"
 #include "core/document/Commands.h"
 #include "core/document/Fields.h"
+#include "core/document/ExpressTools.h"
 #include "core/geometry/MText.h"
+#include <set>
 #include "core/geometry/Text.h"
 #include "core/geometry/Arc.h"
 #include "core/geometry/Hatch.h"
@@ -651,6 +654,38 @@ void CommandDispatcher::handleCommandText(const QString& text) {
     } else if (cmd == QLatin1String("TCASE")) {
         const std::vector<lcad::EntityId> ids = selectionForModify();
         if (!ids.empty()) startCommand(std::make_unique<TCaseCommand>(m_document, ids), QStringLiteral("TCASE"));
+    } else if (cmd == QLatin1String("BURST")) {
+        burstSelection();
+    } else if (cmd == QLatin1String("TXT2MTXT")) {
+        txt2mtxtSelection();
+    } else if (cmd == QLatin1String("TORIENT")) {
+        torientSelection();
+    } else if (cmd == QLatin1String("TCOUNT")) {
+        const std::vector<lcad::EntityId> ids = selectionForModify();
+        if (!ids.empty()) startCommand(std::make_unique<TCountCommand>(m_document, ids), QStringLiteral("TCOUNT"));
+    } else if (cmd == QLatin1String("BREAKLINE") || cmd == QLatin1String("BL")) {
+        startCommand(std::make_unique<BreaklineCommand>(m_document), QStringLiteral("BREAKLINE"));
+    } else if (cmd == QLatin1String("LAYISO")) {
+        layerIsolate();
+    } else if (cmd == QLatin1String("LAYUNISO")) {
+        layerUnisolate();
+    } else if (cmd == QLatin1String("LAYOFF")) {
+        layerToolOnSelection(false);
+    } else if (cmd == QLatin1String("LAYFRZ")) {
+        layerToolOnSelection(true);
+    } else if (cmd == QLatin1String("LAYON")) {
+        layerAllVisible(false);
+    } else if (cmd == QLatin1String("LAYTHW")) {
+        layerAllVisible(true);
+    } else if (cmd == QLatin1String("LAYMRG")) {
+        startCommand(std::make_unique<LayMrgCommand>(m_document), QStringLiteral("LAYMRG"));
+    } else if (cmd == QLatin1String("LAYDEL")) {
+        startCommand(std::make_unique<LayDelCommand>(m_document), QStringLiteral("LAYDEL"));
+    } else if (cmd == QLatin1String("COPYTOLAYER")) {
+        const std::vector<lcad::EntityId> ids = selectionForModify();
+        if (!ids.empty()) {
+            startCommand(std::make_unique<CopyToLayerCommand>(m_document, ids), QStringLiteral("COPYTOLAYER"));
+        }
     } else if (cmd == QLatin1String("QSELECT") || cmd == QLatin1String("QSE")) {
         startCommand(std::make_unique<QSelectCommand>(m_document), QStringLiteral("QSELECT"));
     } else if (cmd == QLatin1String("FIND")) {
@@ -888,7 +923,10 @@ void CommandDispatcher::explodeSelection() {
         if (e->type() == lcad::EntityType::Insert) {
             const auto& insert = static_cast<const lcad::InsertEntity&>(*e);
             batch->add(std::make_unique<lcad::DeleteEntityCommand>(m_document, id));
-            for (auto& child : insert.instantiate()) {
+            // KeepDefinitions: attributes revert to their ATTDEF tag
+            // placeholders, exactly like real EXPLODE -- BURST is the tool
+            // that keeps the values (see burstSelection).
+            for (auto& child : insert.instantiate(lcad::InsertEntity::AttributeMode::KeepDefinitions)) {
                 child->setId(m_document.reserveEntityId());
                 batch->add(std::make_unique<lcad::AddEntityCommand>(m_document, std::move(child)));
             }
@@ -948,6 +986,193 @@ void CommandDispatcher::overkillSelection() {
     }
     m_document.commandStack().execute(std::move(batch));
     m_commandLine.appendLine(QStringLiteral("*%1 duplicate(s) removed*").arg(duplicateIndices.size()));
+    emit documentChanged();
+}
+
+void CommandDispatcher::burstSelection() {
+    const std::vector<lcad::EntityId> ids = selectionForModify();
+    if (ids.empty()) return;
+
+    auto batch = std::make_unique<lcad::BatchCommand>("Burst");
+    int made = 0;
+    int skipped = 0;
+    for (lcad::EntityId id : ids) {
+        const lcad::Entity* e = m_document.findEntity(id);
+        if (!e) continue;
+        if (e->type() != lcad::EntityType::Insert) {
+            ++skipped;
+            continue;
+        }
+        const auto& insert = static_cast<const lcad::InsertEntity&>(*e);
+        batch->add(std::make_unique<lcad::DeleteEntityCommand>(m_document, id));
+        for (auto& child : insert.instantiate()) { // ResolveToText: values become TEXT
+            child->setId(m_document.reserveEntityId());
+            batch->add(std::make_unique<lcad::AddEntityCommand>(m_document, std::move(child)));
+        }
+        ++made;
+    }
+    if (!batch->empty()) {
+        m_document.commandStack().execute(std::move(batch));
+        emit documentChanged();
+    }
+    if (skipped > 0) {
+        m_commandLine.appendLine(QStringLiteral("*%1 burst, %2 skipped (blocks only)*").arg(made).arg(skipped));
+    } else {
+        m_commandLine.appendLine(QStringLiteral("*%1 burst*").arg(made));
+    }
+}
+
+void CommandDispatcher::txt2mtxtSelection() {
+    const std::vector<lcad::EntityId> ids = selectionForModify();
+    if (ids.empty()) return;
+
+    std::vector<lcad::EntityId> textIds;
+    std::vector<const lcad::TextEntity*> texts;
+    for (lcad::EntityId id : ids) {
+        const lcad::Entity* e = m_document.findEntity(id);
+        if (e && e->type() == lcad::EntityType::Text) {
+            textIds.push_back(id);
+            texts.push_back(static_cast<const lcad::TextEntity*>(e));
+        }
+    }
+    if (texts.size() < 2) {
+        m_commandLine.appendLine(QStringLiteral("*Select at least two TEXT objects*"));
+        return;
+    }
+
+    const auto combined = lcad::combineTextEntities(texts);
+    if (!combined) return;
+
+    auto batch = std::make_unique<lcad::BatchCommand>("Txt2MText");
+    const lcad::LayerId layer = texts.front()->layer();
+    for (lcad::EntityId id : textIds) {
+        batch->add(std::make_unique<lcad::DeleteEntityCommand>(m_document, id));
+    }
+    batch->add(std::make_unique<lcad::AddEntityCommand>(
+        m_document, std::make_unique<lcad::MTextEntity>(m_document.reserveEntityId(), layer, combined->position,
+                                                        combined->text, combined->height, 0.0, combined->rotation)));
+    m_document.commandStack().execute(std::move(batch));
+    m_commandLine.appendLine(QStringLiteral("*%1 TEXT combined into one MTEXT*").arg(texts.size()));
+    emit documentChanged();
+}
+
+void CommandDispatcher::torientSelection() {
+    const std::vector<lcad::EntityId> ids = selectionForModify();
+    if (ids.empty()) return;
+
+    auto batch = std::make_unique<lcad::BatchCommand>("TOrient");
+    int changed = 0;
+    for (lcad::EntityId id : ids) {
+        const lcad::Entity* e = m_document.findEntity(id);
+        if (!e) continue;
+        double rotation = 0.0;
+        if (e->type() == lcad::EntityType::Text) {
+            rotation = static_cast<const lcad::TextEntity&>(*e).rotation();
+        } else if (e->type() == lcad::EntityType::MText) {
+            rotation = static_cast<const lcad::MTextEntity&>(*e).rotation();
+        } else {
+            continue;
+        }
+        const double target = lcad::torientRotation(rotation);
+        if (std::abs(target - rotation) < 1e-12) continue;
+        // Flip in place about the text's own anchor so it stays put.
+        std::unique_ptr<lcad::Entity> clone = e->clone();
+        if (clone->type() == lcad::EntityType::Text) {
+            auto& t = static_cast<lcad::TextEntity&>(*clone);
+            t.rotate(t.position(), target - rotation);
+        } else {
+            auto& t = static_cast<lcad::MTextEntity&>(*clone);
+            t.rotate(t.position(), target - rotation);
+        }
+        batch->add(std::make_unique<lcad::ReplaceEntityCommand>(m_document, id, std::move(clone)));
+        ++changed;
+    }
+    if (!batch->empty()) {
+        m_document.commandStack().execute(std::move(batch));
+        emit documentChanged();
+    }
+    m_commandLine.appendLine(QStringLiteral("*%1 text object(s) reoriented*").arg(changed));
+}
+
+void CommandDispatcher::layerIsolate() {
+    const std::vector<lcad::EntityId> ids = selectionForModify();
+    if (ids.empty()) return;
+
+    std::set<lcad::LayerId> keep;
+    for (lcad::EntityId id : ids) {
+        if (const lcad::Entity* e = m_document.findEntity(id)) keep.insert(e->layer());
+    }
+    m_layIsoHidden.clear();
+    for (const lcad::Layer& layer : m_document.layers()) {
+        if (keep.count(layer.id) || !layer.visible) continue;
+        m_document.findLayer(layer.id)->visible = false;
+        m_layIsoHidden.push_back(layer.id);
+    }
+    m_commandLine.appendLine(QStringLiteral("*%1 layer(s) isolated, %2 hidden -- LAYUNISO to restore*")
+                                 .arg(keep.size())
+                                 .arg(m_layIsoHidden.size()));
+    if (m_view) m_view->pruneSelectionForLayerState();
+    emit documentChanged();
+}
+
+void CommandDispatcher::layerUnisolate() {
+    if (m_layIsoHidden.empty()) {
+        m_commandLine.appendLine(QStringLiteral("*Nothing to restore -- LAYISO first*"));
+        return;
+    }
+    int restored = 0;
+    for (lcad::LayerId id : m_layIsoHidden) {
+        if (lcad::Layer* layer = m_document.findLayer(id)) {
+            layer->visible = true;
+            ++restored;
+        }
+    }
+    m_layIsoHidden.clear();
+    m_commandLine.appendLine(QStringLiteral("*%1 layer(s) restored*").arg(restored));
+    emit documentChanged();
+}
+
+void CommandDispatcher::layerToolOnSelection(bool freeze) {
+    const std::vector<lcad::EntityId> ids = selectionForModify();
+    if (ids.empty()) return;
+
+    std::set<lcad::LayerId> layers;
+    for (lcad::EntityId id : ids) {
+        if (const lcad::Entity* e = m_document.findEntity(id)) layers.insert(e->layer());
+    }
+    int changed = 0;
+    int skipped = 0;
+    for (lcad::LayerId id : layers) {
+        if (freeze && id == m_document.currentLayer()) {
+            ++skipped; // AutoCAD refuses to freeze the current layer
+            continue;
+        }
+        if (lcad::Layer* layer = m_document.findLayer(id)) {
+            if (freeze) layer->frozen = true;
+            else layer->visible = false;
+            ++changed;
+        }
+    }
+    QString message = QStringLiteral("*%1 layer(s) %2*").arg(changed).arg(freeze ? QStringLiteral("frozen")
+                                                                                  : QStringLiteral("turned off"));
+    if (skipped > 0) message += QStringLiteral(" *(current layer skipped)*");
+    m_commandLine.appendLine(message);
+    if (m_view) m_view->pruneSelectionForLayerState();
+    emit documentChanged();
+}
+
+void CommandDispatcher::layerAllVisible(bool thaw) {
+    int changed = 0;
+    for (const lcad::Layer& layer : m_document.layers()) {
+        lcad::Layer* mutableLayer = m_document.findLayer(layer.id);
+        if (thaw ? mutableLayer->frozen : !mutableLayer->visible) {
+            if (thaw) mutableLayer->frozen = false;
+            else mutableLayer->visible = true;
+            ++changed;
+        }
+    }
+    m_commandLine.appendLine(
+        QStringLiteral("*%1 layer(s) %2*").arg(changed).arg(thaw ? QStringLiteral("thawed") : QStringLiteral("turned on")));
     emit documentChanged();
 }
 

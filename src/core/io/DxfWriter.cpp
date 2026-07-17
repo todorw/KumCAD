@@ -674,7 +674,8 @@ bool writeDxf(const Document& document, const std::string& path, std::string* er
     for (const Layer& layer : document.layers()) {
         writeGroup(out, 0, "LAYER");
         writeGroup(out, 2, layer.name);
-        writeGroup(out, 70, layer.locked ? 4 : 0); // bit 2 = frozen/locked flag
+        // Standard DXF layer flags: bit 0 = frozen, bit 2 = locked.
+        writeGroup(out, 70, (layer.frozen ? 1 : 0) | (layer.locked ? 4 : 0));
         // ACI (62) carries the nearest indexed color for readers that ignore
         // true color, with a negative sign meaning the layer is off; 420
         // carries the exact RGB for readers that support it.

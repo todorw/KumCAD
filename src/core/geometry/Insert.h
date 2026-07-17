@@ -53,7 +53,14 @@ public:
 
     // The block's children transformed into world space (scale, then rotate,
     // then translate) -- what rendering, hit-testing, and explode all share.
-    std::vector<std::unique_ptr<Entity>> instantiate() const;
+    // Attribute handling mirrors AutoCAD's two flavors of exploding: with
+    // ResolveToText (the default; rendering and Express Tools' BURST) each
+    // ATTDEF becomes plain TEXT showing this instance's value; with
+    // KeepDefinitions (EXPLODE) the raw ATTDEF comes through unchanged, so
+    // the value is lost and the tag placeholder reappears -- exactly the
+    // behavior difference that makes BURST exist.
+    enum class AttributeMode { ResolveToText, KeepDefinitions };
+    std::vector<std::unique_ptr<Entity>> instantiate(AttributeMode mode = AttributeMode::ResolveToText) const;
 
     // One of the block's pins transformed into world space, both endpoints
     // of its stub (Pin::stubStart -> attach) transformed by the same

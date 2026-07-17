@@ -85,6 +85,20 @@ private:
     // OVERKILL (Express Tools): deletes exact geometric duplicates within
     // the current selection, keeping the first occurrence of each.
     void overkillSelection();
+    // More Express Tools (see core/document/ExpressTools.h): BURST explodes
+    // blocks keeping attribute VALUES as text (EXPLODE reverts them to tag
+    // placeholders); TXT2MTXT combines selected TEXT into one MTEXT;
+    // TORIENT flips selected text right-side-up.
+    void burstSelection();
+    void txt2mtxtSelection();
+    void torientSelection();
+    // Layer tools. LAYISO hides every layer not represented in the
+    // selection and remembers what it hid; LAYUNISO restores that.
+    // LAYOFF/LAYFRZ act on the selection's layers, LAYON/LAYTHW on all.
+    void layerIsolate();
+    void layerUnisolate();
+    void layerToolOnSelection(bool freeze); // LAYOFF (freeze=false) / LAYFRZ (true)
+    void layerAllVisible(bool thaw);        // LAYON (thaw=false) / LAYTHW (true)
 
     lcad::Document& m_document;
     CommandLine& m_commandLine;
@@ -99,6 +113,9 @@ private:
     bool m_recording = false;
     QStringList m_recordingBuffer;
     QStringList m_lastMacro;
+
+    // Layers LAYISO turned off (they were visible before), for LAYUNISO.
+    std::vector<lcad::LayerId> m_layIsoHidden;
 
     // A scoped-down AutoLISP interpreter (see LispInterpreter.h for what's
     // not implemented): input starting with '(' at the top-level command

@@ -88,7 +88,7 @@ lcad::Entity* DrawingView::hitTestEntity(const lcad::Point2D& worldPt) const {
     double bestDist = tol;
     for (lcad::Entity* e : spaceEntities()) {
         const lcad::Layer* layer = m_document.findLayer(e->layer());
-        if (layer && (!layer->visible || layer->locked)) continue;
+        if (layer && (!layer->visible || layer->frozen || layer->locked)) continue;
         const double d = e->distanceTo(worldPt);
         if (d <= bestDist) {
             bestDist = d;
@@ -103,7 +103,7 @@ lcad::Entity* DrawingView::hitTestEntityCycling(const lcad::Point2D& worldPt, co
     std::vector<std::pair<double, lcad::Entity*>> candidates;
     for (lcad::Entity* e : spaceEntities()) {
         const lcad::Layer* layer = m_document.findLayer(e->layer());
-        if (layer && (!layer->visible || layer->locked)) continue;
+        if (layer && (!layer->visible || layer->frozen || layer->locked)) continue;
         const double d = e->distanceTo(worldPt);
         if (d <= tol) candidates.emplace_back(d, e);
     }
@@ -163,7 +163,7 @@ std::optional<std::pair<lcad::SnapPoint, std::optional<lcad::SnapRef>>> DrawingV
 
     for (lcad::Entity* e : spaceEntities()) {
         const lcad::Layer* layer = m_document.findLayer(e->layer());
-        if (layer && !layer->visible) continue;
+        if (layer && (!layer->visible || layer->frozen)) continue;
         if (e->distanceTo(cursor) <= tolWorld * 1.5) nearby.push_back(e);
         // Per-kind running index makes the SnapRef durable across edits that
         // move points without restructuring the entity.
@@ -437,7 +437,7 @@ void DrawingView::drawLayoutMode(QPainter& painter) {
         const double effScale = vp.viewScale * m_scale;
         for (lcad::Entity* e : m_document.entities()) {
             const lcad::Layer* layer = m_document.findLayer(e->layer());
-            if (layer && !layer->visible) continue;
+            if (layer && (!layer->visible || layer->frozen)) continue;
             lcad::Color c = layer ? layer->color : lcad::Color{255, 255, 255};
             if (const auto& override = e->colorOverride()) c = *override;
             // Light colors tuned for the dark canvas vanish on paper.
@@ -465,7 +465,7 @@ void DrawingView::drawLayoutMode(QPainter& painter) {
     // coordinates, with the same selection/hover treatment as model space.
     for (lcad::Entity* e : m_document.paperEntities(m_layoutIndex)) {
         const lcad::Layer* layer = m_document.findLayer(e->layer());
-        if (layer && !layer->visible) continue;
+        if (layer && (!layer->visible || layer->frozen)) continue;
         const bool selected = m_selection.count(e->id()) > 0;
         const bool isDragGhostSource = (m_dragMode == DragMode::MoveSelection && selected) ||
                                         (m_dragMode == DragMode::Grip && e->id() == m_gripEntityId);
@@ -514,7 +514,7 @@ void DrawingView::paintEvent(QPaintEvent*) {
 
     for (lcad::Entity* e : m_document.entities()) {
         const lcad::Layer* layer = m_document.findLayer(e->layer());
-        if (layer && !layer->visible) continue;
+        if (layer && (!layer->visible || layer->frozen)) continue;
 
         const bool selected = m_selection.count(e->id()) > 0;
         const bool isDragGhostSource = (m_dragMode == DragMode::MoveSelection && selected) ||
@@ -779,7 +779,7 @@ void DrawingView::updateSelectionFromBox(const QRectF& screenBox, bool crossing)
     worldBox.expand(screenToWorld(screenBox.bottomRight()));
     for (lcad::Entity* e : spaceEntities()) {
         const lcad::Layer* layer = m_document.findLayer(e->layer());
-        if (layer && (!layer->visible || layer->locked)) continue; // locked layers can't be selected, same as click-select
+        if (layer && (!layer->visible || layer->frozen || layer->locked)) continue; // locked layers can't be selected, same as click-select
         const lcad::BoundingBox eb = e->boundingBox();
         const bool hit = crossing ? worldBox.intersects(eb) : worldBox.containsBox(eb);
         if (hit) m_selection.insert(e->id());
@@ -802,7 +802,7 @@ void DrawingView::selectAll() {
     m_selection.clear();
     for (lcad::Entity* e : spaceEntities()) {
         const lcad::Layer* layer = m_document.findLayer(e->layer());
-        if (layer && (!layer->visible || layer->locked)) continue;
+        if (layer && (!layer->visible || layer->frozen || layer->locked)) continue;
         m_selection.insert(e->id());
     }
     emit selectionChanged();
@@ -815,7 +815,7 @@ void DrawingView::setSelection(const std::vector<lcad::EntityId>& ids) {
         const lcad::Entity* e = m_document.findEntity(id);
         if (!e) continue;
         const lcad::Layer* layer = m_document.findLayer(e->layer());
-        if (layer && (!layer->visible || layer->locked)) continue;
+        if (layer && (!layer->visible || layer->frozen || layer->locked)) continue;
         m_selection.insert(id);
     }
     emit selectionChanged();
@@ -827,7 +827,7 @@ void DrawingView::pruneSelectionForLayerState() {
     for (auto it = m_selection.begin(); it != m_selection.end();) {
         const lcad::Entity* e = m_document.findEntity(*it);
         const lcad::Layer* layer = e ? m_document.findLayer(e->layer()) : nullptr;
-        if (!e || (layer && (!layer->visible || layer->locked))) {
+        if (!e || (layer && (!layer->visible || layer->frozen || layer->locked))) {
             it = m_selection.erase(it);
             changed = true;
         } else {

@@ -1294,6 +1294,27 @@ TEST_CASE("DXF round-trips plot styles and their per-layer assignment", "[dxf][p
     REQUIRE(loaded.findLayer(0)->plotStyle.empty()); // layer "0" never had one assigned
 }
 
+TEST_CASE("DXF round-trips the frozen layer flag (standard bit 0)", "[dxf][layer]") {
+    TempDxfPath temp;
+
+    lcad::Document doc;
+    const lcad::LayerId frozenLayer = doc.addLayer("Frozen", lcad::Color{0, 255, 0});
+    const lcad::LayerId lockedFrozen = doc.addLayer("Both", lcad::Color{0, 0, 255});
+    doc.findLayer(frozenLayer)->frozen = true;
+    doc.findLayer(lockedFrozen)->frozen = true;
+    doc.findLayer(lockedFrozen)->locked = true;
+
+    REQUIRE(lcad::writeDxf(doc, temp.path.string()));
+    lcad::Document loaded;
+    REQUIRE(lcad::readDxf(loaded, temp.path.string()));
+
+    REQUIRE(loaded.findLayer(frozenLayer)->frozen);
+    REQUIRE_FALSE(loaded.findLayer(frozenLayer)->locked);
+    REQUIRE(loaded.findLayer(lockedFrozen)->frozen);
+    REQUIRE(loaded.findLayer(lockedFrozen)->locked);
+    REQUIRE_FALSE(loaded.findLayer(0)->frozen);
+}
+
 TEST_CASE("DXF round-trips the CTB table, plot mode, and screening", "[dxf][plotstyle]") {
     TempDxfPath temp;
 
