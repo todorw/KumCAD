@@ -13,4 +13,11 @@ namespace lcad {
 // Returns nullopt with *errorOut set if the file can't be opened.
 std::optional<std::vector<std::vector<std::string>>> readCsv(const std::string& path, std::string* errorOut = nullptr);
 
+// Writes rows in the same RFC-4180-ish dialect readCsv reads: a field is
+// quoted only when it contains a comma, quote, or newline (with embedded
+// quotes doubled), otherwise written bare. Returns false with *errorOut set
+// if the file can't be opened for writing.
+bool writeCsv(const std::string& path, const std::vector<std::vector<std::string>>& rows,
+             std::string* errorOut = nullptr);
+
 } // namespace lcad

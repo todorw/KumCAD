@@ -37,6 +37,7 @@ add_executable(lcad_core_tests
     CamTests.cpp
     SketchTests.cpp
     FieldsTests.cpp
+    DataExtractionTests.cpp
 )
 target_link_libraries(lcad_core_tests PRIVATE lcad_core Catch2::Catch2WithMain)
 

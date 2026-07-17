@@ -133,6 +133,8 @@ add_library(lcad_core STATIC
     document/Document.cpp
     document/Fields.h
     document/Fields.cpp
+    document/DataExtraction.h
+    document/DataExtraction.cpp
     document/DocumentConstraints.h
     document/DocumentConstraints.cpp
     io/DxfColors.h

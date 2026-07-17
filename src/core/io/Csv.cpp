@@ -78,4 +78,32 @@ std::optional<std::vector<std::vector<std::string>>> readCsv(const std::string& 
     return rows;
 }
 
+bool writeCsv(const std::string& path, const std::vector<std::vector<std::string>>& rows, std::string* errorOut) {
+    std::ofstream out(path, std::ios::binary);
+    if (!out) {
+        if (errorOut) *errorOut = "Could not open file for writing";
+        return false;
+    }
+    for (const auto& row : rows) {
+        for (std::size_t i = 0; i < row.size(); ++i) {
+            if (i > 0) out << ',';
+            const std::string& field = row[i];
+            const bool needsQuoting =
+                field.find_first_of(",\"\r\n") != std::string::npos;
+            if (!needsQuoting) {
+                out << field;
+                continue;
+            }
+            out << '"';
+            for (const char c : field) {
+                if (c == '"') out << '"';
+                out << c;
+            }
+            out << '"';
+        }
+        out << "\r\n";
+    }
+    return true;
+}
+
 } // namespace lcad

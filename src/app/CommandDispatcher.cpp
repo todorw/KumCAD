@@ -73,6 +73,7 @@
 #include "commands/StyleCommand.h"
 #include "commands/TableCommand.h"
 #include "commands/TableEditCommand.h"
+#include "commands/DataExtractionCommand.h"
 #include "commands/FieldCommand.h"
 #include "commands/TextCommand.h"
 #include "commands/TrimCommand.h"
@@ -778,6 +779,8 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         startCommand(std::make_unique<WireListCommand>(m_document), QStringLiteral("WIRELIST"));
     } else if (cmd == QLatin1String("BOM")) {
         startCommand(std::make_unique<BomCommand>(m_document), QStringLiteral("BOM"));
+    } else if (cmd == QLatin1String("DATAEXTRACTION") || cmd == QLatin1String("EATTEXT")) {
+        startCommand(std::make_unique<DataExtractionCommand>(m_document), QStringLiteral("DATAEXTRACTION"));
     } else if (cmd == QLatin1String("SHEETNEW")) {
         startCommand(std::make_unique<SheetNewCommand>(m_document), QStringLiteral("SHEETNEW"));
     } else if (cmd == QLatin1String("SHEETGOTO")) {
