@@ -138,6 +138,23 @@ std::vector<Net> computeNets(const Document& doc) {
         for (std::size_t i = 1; i < indices.size(); ++i) uf.unite(indices[0], indices[i]);
     }
 
+    // Hierarchical/global label connectivity: two labels with the same
+    // name union their nets together, regardless of physical distance --
+    // this is what actually lets a design be split across sheets (see
+    // Sheets.h) while staying one electrical netlist. A label that isn't
+    // touching anything has no bucket entry and is silently skipped, same
+    // as the existing rootNames lookup below.
+    std::map<std::string, std::vector<std::size_t>> labelIndicesByName;
+    for (const auto* label : labels) {
+        const auto it = buckets.find(quantize(label->position()));
+        if (it == buckets.end() || it->second.empty()) continue;
+        labelIndicesByName[label->name()].push_back(it->second.front());
+    }
+    for (auto& [name, indices] : labelIndicesByName) {
+        (void)name;
+        for (std::size_t i = 1; i < indices.size(); ++i) uf.unite(indices[0], indices[i]);
+    }
+
     // Group pins by their connected-component root, preserving first-
     // appearance order for stable auto-naming.
     std::map<std::size_t, std::vector<NetPin>> groups;

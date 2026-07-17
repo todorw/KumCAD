@@ -64,6 +64,8 @@ int main(int argc, char** argv) {
     MainWindow window;
     if (welcome.choice() == WelcomeScreen::Choice::OpenExisting) {
         window.openSheet(welcome.selectedPath(), QString());
+    } else if (welcome.choice() == WelcomeScreen::Choice::NewElectricalPanel) {
+        window.setupElectricalPanelMode();
     }
     window.show();
 

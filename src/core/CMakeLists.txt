@@ -65,6 +65,8 @@ add_library(lcad_core STATIC
     schematic/Erc.cpp
     schematic/SymbolLibrary.h
     schematic/SymbolLibrary.cpp
+    schematic/Sheets.h
+    schematic/Sheets.cpp
     pcb/Ratsnest.h
     pcb/Ratsnest.cpp
     pcb/Drc.h

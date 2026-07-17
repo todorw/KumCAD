@@ -79,6 +79,49 @@ private:
     bool m_finished = false;
 };
 
+// SHEETNEW: creates a new schematic sheet (see core/schematic/Sheets.h) --
+// prompts for a name, then switches to it (a freshly created sheet is the
+// obvious next place to start drawing).
+class SheetNewCommand : public DrawCommand {
+public:
+    explicit SheetNewCommand(lcad::Document& document) : m_document(document) {}
+
+    QString start() override { return QStringLiteral("SHEETNEW  Enter new sheet name:"); }
+    std::optional<QString> onPoint(const lcad::Point2D& pt) override {
+        (void)pt;
+        return std::nullopt;
+    }
+    bool wantsTextInput() const override { return true; }
+    std::optional<QString> onText(const QString& text) override;
+    bool isFinished() const override { return m_finished; }
+    void cancel() override { m_finished = true; }
+
+private:
+    lcad::Document& m_document;
+    bool m_finished = false;
+};
+
+// SHEETGOTO: switches the active sheet (see core/schematic/Sheets.h) --
+// prompts for a sheet name.
+class SheetGoToCommand : public DrawCommand {
+public:
+    explicit SheetGoToCommand(lcad::Document& document) : m_document(document) {}
+
+    QString start() override { return QStringLiteral("SHEETGOTO  Enter sheet name:"); }
+    std::optional<QString> onPoint(const lcad::Point2D& pt) override {
+        (void)pt;
+        return std::nullopt;
+    }
+    bool wantsTextInput() const override { return true; }
+    std::optional<QString> onText(const QString& text) override;
+    bool isFinished() const override { return m_finished; }
+    void cancel() override { m_finished = true; }
+
+private:
+    lcad::Document& m_document;
+    bool m_finished = false;
+};
+
 // PINADD: defines one pin on an existing block definition, turning it into a
 // schematic symbol (see BlockDefinition::pins). Not undoable, matching this
 // codebase's existing precedent for block-metadata edits (BlockParamCommand).

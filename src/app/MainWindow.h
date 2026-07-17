@@ -29,6 +29,17 @@ public:
     // not found). Confirms discarding unsaved changes first, like Open.
     void openSheet(const QString& path, const QString& layoutName);
 
+    // Electrical Panel Layout: a genuinely distinct entry point from plain
+    // schematic capture (WelcomeScreen::Choice::ElectricalPanel), not just
+    // the same window reused silently -- pre-registers the electrical/
+    // panel symbol library (see core/electrical/ElectricalLibrary.h),
+    // starts a first named sheet, and tags the window title so it reads
+    // as "Panel Layout" rather than a generic drawing. There's no ERC/DRC
+    // step in this mode (panel wiring has no copper/net-topology rules to
+    // check the way PCB layout does) -- that's an intentional omission,
+    // not an oversight.
+    void setupElectricalPanelMode();
+
 protected:
     void closeEvent(QCloseEvent* event) override;
 
@@ -92,4 +103,5 @@ private:
 
     QString m_currentFilePath;
     bool m_dirty = false;
+    QString m_modeLabel; // e.g. "Panel Layout" -- appended to the window title when set
 };

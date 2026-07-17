@@ -16,7 +16,7 @@ public:
     // New3D is only ever produced when the app was built with OCCT (see
     // LCAD_HAS_OCCT); the 3D card falls back to a "coming soon" notice
     // otherwise, same as PCB did before schematic capture was real.
-    enum class Choice { NewDrawing, OpenExisting, New3D };
+    enum class Choice { NewDrawing, OpenExisting, New3D, NewElectricalPanel };
 
     explicit WelcomeScreen(QWidget* parent = nullptr);
 

@@ -20,6 +20,7 @@ add_executable(lcad_core_tests
     PointCloudFileTests.cpp
     ZipTests.cpp
     SchematicTests.cpp
+    SheetsTests.cpp
     PcbTests.cpp
     ElectricalTests.cpp
     PidTests.cpp

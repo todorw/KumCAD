@@ -347,6 +347,20 @@ QIcon modePcbIcon() {
     });
 }
 
+QIcon modeElectricalIcon() {
+    return buildLarge([](QPainter& painter) {
+        // A relay coil (rectangle) with two contact lines below it, like a
+        // simplified IEC 60617 relay/contactor symbol.
+        painter.drawRect(QRectF(15, 11, 26, 14));
+        painter.drawLine(QPointF(20, 25), QPointF(20, 32));
+        painter.drawLine(QPointF(20, 32), QPointF(28, 40));
+        painter.drawLine(QPointF(20, 40), QPointF(28, 32));
+        painter.drawLine(QPointF(28, 32), QPointF(28, 47));
+        dot(painter, QPointF(20, 32));
+        dot(painter, QPointF(28, 40));
+    });
+}
+
 QIcon modeOtherIcon() {
     return buildLarge([](QPainter& painter) {
         painter.setBrush(kStroke);

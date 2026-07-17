@@ -86,6 +86,7 @@
 #include "core/pid/InstrumentTagging.h"
 #include "core/schematic/Erc.h"
 #include "core/schematic/Netlist.h"
+#include "core/schematic/Sheets.h"
 
 #include <QClipboard>
 #include <QFile>
@@ -607,6 +608,22 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         emit documentChanged();
     } else if (cmd == QLatin1String("WIRELIST") || cmd == QLatin1String("LINELIST")) {
         startCommand(std::make_unique<WireListCommand>(m_document), QStringLiteral("WIRELIST"));
+    } else if (cmd == QLatin1String("SHEETNEW")) {
+        startCommand(std::make_unique<SheetNewCommand>(m_document), QStringLiteral("SHEETNEW"));
+    } else if (cmd == QLatin1String("SHEETGOTO")) {
+        startCommand(std::make_unique<SheetGoToCommand>(m_document), QStringLiteral("SHEETGOTO"));
+    } else if (cmd == QLatin1String("SHEETS")) {
+        const std::vector<lcad::Sheet> sheets = lcad::listSheets(m_document);
+        if (sheets.empty()) {
+            m_commandLine.appendLine(QStringLiteral("*No sheets yet -- use SHEETNEW to create one*"));
+        } else {
+            m_commandLine.appendLine(QStringLiteral("*%1 sheet(s):*").arg(sheets.size()));
+            for (const lcad::Sheet& sheet : sheets) {
+                const lcad::Layer* layer = m_document.findLayer(sheet.layerId);
+                const QString activeMark = (layer && layer->visible) ? QStringLiteral(" (active)") : QString();
+                m_commandLine.appendLine(QStringLiteral("  %1%2").arg(QString::fromStdString(sheet.name), activeMark));
+            }
+        }
     } else if (cmd == QLatin1String("TAGINST")) {
         lcad::assignInstrumentTags(m_document);
         m_commandLine.appendLine(QStringLiteral("*Instrument tags assigned*"));

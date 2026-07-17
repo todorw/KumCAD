@@ -84,6 +84,18 @@ WelcomeScreen::WelcomeScreen(QWidget* parent) : QDialog(parent) {
     connect(modeOther, &QToolButton::clicked, this, [this] { showComingSoon(QStringLiteral("Other modes")); });
     modeGrid->addWidget(modeOther, 0, 3);
 
+    // A genuinely distinct entry point from plain schematic capture (see
+    // MainWindow::setupElectricalPanelMode) -- pre-registers the panel
+    // symbol library and starts a first sheet, rather than silently
+    // opening the same blank drawing 2D Drafting would.
+    auto* modeElectrical = makeModeButton(IconFactory::modeElectricalIcon(), QStringLiteral("Electrical Panel"),
+                                          QString(), true);
+    connect(modeElectrical, &QToolButton::clicked, this, [this] {
+        m_choice = Choice::NewElectricalPanel;
+        accept();
+    });
+    modeGrid->addWidget(modeElectrical, 1, 0);
+
     layout->addLayout(modeGrid);
 
     auto* rule = new QFrame;

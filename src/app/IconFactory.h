@@ -40,6 +40,7 @@ QIcon appIcon();
 QIcon mode2DIcon();
 QIcon mode3DIcon();
 QIcon modePcbIcon();
+QIcon modeElectricalIcon();
 QIcon modeOtherIcon();
 
 } // namespace IconFactory

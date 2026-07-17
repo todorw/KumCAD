@@ -24,6 +24,7 @@
 #include "core/io/Zip.h"
 #include "core/electrical/ElectricalLibrary.h"
 #include "core/pid/PidLibrary.h"
+#include "core/schematic/Sheets.h"
 #include "core/schematic/SymbolLibrary.h"
 
 #include <QAction>
@@ -393,7 +394,8 @@ void MainWindow::markDirty() {
 
 void MainWindow::updateWindowTitle() {
     const QString name = m_currentFilePath.isEmpty() ? QStringLiteral("Untitled") : QFileInfo(m_currentFilePath).fileName();
-    setWindowTitle(QStringLiteral("%1%2 — KumCAD").arg(name, m_dirty ? QStringLiteral("*") : QString()));
+    const QString suffix = m_modeLabel.isEmpty() ? QString() : QStringLiteral(" [%1]").arg(m_modeLabel);
+    setWindowTitle(QStringLiteral("%1%2 — KumCAD%3").arg(name, m_dirty ? QStringLiteral("*") : QString(), suffix));
 }
 
 bool MainWindow::confirmDiscardUnsavedChanges() {
@@ -483,6 +485,18 @@ void MainWindow::openSheet(const QString& path, const QString& layoutName) {
         statusBar()->showMessage(
             QStringLiteral("Sheet's layout \"%1\" not found -- showing Model space").arg(layoutName), 4000);
     }
+}
+
+void MainWindow::setupElectricalPanelMode() {
+    lcad::registerElectricalSymbols(m_document);
+    lcad::createSheet(m_document, "Panel");
+    lcad::goToSheet(m_document, "Panel");
+    m_modeLabel = QStringLiteral("Panel Layout");
+    updateWindowTitle();
+    statusBar()->showMessage(QStringLiteral("Electrical Panel Layout mode: contactor/relay/terminal-block/motor "
+                                            "symbols are ready to place (INSERT), wired with WIRE -- SHEETNEW/"
+                                            "SHEETGOTO/SHEETS organize multiple sheets. No ERC/DRC step here."),
+                              6000);
 }
 
 bool MainWindow::saveDocument() {

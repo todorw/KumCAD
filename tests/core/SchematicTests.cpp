@@ -131,6 +131,60 @@ TEST_CASE("computeNets names a net after a touching NetLabel", "[schematic][netl
     REQUIRE(named != nets.end());
 }
 
+TEST_CASE("computeNets joins two otherwise-disconnected groups via same-named labels (hierarchical connectivity)",
+          "[schematic][netlist][sheets]") {
+    Document doc;
+    const BlockDefinition* r1 = addTwoPinSymbol(doc, "R");
+    const BlockDefinition* r2 = addTwoPinSymbol(doc, "R2");
+
+    // Two symbols far apart, on what would be different "sheets" in
+    // practice -- nothing physically connects them.
+    auto insertA = std::make_unique<InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), r1, Point2D(0, 0));
+    const EntityId idA = insertA->id();
+    doc.addEntity(std::move(insertA));
+    auto insertB = std::make_unique<InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), r2, Point2D(1000, 1000));
+    const EntityId idB = insertB->id();
+    doc.addEntity(std::move(insertB));
+
+    // A "VCC" label touching each symbol's pin "1" -- same name, nowhere
+    // near each other -- should still be one net.
+    doc.addEntity(std::make_unique<NetLabelEntity>(doc.reserveEntityId(), doc.currentLayer(), Point2D(0, 0), "VCC"));
+    doc.addEntity(
+        std::make_unique<NetLabelEntity>(doc.reserveEntityId(), doc.currentLayer(), Point2D(1000, 1000), "VCC"));
+
+    const std::vector<Net> nets = computeNets(doc);
+    const auto vcc = std::find_if(nets.begin(), nets.end(), [](const Net& n) { return n.name == "VCC"; });
+    REQUIRE(vcc != nets.end());
+    REQUIRE(vcc->pins.size() == 2);
+    const bool hasA1 = std::any_of(vcc->pins.begin(), vcc->pins.end(),
+                                    [&](const NetPin& p) { return p.insertId == idA && p.pinNumber == "1"; });
+    const bool hasB1 = std::any_of(vcc->pins.begin(), vcc->pins.end(),
+                                    [&](const NetPin& p) { return p.insertId == idB && p.pinNumber == "1"; });
+    REQUIRE(hasA1);
+    REQUIRE(hasB1);
+}
+
+TEST_CASE("computeNets does not connect labels with different names", "[schematic][netlist][sheets]") {
+    Document doc;
+    const BlockDefinition* r1 = addTwoPinSymbol(doc, "R");
+    const BlockDefinition* r2 = addTwoPinSymbol(doc, "R2");
+    auto insertA = std::make_unique<InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), r1, Point2D(0, 0));
+    doc.addEntity(std::move(insertA));
+    auto insertB = std::make_unique<InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), r2, Point2D(1000, 1000));
+    doc.addEntity(std::move(insertB));
+    doc.addEntity(std::make_unique<NetLabelEntity>(doc.reserveEntityId(), doc.currentLayer(), Point2D(0, 0), "VCC"));
+    doc.addEntity(
+        std::make_unique<NetLabelEntity>(doc.reserveEntityId(), doc.currentLayer(), Point2D(1000, 1000), "GND"));
+
+    const std::vector<Net> nets = computeNets(doc);
+    const auto vcc = std::find_if(nets.begin(), nets.end(), [](const Net& n) { return n.name == "VCC"; });
+    const auto gnd = std::find_if(nets.begin(), nets.end(), [](const Net& n) { return n.name == "GND"; });
+    REQUIRE(vcc != nets.end());
+    REQUIRE(gnd != nets.end());
+    REQUIRE(vcc->pins.size() == 1);
+    REQUIRE(gnd->pins.size() == 1);
+}
+
 TEST_CASE("runErc flags an unconnected pin but not one marked NoConnect", "[schematic][erc]") {
     Document doc;
     const BlockDefinition* r = addTwoPinSymbol(doc, "R");

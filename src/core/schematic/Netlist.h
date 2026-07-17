@@ -24,12 +24,20 @@ struct Net {
     std::vector<NetPin> pins;
 };
 
-// Computes electrical nets across doc's model space, treated as one flat
-// schematic sheet (no hierarchical sub-sheets yet). A wire's own vertices
+// Computes electrical nets across doc's model space. A wire's own vertices
 // always connect along its length; two different wires (or a wire and a
 // pin) connect only where endpoints coincide, or at an explicit
 // JunctionEntity for a T/cross connection -- matching KiCad's connectivity
 // rule that crossing wires without a junction dot are NOT connected.
+//
+// Two NetLabelEntity instances with the SAME name connect their nets too,
+// regardless of physical distance or which sheet (see core/schematic/
+// Sheets.h) each sits on -- the real mechanism hierarchical/global labels
+// use in KiCad/Eagle to link nets across sheets, not just a naming
+// coincidence read back after the fact. A label only participates if it's
+// actually touching something (a wire endpoint, a pin, or a junction-
+// marked tap) -- one sitting on blank canvas with nothing under it doesn't
+// connect anything, same as before.
 std::vector<Net> computeNets(const Document& doc);
 
 // A plain-text netlist, one NET block per net, listing each pin as

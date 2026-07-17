@@ -6,6 +6,7 @@
 #include "core/geometry/NoConnect.h"
 #include "core/electrical/WireList.h"
 #include "core/schematic/Netlist.h"
+#include "core/schematic/Sheets.h"
 
 std::optional<QString> JunctionCommand::onPoint(const lcad::Point2D& pt) {
     m_document.commandStack().execute(std::make_unique<lcad::AddEntityCommand>(
@@ -112,4 +113,25 @@ std::optional<QString> NetlistExportCommand::onText(const QString& text) {
         return QStringLiteral("*%1*").arg(QString::fromStdString(error));
     }
     return QStringLiteral("*Netlist written to %1 (%2 nets)*").arg(text.trimmed()).arg(nets.size());
+}
+
+std::optional<QString> SheetNewCommand::onText(const QString& text) {
+    m_finished = true;
+    const QString name = text.trimmed();
+    if (name.isEmpty()) return std::nullopt;
+
+    lcad::createSheet(m_document, name.toStdString());
+    lcad::goToSheet(m_document, name.toStdString());
+    return QStringLiteral("*Sheet \"%1\" created and active*").arg(name);
+}
+
+std::optional<QString> SheetGoToCommand::onText(const QString& text) {
+    m_finished = true;
+    const QString name = text.trimmed();
+    if (name.isEmpty()) return std::nullopt;
+
+    if (!lcad::goToSheet(m_document, name.toStdString())) {
+        return QStringLiteral("*No sheet named \"%1\"*").arg(name);
+    }
+    return QStringLiteral("*Sheet \"%1\" is now active*").arg(name);
 }
