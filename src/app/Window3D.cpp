@@ -1,5 +1,6 @@
 #include "Window3D.h"
 #include "AssemblyWindow.h"
+#include "IconFactory.h"
 #include "SketchEditorDialog.h"
 #include "SketchPlaneDialog.h"
 #include "SketchFeatureDialog.h"
@@ -1281,17 +1282,24 @@ Window3D::Window3D(QWidget* parent) : QMainWindow(parent) {
     addDockWidget(Qt::RightDockWidgetArea, dock);
 
     QToolBar* toolbar = addToolBar(QStringLiteral("Features"));
-    toolbar->addAction(QStringLiteral("Box"), this, [this] { addPrimitive(FeatureType::Box); });
-    toolbar->addAction(QStringLiteral("Cylinder"), this, [this] { addPrimitive(FeatureType::Cylinder); });
-    toolbar->addAction(QStringLiteral("Sphere"), this, [this] { addPrimitive(FeatureType::Sphere); });
-    toolbar->addAction(QStringLiteral("Cone"), this, [this] { addPrimitive(FeatureType::Cone); });
-    toolbar->addAction(QStringLiteral("Torus"), this, [this] { addPrimitive(FeatureType::Torus); });
-    toolbar->addAction(QStringLiteral("Wedge"), this, [this] { addPrimitive(FeatureType::Wedge); });
+    toolbar->setIconSize(QSize(22, 22));
+    toolbar->addAction(IconFactory::box3DIcon(), QStringLiteral("Box"), this, [this] { addPrimitive(FeatureType::Box); });
+    toolbar->addAction(IconFactory::cylinder3DIcon(), QStringLiteral("Cylinder"), this,
+                       [this] { addPrimitive(FeatureType::Cylinder); });
+    toolbar->addAction(IconFactory::sphere3DIcon(), QStringLiteral("Sphere"), this,
+                       [this] { addPrimitive(FeatureType::Sphere); });
+    toolbar->addAction(IconFactory::cone3DIcon(), QStringLiteral("Cone"), this, [this] { addPrimitive(FeatureType::Cone); });
+    toolbar->addAction(IconFactory::torus3DIcon(), QStringLiteral("Torus"), this,
+                       [this] { addPrimitive(FeatureType::Torus); });
+    toolbar->addAction(IconFactory::wedge3DIcon(), QStringLiteral("Wedge"), this,
+                       [this] { addPrimitive(FeatureType::Wedge); });
     toolbar->addAction(QStringLiteral("Helix"), this, [this] { addPrimitive(FeatureType::Helix); });
     toolbar->addSeparator();
-    toolbar->addAction(QStringLiteral("Union"), this, [this] { applyBoolean(FeatureType::Union); });
-    toolbar->addAction(QStringLiteral("Cut"), this, [this] { applyBoolean(FeatureType::Cut); });
-    toolbar->addAction(QStringLiteral("Intersect"), this, [this] { applyBoolean(FeatureType::Intersect); });
+    toolbar->addAction(IconFactory::union3DIcon(), QStringLiteral("Union"), this,
+                       [this] { applyBoolean(FeatureType::Union); });
+    toolbar->addAction(IconFactory::cut3DIcon(), QStringLiteral("Cut"), this, [this] { applyBoolean(FeatureType::Cut); });
+    toolbar->addAction(IconFactory::intersect3DIcon(), QStringLiteral("Intersect"), this,
+                       [this] { applyBoolean(FeatureType::Intersect); });
     toolbar->addSeparator();
     toolbar->addAction(QStringLiteral("Edit..."), this, &Window3D::editSelectedFeature);
     toolbar->addAction(QStringLiteral("List Edges..."), this, &Window3D::listSelectedFeatureEdges);

@@ -282,6 +282,121 @@ QIcon eraseIcon() {
     });
 }
 
+QIcon box3DIcon() {
+    // The same isometric-cube construction appIcon() uses, scaled to
+    // toolbar size and drawn as a plain stroked wireframe instead of the
+    // app icon's shaded/filled faces -- echoes the app's own mark at a
+    // small size rather than inventing an unrelated box glyph.
+    return build([](QPainter& painter) {
+        const QPointF center(16, 16.6);
+        const QPointF T(center.x(), center.y() - 9.8);
+        const QPointF Lh(center.x() - 7, center.y() - 2.8);
+        const QPointF Rh(center.x() + 7, center.y() - 2.8);
+        const QPointF Fc(center.x(), center.y() + 1.4);
+        const QPointF Ll(center.x() - 7, center.y() + 7);
+        const QPointF Rl(center.x() + 7, center.y() + 7);
+        const QPointF Bt(center.x(), center.y() + 12.6);
+        painter.drawPolygon(QPolygonF({T, Lh, Fc, Rh}));
+        painter.drawPolygon(QPolygonF({Lh, Fc, Bt, Ll}));
+        painter.drawPolygon(QPolygonF({Rh, Fc, Bt, Rl}));
+    });
+}
+
+QIcon cylinder3DIcon() {
+    return build([](QPainter& painter) {
+        constexpr double rx = 9, ry = 3.2;
+        const QPointF top(16, 9);
+        const QPointF bottom(16, 24);
+        painter.drawEllipse(top, rx, ry);
+        painter.drawLine(QPointF(top.x() - rx, top.y()), QPointF(bottom.x() - rx, bottom.y()));
+        painter.drawLine(QPointF(top.x() + rx, top.y()), QPointF(bottom.x() + rx, bottom.y()));
+        QPainterPath frontArc;
+        frontArc.moveTo(bottom.x() - rx, bottom.y());
+        frontArc.arcTo(bottom.x() - rx, bottom.y() - ry, rx * 2, ry * 2, 180, 180);
+        painter.drawPath(frontArc);
+    });
+}
+
+QIcon sphere3DIcon() {
+    return build([](QPainter& painter) {
+        painter.drawEllipse(QPointF(16, 16), 10, 10);
+        painter.save();
+        QPen thin = painter.pen();
+        thin.setWidthF(1.3);
+        painter.setPen(thin);
+        painter.translate(16, 16);
+        painter.rotate(-15);
+        painter.drawArc(QRectF(-10, -3.5, 20, 7), 0, 180 * 16);
+        painter.restore();
+    });
+}
+
+QIcon cone3DIcon() {
+    return build([](QPainter& painter) {
+        constexpr double rx = 9, ry = 3.2;
+        const QPointF apex(16, 6);
+        const QPointF baseCenter(16, 24);
+        painter.drawEllipse(baseCenter, rx, ry);
+        painter.drawLine(apex, QPointF(baseCenter.x() - rx, baseCenter.y()));
+        painter.drawLine(apex, QPointF(baseCenter.x() + rx, baseCenter.y()));
+    });
+}
+
+QIcon torus3DIcon() {
+    return build([](QPainter& painter) {
+        painter.drawEllipse(QPointF(16, 16), 10, 6);
+        painter.drawEllipse(QPointF(16, 16), 4, 2.4);
+    });
+}
+
+QIcon wedge3DIcon() {
+    return build([](QPainter& painter) {
+        QPolygonF poly;
+        poly << QPointF(6, 24) << QPointF(26, 24) << QPointF(26, 8) << QPointF(6, 18);
+        painter.drawPolygon(poly);
+    });
+}
+
+QIcon union3DIcon() {
+    return build([](QPainter& painter) {
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(kStroke);
+        painter.drawEllipse(QPointF(12, 16), 8, 8);
+        painter.drawEllipse(QPointF(20, 16), 8, 8);
+    });
+}
+
+QIcon cut3DIcon() {
+    // A solid (A minus B), plus B's own outline so the "subtracted from"
+    // shape is still visible -- the standard boolean-cut icon convention.
+    return build([](QPainter& painter) {
+        QPainterPath a, b;
+        a.addEllipse(QPointF(12, 16), 8, 8);
+        b.addEllipse(QPointF(20, 16), 8, 8);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(kStroke);
+        painter.drawPath(a.subtracted(b));
+        painter.setBrush(Qt::NoBrush);
+        painter.setPen(QPen(kStroke, 1.3));
+        painter.drawEllipse(QPointF(20, 16), 8, 8);
+    });
+}
+
+QIcon intersect3DIcon() {
+    return build([](QPainter& painter) {
+        QPainterPath a, b;
+        a.addEllipse(QPointF(12, 16), 8, 8);
+        b.addEllipse(QPointF(20, 16), 8, 8);
+        painter.setPen(QPen(kStroke, 1.3));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawEllipse(QPointF(12, 16), 8, 8);
+        painter.drawEllipse(QPointF(20, 16), 8, 8);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(kStroke);
+        painter.drawPath(a.intersected(b));
+    });
+}
+
 namespace {
 
 QIcon buildLarge(const std::function<void(QPainter&)>& draw) {
