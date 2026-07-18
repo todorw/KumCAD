@@ -9,6 +9,7 @@
 #include "core/geometry/Polyline.h"
 #include "core/geometry/Table.h"
 #include "core/geometry/Text.h"
+#include "core/geometry/Wipeout.h"
 #include "core/io/DwgReader.h"
 #include "core/io/DwgWriter.h"
 
@@ -99,6 +100,38 @@ TEST_CASE("DWG write/read round-trips the core entity set", "[dwg]") {
     REQUIRE(text);
     REQUIRE(text->text() == "dwg out");
     REQUIRE(text->height() == Approx(2.5));
+}
+
+TEST_CASE("DWG export degrades a WIPEOUT to its own boundary as a closed LWPOLYLINE",
+         "[dwg]") {
+    // No dwg_add_WIPEOUT exists in LibreDWG at all -- writeDwg's own
+    // documented fallback is to keep the boundary as visible geometry
+    // (the masking behavior itself is real, disclosed lost geometry, not
+    // silently dropped) -- proves the fallback round-trips as a real,
+    // readable closed polyline rather than just "doesn't crash".
+    if (!lcad::dwgWriteSupportAvailable()) {
+        SUCCEED("built without LibreDWG; DWG export not available");
+        return;
+    }
+
+    TempDwgPath temp;
+    lcad::Document doc;
+    const std::vector<lcad::Point2D> boundary{{0, 0}, {10, 0}, {10, 5}, {0, 5}};
+    doc.addEntity(std::make_unique<lcad::WipeoutEntity>(doc.reserveEntityId(), doc.currentLayer(), boundary, true));
+
+    std::string error;
+    int skipped = 0;
+    REQUIRE(lcad::writeDwg(doc, temp.path.string(), &error, &skipped));
+    REQUIRE(skipped == 0);
+
+    lcad::Document loaded;
+    REQUIRE(lcad::readDwg(loaded, temp.path.string(), &error));
+
+    const auto entities = loaded.entities();
+    const auto* pl = static_cast<const lcad::PolylineEntity*>(findByType(entities, lcad::EntityType::Polyline));
+    REQUIRE(pl);
+    REQUIRE(pl->closed());
+    REQUIRE(pl->vertices().size() == 4);
 }
 
 TEST_CASE("DWG export covers leaders, hatch boundaries, and table grids", "[dwg]") {

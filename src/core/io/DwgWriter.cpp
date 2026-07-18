@@ -19,6 +19,7 @@
 #include "core/geometry/Spline.h"
 #include "core/geometry/Table.h"
 #include "core/geometry/Text.h"
+#include "core/geometry/Wipeout.h"
 #include "core/io/DxfColors.h"
 
 #include <dwg.h>
@@ -367,6 +368,25 @@ struct DwgExport {
                     applyCommon(dwg_add_TEXT(blkhdr, text.c_str(), &p, table.textHeight()), e);
                 }
             }
+            return true;
+        }
+        case EntityType::Wipeout: {
+            // No WIPEOUT add API (LibreDWG has no dwg_add_WIPEOUT at all) --
+            // degrades to its own boundary as a closed LWPOLYLINE, the same
+            // "exploded into visible geometry" approach TABLE's own case
+            // above already uses for an entity type the writer can't
+            // express directly. Real, disclosed loss: the boundary survives,
+            // but the actual masking behavior (hiding whatever was drawn
+            // underneath) doesn't -- a real AutoCAD reader opening this DWG
+            // sees an empty/wireframe rectangle, not a wipeout.
+            const auto& wipeout = static_cast<const WipeoutEntity&>(e);
+            if (wipeout.vertices().size() < 3) return false;
+            std::vector<dwg_point_2d> pts;
+            pts.reserve(wipeout.vertices().size());
+            for (const Point2D& v : wipeout.vertices()) pts.push_back(dwg_point_2d{v.x, v.y});
+            Dwg_Entity_LWPOLYLINE* made = dwg_add_LWPOLYLINE(blkhdr, static_cast<int>(pts.size()), pts.data());
+            if (made) made->flag |= 512; // closed bit
+            applyCommon(made, e);
             return true;
         }
         default:
