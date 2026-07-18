@@ -105,7 +105,14 @@ enum class PadShape { Round, Rect, Oval };
 // One copper connection point on a PCB footprint. number matches the
 // schematic symbol pin number it corresponds to (by convention, like real
 // footprints -- pad 1 is meant to receive the net wired to schematic pin 1).
-// drillDiameter is 0 for a surface-mount pad, > 0 for plated through-hole.
+// drillDiameter is 0 for a surface-mount pad, > 0 for plated through-hole --
+// the same field also now doubles as the pad's own real per-side behavior
+// (see Stackup.h/Board3D.h/GerberWriter.h's own comments): a through-hole
+// pad's copper spans every stackup layer (an annular ring top to bottom
+// around the plated hole), while a surface-mount pad's copper exists only
+// on the ONE side its footprint is actually placed on (the owning
+// InsertEntity's own layer) -- real KiCad's own SMD-vs-THT distinction,
+// derived here rather than stored twice.
 struct Pad {
     std::string number;
     PadShape shape = PadShape::Round;

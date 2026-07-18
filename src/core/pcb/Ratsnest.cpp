@@ -170,10 +170,10 @@ std::vector<RatsnestLine> computeRatsnest(const Document& doc, const std::vector
     for (const ImportedNet& net : nets) {
         // Resolve each pin to a placed pad's world position, and the copper
         // graph's root at that position (a fresh singleton root if nothing
-        // copper touches it yet). Pads have no per-pad layer of their own
-        // yet (see Stackup.h's own disclosed simplification), so a pad
-        // touches every stackup layer's bucket at its position, same as a
-        // through-hole via.
+        // copper touches it yet). A through-hole pad touches every stackup
+        // layer's bucket at its position, same as a via; a surface-mount
+        // pad (drillDiameter == 0) only touches its own footprint's
+        // placement layer (see Stackup.h's own comment).
         std::vector<Point2D> padPositions;
         std::vector<std::size_t> padRoots;
         for (const ImportedNetPin& pin : net.pins) {
@@ -189,11 +189,15 @@ std::vector<RatsnestLine> computeRatsnest(const Document& doc, const std::vector
                 }
             }
             if (!found) continue;
+            const int fpTag = layerTagOf(found->layer());
             for (const auto& padWorld : found->padWorldPositions()) {
                 if (padWorld.pad->number != pin.pinNumber) continue;
+                const bool throughHole = padWorld.pad->drillDiameter > 1e-9;
+                const int loTag = (!throughHole && stackupActive && fpTag >= 0) ? fpTag : 0;
+                const int hiTag = (!throughHole && stackupActive && fpTag >= 0) ? fpTag : lastTag;
                 const Pos2D pos = quantize(padWorld.position);
                 std::vector<std::size_t> touching;
-                for (int tag = 0; tag <= lastTag; ++tag) {
+                for (int tag = loTag; tag <= hiTag; ++tag) {
                     const auto it = buckets.find({pos.first, pos.second, tag});
                     if (it != buckets.end() && !it->second.empty()) touching.push_back(it->second.front());
                 }

@@ -131,3 +131,82 @@ TEST_CASE("computeRatsnest joins tracks on different layers through a through-ho
     const std::vector<RatsnestLine> blindLines = computeRatsnest(doc2, {net}, stackup2);
     REQUIRE(blindLines.size() == 1);
 }
+
+TEST_CASE("runDrc doesn't flag two SMD pads stacked on opposite copper layers, but still flags two on "
+         "the same layer",
+         "[pcb][drc][stackup]") {
+    Document doc;
+    registerBuiltinSymbols(doc); // R_FP's own pads are SMD (drillDiameter 0)
+    const LayerId top = doc.addLayer("Top Copper", Color{});
+    const LayerId bottom = doc.addLayer("Bottom Copper", Color{});
+    const CopperStackup stackup = buildStackup(doc, {"Top Copper", "Bottom Copper"});
+    const BlockDefinition* rfp = doc.findBlock("R_FP");
+
+    // Two R_FP's placed at the SAME XY, one on Top, one on Bottom -- their
+    // SMD pads coincide in plan but sit on opposite real copper layers, so
+    // this is not a real short.
+    auto rTop = std::make_unique<InsertEntity>(doc.reserveEntityId(), top, rfp, Point2D(0, 0));
+    rTop->setAttribute("REFDES", "R1");
+    const EntityId rTopId = rTop->id();
+    doc.addEntity(std::move(rTop));
+    auto rBottom = std::make_unique<InsertEntity>(doc.reserveEntityId(), bottom, rfp, Point2D(0, 0));
+    rBottom->setAttribute("REFDES", "R2");
+    doc.addEntity(std::move(rBottom));
+
+    const std::vector<DrcViolation> stacked = runDrc(doc, {}, stackup);
+    REQUIRE_FALSE(hasClearanceViolationFor(stacked, rTopId));
+
+    // Same scenario, but both on Top: now it's a real same-layer clash.
+    Document doc2;
+    registerBuiltinSymbols(doc2);
+    const LayerId top2 = doc2.addLayer("Top Copper", Color{});
+    doc2.addLayer("Bottom Copper", Color{});
+    const CopperStackup stackup2 = buildStackup(doc2, {"Top Copper", "Bottom Copper"});
+    const BlockDefinition* rfp2 = doc2.findBlock("R_FP");
+
+    // Offset slightly (not exactly coincident -- two pads at the EXACT
+    // same point would union into one connectivity root and read as
+    // "already the same net" rather than a clearance violation).
+    auto r1 = std::make_unique<InsertEntity>(doc2.reserveEntityId(), top2, rfp2, Point2D(0, 0));
+    r1->setAttribute("REFDES", "R1");
+    const EntityId r1Id = r1->id();
+    doc2.addEntity(std::move(r1));
+    auto r2 = std::make_unique<InsertEntity>(doc2.reserveEntityId(), top2, rfp2, Point2D(0.1, 0));
+    r2->setAttribute("REFDES", "R2");
+    doc2.addEntity(std::move(r2));
+
+    const std::vector<DrcViolation> sameLayer = runDrc(doc2, {}, stackup2);
+    REQUIRE(hasClearanceViolationFor(sameLayer, r1Id));
+}
+
+TEST_CASE("computeRatsnest doesn't join an SMD pad to a track on the opposite copper layer just because "
+         "they coincide in plan (no via)",
+         "[pcb][ratsnest][stackup]") {
+    Document doc;
+    registerBuiltinSymbols(doc); // R_FP's own pads are SMD (drillDiameter 0)
+    const LayerId top = doc.addLayer("Top Copper", Color{});
+    const LayerId bottom = doc.addLayer("Bottom Copper", Color{});
+    const CopperStackup stackup = buildStackup(doc, {"Top Copper", "Bottom Copper"});
+    const BlockDefinition* rfp = doc.findBlock("R_FP");
+
+    // R1 placed on Top; its pad 1 sits at world (0,0). A track on the
+    // BOTTOM layer happens to pass through (0,0) too, but with no via
+    // there, an SMD pad on Top must never electrically join it.
+    auto r1 = std::make_unique<InsertEntity>(doc.reserveEntityId(), top, rfp, Point2D(0, 0));
+    r1->setAttribute("REFDES", "R1");
+    doc.addEntity(std::move(r1));
+    auto r2 = std::make_unique<InsertEntity>(doc.reserveEntityId(), top, rfp, Point2D(0, 20));
+    r2->setAttribute("REFDES", "R2");
+    doc.addEntity(std::move(r2));
+
+    doc.addEntity(std::make_unique<TrackEntity>(doc.reserveEntityId(), bottom,
+                                                std::vector<Point2D>{Point2D(0, 0), Point2D(0, 20)}, 0.25));
+
+    ImportedNet net;
+    net.name = "Net1";
+    net.pins = {{"R1", "1"}, {"R2", "1"}};
+
+    const std::vector<RatsnestLine> lines = computeRatsnest(doc, {net}, stackup);
+    // Still unrouted: the bottom track never actually reaches either SMD pad.
+    REQUIRE(lines.size() == 1);
+}

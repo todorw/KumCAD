@@ -98,23 +98,33 @@ Board3DShapes buildBoard3D(const Document& doc, const std::vector<std::pair<doub
         } else if (e->type() == EntityType::Insert) {
             const auto* insert = static_cast<const InsertEntity*>(e);
             if (!insert->block() || !insert->block()->isFootprint()) continue;
-            const double z = params.boardThickness; // every pad drawn on the top layer -- see this header's own disclosed simplification
+            const double placementZ = layerZ(insert->layer()); // this footprint's own placement side
 
             for (const auto& padWorld : insert->padWorldPositions()) {
-                TopoDS_Shape padShape;
                 if (padWorld.pad->width <= 1e-9 || padWorld.pad->height <= 1e-9 || params.copperThickness <= 1e-9) continue;
-                if (padWorld.pad->shape == PadShape::Round) {
-                    const gp_Ax2 axis(gp_Pnt(padWorld.position.x, padWorld.position.y, z), gp_Dir(0, 0, 1));
-                    padShape = BRepPrimAPI_MakeCylinder(axis, std::max(padWorld.pad->width, padWorld.pad->height) / 2.0,
-                                                       params.copperThickness)
-                                 .Shape();
-                } else {
-                    padShape = BRepPrimAPI_MakeBox(gp_Pnt(padWorld.position.x - padWorld.pad->width / 2.0,
-                                                         padWorld.position.y - padWorld.pad->height / 2.0, z),
-                                                  padWorld.pad->width, padWorld.pad->height, params.copperThickness)
-                                 .Shape();
+                // A through-hole pad's annular ring is real copper on BOTH
+                // the top and bottom surfaces (the plated hole itself isn't
+                // separately modeled); a surface-mount pad exists only on
+                // its own footprint's placement side (see Stackup.h/this
+                // header's own comment on the drillDiameter-derived split).
+                const bool throughHole = padWorld.pad->drillDiameter > 1e-9;
+                std::vector<double> zs = throughHole ? std::vector<double>{0.0, params.boardThickness}
+                                                     : std::vector<double>{placementZ};
+                for (double z : zs) {
+                    TopoDS_Shape padShape;
+                    if (padWorld.pad->shape == PadShape::Round) {
+                        const gp_Ax2 axis(gp_Pnt(padWorld.position.x, padWorld.position.y, z), gp_Dir(0, 0, 1));
+                        padShape = BRepPrimAPI_MakeCylinder(axis, std::max(padWorld.pad->width, padWorld.pad->height) / 2.0,
+                                                           params.copperThickness)
+                                     .Shape();
+                    } else {
+                        padShape = BRepPrimAPI_MakeBox(gp_Pnt(padWorld.position.x - padWorld.pad->width / 2.0,
+                                                             padWorld.position.y - padWorld.pad->height / 2.0, z),
+                                                      padWorld.pad->width, padWorld.pad->height, params.copperThickness)
+                                     .Shape();
+                    }
+                    if (!padShape.IsNull()) result.copper.push_back(padShape);
                 }
-                if (!padShape.IsNull()) result.copper.push_back(padShape);
             }
 
             const BoundingBox bbox = insert->boundingBox();

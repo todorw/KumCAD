@@ -28,12 +28,13 @@ class Document;
 // as EntityType::Track) is treated as isolated -- it only connects to
 // itself, never merges with anything else by position.
 //
-// Real, disclosed simplification: footprint Pads have no per-pad layer
-// of their own yet (see Block.h's Pad struct), so every pad is still
-// treated as touching every stackup layer at its position, same as a
-// through-hole via -- correct for actual through-hole pads, an
-// optimistic approximation for surface-mount pads (which really only
-// exist on one side of the board).
+// A footprint Pad has no per-pad layer field of its own; instead its side
+// is derived from drillDiameter (see Block.h's Pad struct's own comment),
+// matching real KiCad's own SMD-vs-THT distinction: a through-hole pad
+// (drillDiameter > 0) touches every stackup layer at its position, same
+// as a through-hole via, while a surface-mount pad (drillDiameter == 0)
+// exists only on the ONE stackup layer its owning InsertEntity is placed
+// on.
 struct CopperStackup {
     std::vector<LayerId> layers; // top to bottom; empty = the legacy single-plane behavior
 };

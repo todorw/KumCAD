@@ -101,6 +101,11 @@ const std::string* findNetName(const std::vector<ImportedNet>& nets, const std::
     return nullptr;
 }
 
+bool isCopperLayerName(const std::string& name) {
+    if (name == "F.Cu" || name == "B.Cu") return true;
+    return name.rfind("In", 0) == 0 && name.find(".Cu") != std::string::npos;
+}
+
 std::string inferFileFunction(const std::string& layerName) {
     if (layerName == "F.Cu") return "Copper,L1,Top";
     if (layerName == "B.Cu") return "Copper,L2,Bot";
@@ -125,17 +130,29 @@ bool writeGerberLayer(const Document& doc, LayerId layer, const std::string& pat
     std::vector<const TrackEntity*> tracks;
     std::vector<const ViaEntity*> vias;
     std::vector<const HatchEntity*> pours;
-    std::vector<const InsertEntity*> footprints;
+    std::vector<const InsertEntity*> footprints; // every footprint placed on layer -- all their pads count
+    std::vector<const InsertEntity*> foreignThtFootprints; // placed elsewhere -- only THT pads still count here
+    const Layer* layerInfo = doc.findLayer(layer);
+    const bool exportingCopper = layerInfo && isCopperLayerName(layerInfo->name);
     for (const Entity* e : doc.entities()) {
+        if (e->type() == EntityType::Insert) {
+            const auto* insert = static_cast<const InsertEntity*>(e);
+            if (!insert->block() || !insert->block()->isFootprint()) continue;
+            if (insert->layer() == layer) footprints.push_back(insert);
+            // A through-hole pad's annular ring is real copper on every
+            // copper layer regardless of which single layer its own
+            // footprint happens to be placed on (see Stackup.h's own
+            // comment on the drillDiameter-derived side); only meaningful
+            // when the layer being exported is itself copper.
+            else if (exportingCopper) foreignThtFootprints.push_back(insert);
+            continue;
+        }
         if (e->layer() != layer) continue;
         if (e->type() == EntityType::Track) tracks.push_back(static_cast<const TrackEntity*>(e));
         else if (e->type() == EntityType::Via) vias.push_back(static_cast<const ViaEntity*>(e));
         else if (e->type() == EntityType::Hatch) {
             const auto* hatch = static_cast<const HatchEntity*>(e);
             if (hatch->pattern() == HatchPattern::Solid) pours.push_back(hatch);
-        } else if (e->type() == EntityType::Insert) {
-            const auto* insert = static_cast<const InsertEntity*>(e);
-            if (insert->block() && insert->block()->isFootprint()) footprints.push_back(insert);
         }
     }
 
@@ -145,13 +162,15 @@ bool writeGerberLayer(const Document& doc, LayerId layer, const std::string& pat
     std::map<const ViaEntity*, int> viaAperture;
     for (const auto* v : vias) viaAperture[v] = apertures.idFor({ApertureShape::Circle, v->diameter(), 0.0});
     std::map<const Pad*, int> padAperture;
-    for (const auto* fp : footprints) {
+    auto registerPadApertures = [&](const InsertEntity* fp) {
         for (const Pad& pad : fp->block()->pads) {
             const ApertureShape shape =
                 pad.shape == PadShape::Round ? ApertureShape::Circle : pad.shape == PadShape::Rect ? ApertureShape::Rect : ApertureShape::Oval;
             padAperture[&pad] = apertures.idFor({shape, pad.width, pad.height});
         }
-    }
+    };
+    for (const auto* fp : footprints) registerPadApertures(fp);
+    for (const auto* fp : foreignThtFootprints) registerPadApertures(fp);
 
     std::ofstream out(path, std::ios::binary);
     if (!out) {
@@ -167,7 +186,7 @@ bool writeGerberLayer(const Document& doc, LayerId layer, const std::string& pat
     // filename conventions.
     out << "%TF.GenerationSoftware,KumCAD,KumCAD,1.0*%\n";
     out << "%TF.CreationDate," << isoCreationDate() << "*%\n";
-    if (const Layer* layerInfo = doc.findLayer(layer)) {
+    if (layerInfo) {
         out << "%TF.FileFunction," << inferFileFunction(layerInfo->name) << "*%\n";
     }
     out << "%TF.FilePolarity,Positive*%\n";
@@ -186,11 +205,16 @@ bool writeGerberLayer(const Document& doc, LayerId layer, const std::string& pat
         out << "D" << viaAperture[v] << "*\n";
         out << "X" << formatCoord(v->position().x) << "Y" << formatCoord(v->position().y) << "D03*\n";
     }
-    for (const auto* fp : footprints) {
+    auto writeFootprintPads = [&](const InsertEntity* fp, bool throughHoleOnly) {
         const std::string* refdes = fp->attributeValue("REFDES");
         const bool haveRefdes = refdes && !refdes->empty();
-        if (haveRefdes) out << "%TO.C," << *refdes << "*%\n";
+        bool wroteHeader = false;
         for (const auto& padWorld : fp->padWorldPositions()) {
+            if (throughHoleOnly && padWorld.pad->drillDiameter <= 1e-9) continue;
+            if (haveRefdes && !wroteHeader) {
+                out << "%TO.C," << *refdes << "*%\n";
+                wroteHeader = true;
+            }
             const std::string* netName =
                 haveRefdes ? findNetName(nets, *refdes, padWorld.pad->number) : nullptr;
             if (netName) out << "%TO.N," << *netName << "*%\n";
@@ -198,8 +222,12 @@ bool writeGerberLayer(const Document& doc, LayerId layer, const std::string& pat
             out << "X" << formatCoord(padWorld.position.x) << "Y" << formatCoord(padWorld.position.y) << "D03*\n";
             if (netName) out << "%TD.N*%\n";
         }
-        if (haveRefdes) out << "%TD*%\n";
-    }
+        if (wroteHeader) out << "%TD*%\n";
+    };
+    for (const auto* fp : footprints) writeFootprintPads(fp, false);
+    // Through-hole pads from a footprint placed on a DIFFERENT layer: the
+    // annular ring is real copper here too (see the collection loop above).
+    for (const auto* fp : foreignThtFootprints) writeFootprintPads(fp, true);
     for (const auto* pour : pours) {
         const auto& verts = pour->vertices();
         if (verts.size() < 3) continue;

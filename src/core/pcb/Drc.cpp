@@ -190,9 +190,13 @@ std::vector<DrcViolation> runDrc(const Document& doc, const DrcRules& rules, con
     }
 
     // Build capsules, assigning pads their own fresh UF slots and unioning
-    // them into the pool by coincidence with a track endpoint/via. Pads
-    // touch every stackup layer at their position (see Stackup.h's
-    // disclosed simplification), so they bucket into every tag.
+    // them into the pool by coincidence with a track endpoint/via. A
+    // through-hole pad (drillDiameter > 0) touches every stackup layer at
+    // its position, same as a via; a surface-mount pad exists only on the
+    // ONE layer its own footprint is placed on (see Stackup.h's own
+    // comment) -- bucketed/tagged accordingly so clearance and
+    // connectivity both respect it instead of treating every pad as
+    // spanning the whole stackup.
     std::vector<Capsule> capsules;
     for (std::size_t ti = 0; ti < tracks.size(); ++ti) {
         const auto& verts = tracks[ti]->vertices();
@@ -207,9 +211,17 @@ std::vector<DrcViolation> runDrc(const Document& doc, const DrcRules& rules, con
     }
     for (const auto* fp : footprints) {
         const std::string* refDes = fp->attributeValue("REFDES");
+        const int fpTag = layerTagOf(fp->layer());
         for (const auto& padWorld : fp->padWorldPositions()) {
             const std::size_t ufIndex = next++;
-            for (int tag = 0; tag <= lastTag; ++tag) addToBucket(padWorld.position, tag, ufIndex);
+            const bool throughHole = padWorld.pad->drillDiameter > 1e-9;
+            int padCapsuleTag = -1; // -1 = spans every layer (through-hole, no stackup, or unresolved placement)
+            if (throughHole || !stackupActive || fpTag < 0) {
+                for (int tag = 0; tag <= lastTag; ++tag) addToBucket(padWorld.position, tag, ufIndex);
+            } else {
+                addToBucket(padWorld.position, fpTag, ufIndex);
+                padCapsuleTag = fpTag;
+            }
             std::string netName;
             if (refDes) {
                 const auto it = pinToNet.find({*refDes, padWorld.pad->number});
@@ -217,7 +229,7 @@ std::vector<DrcViolation> runDrc(const Document& doc, const DrcRules& rules, con
             }
             capsules.push_back(
                 {fp->id(), padWorld.position, padWorld.position, std::max(padWorld.pad->width, padWorld.pad->height) / 2.0,
-                 ufIndex, -1, netName});
+                 ufIndex, padCapsuleTag, netName});
         }
     }
 

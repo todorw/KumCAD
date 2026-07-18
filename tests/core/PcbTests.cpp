@@ -367,6 +367,57 @@ TEST_CASE("writeGerberLayer with no nets argument writes no %TO.N% attribute at 
     REQUIRE(readFile(temp.path).find("%TO.N,") == std::string::npos);
 }
 
+TEST_CASE("writeGerberLayer includes a through-hole footprint's pad flashes on BOTH copper layers even "
+         "though the footprint is placed on only one",
+         "[pcb][gerber]") {
+    Document doc;
+    registerBuiltinSymbols(doc);
+    const LayerId fCu = doc.addLayer("F.Cu", Color(0, 0, 0));
+    const LayerId bCu = doc.addLayer("B.Cu", Color(0, 0, 0));
+    const BlockDefinition* dfp = doc.findBlock("D_FP"); // D_FP's pads are through-hole (drillDiameter 0.8)
+    REQUIRE(dfp);
+
+    auto insert = std::make_unique<InsertEntity>(doc.reserveEntityId(), fCu, dfp, Point2D(0, 0));
+    insert->setAttribute("REFDES", "D1");
+    doc.addEntity(std::move(insert));
+
+    TempPath tempTop;
+    REQUIRE(writeGerberLayer(doc, fCu, tempTop.path.string()));
+    const std::string topText = readFile(tempTop.path);
+    REQUIRE(topText.find("%TO.C,D1*%") != std::string::npos);
+    REQUIRE(topText.find("D03*") != std::string::npos);
+
+    TempPath tempBottom;
+    REQUIRE(writeGerberLayer(doc, bCu, tempBottom.path.string()));
+    const std::string bottomText = readFile(tempBottom.path);
+    // The through-hole pads' annular ring is real copper here too.
+    REQUIRE(bottomText.find("%TO.C,D1*%") != std::string::npos);
+    REQUIRE(bottomText.find("D03*") != std::string::npos);
+}
+
+TEST_CASE("writeGerberLayer excludes an SMD footprint's pad flashes from the copper layer it ISN'T "
+         "placed on",
+         "[pcb][gerber]") {
+    Document doc;
+    registerBuiltinSymbols(doc);
+    const LayerId fCu = doc.addLayer("F.Cu", Color(0, 0, 0));
+    const LayerId bCu = doc.addLayer("B.Cu", Color(0, 0, 0));
+    const BlockDefinition* rfp = doc.findBlock("R_FP"); // R_FP's pads are SMD (drillDiameter 0)
+
+    auto insert = std::make_unique<InsertEntity>(doc.reserveEntityId(), fCu, rfp, Point2D(0, 0));
+    insert->setAttribute("REFDES", "R1");
+    doc.addEntity(std::move(insert));
+
+    TempPath tempTop;
+    REQUIRE(writeGerberLayer(doc, fCu, tempTop.path.string()));
+    REQUIRE(readFile(tempTop.path).find("%TO.C,R1*%") != std::string::npos);
+
+    TempPath tempBottom;
+    REQUIRE(writeGerberLayer(doc, bCu, tempBottom.path.string()));
+    // Never placed on B.Cu at all: no pad flash, no REFDES wrap.
+    REQUIRE(readFile(tempBottom.path).find("%TO.C,R1*%") == std::string::npos);
+}
+
 TEST_CASE("writeGerberLayer draws a solid Hatch as a G36/G37 region (a copper pour)", "[pcb][gerber]") {
     TempPath temp;
     Document doc;

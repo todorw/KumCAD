@@ -138,3 +138,54 @@ TEST_CASE("buildBoard3D builds pad copper and one component placeholder per foot
     for (const auto& shape : shapes.copper) REQUIRE_FALSE(shape.IsNull());
     REQUIRE_FALSE(shapes.components[0].IsNull());
 }
+
+TEST_CASE("buildBoard3D places an SMD footprint's pad copper on its own placement layer, not always the "
+         "top",
+         "[core3d][board3d]") {
+    Document doc;
+    registerBuiltinSymbols(doc); // R_FP's pads are SMD (drillDiameter 0)
+    doc.addLayer("Top Copper", Color{});
+    const LayerId bottom = doc.addLayer("Bottom Copper", Color{});
+    const CopperStackup stackup = buildStackup(doc, {"Top Copper", "Bottom Copper"});
+    const BlockDefinition* rfp = doc.findBlock("R_FP");
+
+    doc.addEntity(std::make_unique<InsertEntity>(doc.reserveEntityId(), bottom, rfp, Point2D(0, 0)));
+
+    Board3DParams params;
+    params.boardThickness = 1.6;
+    const Board3DShapes shapes = buildBoard3D(doc, {}, stackup, params);
+    REQUIRE(shapes.copper.size() == 2); // one shape per SMD pad, no doubling
+    for (const auto& shape : shapes.copper) {
+        double zMin = 0, zMax = 0;
+        zRange(shape, zMin, zMax);
+        REQUIRE(zMin == Approx(0.0).margin(1e-6)); // bottom surface, not the top
+    }
+}
+
+TEST_CASE("buildBoard3D gives a through-hole footprint pad copper on both the top and bottom surfaces",
+         "[core3d][board3d]") {
+    Document doc;
+    registerBuiltinSymbols(doc); // D_FP's pads are through-hole (drillDiameter 0.8)
+    const LayerId top = doc.addLayer("Top Copper", Color{});
+    doc.addLayer("Bottom Copper", Color{});
+    const CopperStackup stackup = buildStackup(doc, {"Top Copper", "Bottom Copper"});
+    const BlockDefinition* dfp = doc.findBlock("D_FP");
+    REQUIRE(dfp);
+
+    doc.addEntity(std::make_unique<InsertEntity>(doc.reserveEntityId(), top, dfp, Point2D(0, 0)));
+
+    Board3DParams params;
+    params.boardThickness = 1.6;
+    const Board3DShapes shapes = buildBoard3D(doc, {}, stackup, params);
+    REQUIRE(shapes.copper.size() == 4); // D_FP has 2 pads, each gets a top AND a bottom copper shape
+
+    int atTop = 0, atBottom = 0;
+    for (const auto& shape : shapes.copper) {
+        double zMin = 0, zMax = 0;
+        zRange(shape, zMin, zMax);
+        if (std::abs(zMin - 0.0) < 1e-6) ++atBottom;
+        if (std::abs(zMin - params.boardThickness) < 1e-6) ++atTop;
+    }
+    REQUIRE(atTop == 2);
+    REQUIRE(atBottom == 2);
+}

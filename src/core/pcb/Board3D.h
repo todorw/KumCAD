@@ -40,12 +40,14 @@ struct Board3DShapes {
 // per-layer dielectric thickness to place inner layers by by properly.
 // A through-hole via spans the full board thickness; a blind/buried one
 // spans only its own resolved [fromLayer,toLayer] Z range (see
-// ViaEntity's own comment). Every footprint pad is drawn on the TOP
-// layer (matching Stackup.h's own disclosed "pads have no per-pad layer
-// yet" simplification), and gets one placeholder box (componentHeight
-// tall, sized to the footprint's own silkscreen bounding box) standing
-// in for its real 3D model -- not the part's actual model, since no 3D
-// component-model library exists here.
+// ViaEntity's own comment). A footprint pad's own side is derived from
+// drillDiameter the same way Stackup.h/Drc.cpp/Ratsnest.cpp do: a
+// through-hole pad (drillDiameter > 0) gets real copper on both the top
+// and bottom surfaces, a surface-mount pad only on its own footprint's
+// placement layer. Each placed footprint also gets one placeholder box
+// (componentHeight tall, sized to the footprint's own silkscreen
+// bounding box) standing in for its real 3D model -- not the part's
+// actual model, since no 3D component-model library exists here.
 Board3DShapes buildBoard3D(const Document& doc, const std::vector<std::pair<double, double>>& boardOutline,
                           const CopperStackup& stackup, const Board3DParams& params = {});
 
