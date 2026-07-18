@@ -104,12 +104,28 @@ std::optional<QString> WireListCommand::onPoint(const lcad::Point2D& pt) {
 }
 
 std::optional<QString> BomCommand::onPoint(const lcad::Point2D& pt) {
+    m_position = pt;
+    m_havePosition = true;
+    return QStringLiteral("BOM  Include DNP (Do-Not-Populate) parts? [Yes/No] <No>:");
+}
+
+std::optional<QString> BomCommand::onText(const QString& text) {
     m_finished = true;
-    const std::vector<lcad::BomRow> rows = lcad::generateBom(m_document);
-    lcad::buildBomTable(m_document, rows, pt);
+    const QString trimmed = text.trimmed();
+    const bool includeDnp = trimmed.compare(QStringLiteral("Y"), Qt::CaseInsensitive) == 0 ||
+                            trimmed.compare(QStringLiteral("Yes"), Qt::CaseInsensitive) == 0;
+    const std::vector<lcad::BomRow> rows = lcad::generateBom(m_document, includeDnp);
+    lcad::buildBomTable(m_document, rows, m_position);
     int totalParts = 0;
-    for (const lcad::BomRow& row : rows) totalParts += row.quantity;
-    return QStringLiteral("*BOM placed (%1 row(s), %2 part(s) total)*").arg(rows.size()).arg(totalParts);
+    int dnpParts = 0;
+    for (const lcad::BomRow& row : rows) {
+        totalParts += row.quantity;
+        if (row.dnp) dnpParts += row.quantity;
+    }
+    return QStringLiteral("*BOM placed (%1 row(s), %2 part(s) total, %3 DNP)*")
+        .arg(rows.size())
+        .arg(totalParts)
+        .arg(dnpParts);
 }
 
 std::optional<QString> NetlistExportCommand::onText(const QString& text) {

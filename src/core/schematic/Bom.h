@@ -20,6 +20,7 @@ struct BomRow {
     std::vector<std::string> refDes; // sorted plain string order (a real, disclosed simplification --
                                      // "R10" sorts before "R2", not true natural/numeric ordering)
     int quantity = 0;
+    bool dnp = false; // true if every instance in this group carries a truthy DNP attribute
 };
 
 // Groups every schematic symbol INSERT (BlockDefinition::isSymbol(),
@@ -28,9 +29,19 @@ struct BomRow {
 // BomRow, sorted by part then value for a stable, readable report.
 // Components with no REFDES attribute at all are silently skipped (an
 // unplaced/incomplete part isn't a real BOM line yet).
-std::vector<BomRow> generateBom(const Document& doc);
+//
+// KiCad-style DNP (Do-Not-Populate) variant support: an instance whose
+// "DNP" attribute is truthy ("1"/"true"/"yes", case-insensitive) is
+// excluded from the returned rows by default, matching KiCad's own
+// default BOM behavior -- pass includeDnp=true to get a full report
+// instead, where DNP instances group separately (never merged into a
+// fitted group of the same part/value) and their row's dnp flag is set.
+// Real, disclosed simplification: this is a single global DNP flag per
+// instance, not KiCad's full per-design-variant "Fitted" matrix (which
+// needs a variant/config concept this codebase doesn't have).
+std::vector<BomRow> generateBom(const Document& doc, bool includeDnp = false);
 
-// A Part/Value/Qty/RefDes(s) TABLE entity, one row per BomRow plus a
+// A Part/Value/Qty/DNP/RefDes(s) TABLE entity, one row per BomRow plus a
 // header -- reuses TableEntity exactly as Phase 1's WireList/
 // OpeningSchedule/RoomSchedule reports already do, rather than a new
 // report concept.
