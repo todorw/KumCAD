@@ -45,14 +45,37 @@ TEST_CASE("meanderSegment keeps endpoints and footprint fixed while adding lengt
     REQUIRE(achieved == Approx(expectedTeeth * perTooth));
 }
 
-TEST_CASE("meanderSegment caps at the available footprint", "[lengthtuning]") {
-    // Only 10 units long, pitch 2 => at most 5 teeth regardless of how much
-    // extra length is requested.
+TEST_CASE("meanderSegment stays within the segment's own footprint (longitudinal span) even when it "
+         "has to grow the amplitude to reach the target",
+         "[lengthtuning]") {
+    // Only 10 units long, pitch 2 => at most 5 teeth no matter what, so a
+    // target this function's own base amplitude (2.0) can't reach with 5
+    // teeth forces amplitude to grow instead -- still only 5 teeth (no
+    // more room along the segment), but each swings wider.
     double achieved = 0.0;
-    const auto path = meanderSegment(Point2D(0, 0), Point2D(10, 0), /*targetExtraLength=*/1000.0, 2.0, 2.0, &achieved);
-    const double perTooth = 2.0 * std::sqrt(1.0 * 1.0 + 2.0 * 2.0) - 2.0; // pitch/2=1, amplitude=2
-    REQUIRE(achieved == Approx(5 * perTooth));
-    REQUIRE(path.back().x == Approx(10));
+    const auto path = meanderSegment(Point2D(0, 0), Point2D(10, 0), /*targetExtraLength=*/50.0, 2.0, 2.0, &achieved);
+
+    // Real gain, not just the old fixed-amplitude cap (5 teeth at
+    // amplitude=2.0 would only reach ~12.36 of extra length).
+    REQUIRE(achieved >= 50.0);
+
+    // Still exactly 5 teeth (5 peaks), just wider ones -- x stays within
+    // the original longitudinal span the whole time.
+    int peakCount = 0;
+    double maxAbsY = 0.0;
+    for (const Point2D& p : path) {
+        REQUIRE(p.x >= -1e-6);
+        REQUIRE(p.x <= 10.0 + 1e-6);
+        if (std::abs(p.y) > 1e-6) {
+            ++peakCount;
+            maxAbsY = std::max(maxAbsY, std::abs(p.y));
+        }
+    }
+    REQUIRE(peakCount == 5);
+    // The grown amplitude must be well past the requested 2.0 -- proof
+    // growth actually happened, not just more teeth (there's no more
+    // teeth to add here).
+    REQUIRE(maxAbsY > 2.0);
 }
 
 TEST_CASE("meanderSegment returns the bare segment for degenerate inputs", "[lengthtuning]") {
@@ -86,10 +109,26 @@ TEST_CASE("tuneTrackLength leaves an already-long-enough path unchanged", "[leng
     REQUIRE(result.achievedLength == Approx(10.0));
 }
 
-TEST_CASE("tuneTrackLength reports metTarget=false when the segment can't fit enough meander", "[lengthtuning]") {
+TEST_CASE("tuneTrackLength grows the amplitude to still meet a target the base amplitude alone "
+         "couldn't reach with the available teeth",
+         "[lengthtuning]") {
+    // Same scenario a fixed-amplitude meander would have fallen short on
+    // (5 teeth at amplitude=1.0 over a 10-unit segment can't add anywhere
+    // near 1000 units of extra length) -- meanderSegment's own amplitude
+    // growth means this now actually meets the target.
     const std::vector<Point2D> path = {Point2D(0, 0), Point2D(10, 0)};
     const TuneResult result = tuneTrackLength(path, /*targetLength=*/1000.0, /*amplitude=*/1.0, /*pitch=*/2.0);
+    REQUIRE(result.metTarget);
+    REQUIRE(result.achievedLength >= 1000.0);
+}
+
+TEST_CASE("tuneTrackLength reports metTarget=false only when the segment can't fit even one tooth",
+         "[lengthtuning]") {
+    // 1-unit segment, pitch=2: no room for a single tooth at all, so no
+    // amount of amplitude growth can help -- the one real remaining
+    // failure case.
+    const std::vector<Point2D> path = {Point2D(0, 0), Point2D(1, 0)};
+    const TuneResult result = tuneTrackLength(path, /*targetLength=*/100.0, /*amplitude=*/1.0, /*pitch=*/2.0);
     REQUIRE_FALSE(result.metTarget);
-    REQUIRE(result.achievedLength < 1000.0);
-    REQUIRE(result.achievedLength > result.originalLength); // still did what it could
+    REQUIRE(result.achievedLength == Approx(result.originalLength));
 }

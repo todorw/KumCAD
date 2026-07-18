@@ -36,6 +36,28 @@ std::vector<Point2D> meanderSegment(const Point2D& a, const Point2D& b, double t
     int teeth = static_cast<int>(std::ceil(targetExtraLength / extraPerTooth));
     teeth = std::clamp(teeth, 1, maxTeeth);
 
+    // Already using every tooth the footprint can fit at the requested
+    // amplitude, but still short of the target: there's no more room
+    // ALONG the segment for more teeth, so grow the amplitude instead --
+    // each tooth swings wider (still fitting within the same footprint,
+    // since amplitude is purely perpendicular to the segment) to make up
+    // the difference. A real, disclosed departure from a fixed-style
+    // meander's constant amplitude/pitch, and with no upper bound on how
+    // far amplitude grows to hit a very large target -- the caller
+    // should sanity-check the amplitude actually used stays realistic
+    // for its own board (a wildly wide meander could collide with
+    // neighboring copper this function has no clearance awareness of).
+    double effectiveAmplitude = amplitude;
+    if (teeth == maxTeeth && teeth * extraPerTooth < targetExtraLength - 1e-9) {
+        const double neededToothLength = pitch + targetExtraLength / teeth;
+        const double halfTooth = neededToothLength / 2.0;
+        const double halfPitch = pitch / 2.0;
+        if (halfTooth > halfPitch) effectiveAmplitude = std::sqrt(halfTooth * halfTooth - halfPitch * halfPitch);
+    }
+    const double effectiveToothLength =
+        2.0 * std::sqrt((pitch / 2.0) * (pitch / 2.0) + effectiveAmplitude * effectiveAmplitude);
+    const double effectiveExtraPerTooth = effectiveToothLength - pitch;
+
     const double meanderWidth = teeth * pitch;
     const double leadIn = (footprint - meanderWidth) / 2.0;
 
@@ -47,7 +69,7 @@ std::vector<Point2D> meanderSegment(const Point2D& a, const Point2D& b, double t
 
     for (int t = 0; t < teeth; ++t) {
         const double sign = (t % 2 == 0) ? 1.0 : -1.0;
-        const Point2D peak = cursor + dir * (pitch / 2.0) + perp * (amplitude * sign);
+        const Point2D peak = cursor + dir * (pitch / 2.0) + perp * (effectiveAmplitude * sign);
         path.push_back(peak);
         cursor = cursor + dir * pitch;
         path.push_back(cursor);
@@ -56,7 +78,7 @@ std::vector<Point2D> meanderSegment(const Point2D& a, const Point2D& b, double t
     if (footprint - leadIn - meanderWidth > 1e-9) path.push_back(b);
     else path.back() = b; // snap the final centerline point exactly onto b
 
-    if (achievedExtraLength) *achievedExtraLength = teeth * extraPerTooth;
+    if (achievedExtraLength) *achievedExtraLength = teeth * effectiveExtraPerTooth;
     return path;
 }
 
