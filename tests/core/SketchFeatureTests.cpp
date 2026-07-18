@@ -470,6 +470,49 @@ TEST_CASE("Document3D Draft rejects an empty faceIndices or a zero-length pull d
     REQUIRE_FALSE(doc.isValid(doc.addFeature(zeroDir)));
 }
 
+TEST_CASE("Document3D Draft re-resolves a stale faceIndices entry via its own faceFingerprints",
+         "[core3d][draft][toponaming]") {
+    Document3D doc;
+    Feature3D box;
+    box.type = FeatureType::Box;
+    box.p1 = box.p2 = box.p3 = 20.0;
+    const int boxIdx = doc.addFeature(box);
+
+    PickRay ray;
+    ray.origin = {50.0, 10.0, 10.0};
+    ray.direction = {-1.0, 0.0, 0.0};
+    const auto picked = pickFace(doc.shapeAt(boxIdx), ray);
+    REQUIRE(picked.has_value());
+    const auto fingerprint = fingerprintFace(doc.shapeAt(boxIdx), picked->faceIndex);
+    REQUIRE(fingerprint.has_value());
+
+    Feature3D correctDraft;
+    correctDraft.type = FeatureType::Draft;
+    correctDraft.inputA = boxIdx;
+    correctDraft.faceIndices = {picked->faceIndex};
+    correctDraft.p1 = 10.0;
+    correctDraft.dirZ = 1.0;
+    const int correctIdx = doc.addFeature(correctDraft);
+    REQUIRE(doc.isValid(correctIdx));
+    const double correctVolume = volumeOf(doc.shapeAt(correctIdx));
+
+    // A deliberately wrong raw index (some other face of the box's 6),
+    // but the right fingerprint -- same stale-index simulation the
+    // Fillet/Chamfer/Shell topo-naming tests already use.
+    const int wrongIndex = (picked->faceIndex + 3) % 6;
+    Feature3D staleDraft;
+    staleDraft.type = FeatureType::Draft;
+    staleDraft.inputA = boxIdx;
+    staleDraft.faceIndices = {wrongIndex};
+    staleDraft.faceFingerprints = {*fingerprint};
+    staleDraft.p1 = 10.0;
+    staleDraft.dirZ = 1.0;
+    const int staleIdx = doc.addFeature(staleDraft);
+    REQUIRE(doc.isValid(staleIdx));
+
+    REQUIRE(volumeOf(doc.shapeAt(staleIdx)) == Approx(correctVolume).margin(1e-6));
+}
+
 TEST_CASE("Document3D LinearPattern fuses count non-overlapping copies", "[core3d][pattern]") {
     Document3D doc;
     Feature3D box;

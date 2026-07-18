@@ -564,7 +564,7 @@ void Document3D::recomputeOne(int index) {
         BRepOffsetAPI_DraftAngle draftBuilder(target);
         int addedCount = 0;
         bool anyAddFailed = false;
-        for (int faceIndex : f.faceIndices) {
+        for (int faceIndex : reresolveIndices(target, f.faceIndices, f.faceFingerprints)) {
             if (faceIndex < 0 || faceIndex >= faceMap.Extent()) continue;
             draftBuilder.Add(TopoDS::Face(faceMap(faceIndex + 1)), pullDir, angleRad, neutralPlane);
             if (!draftBuilder.AddDone()) {
