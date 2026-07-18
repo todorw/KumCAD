@@ -6,8 +6,11 @@
 #include "core/geometry/Track.h"
 #include "core/geometry/Via.h"
 
+#include <chrono>
 #include <cmath>
+#include <ctime>
 #include <fstream>
+#include <iomanip>
 #include <map>
 #include <sstream>
 
@@ -70,6 +73,38 @@ private:
     int m_next = 10;
 };
 
+std::string isoCreationDate() {
+    const auto now = std::chrono::system_clock::now();
+    const std::time_t t = std::chrono::system_clock::to_time_t(now);
+    const std::tm utc = *std::gmtime(&t);
+    std::ostringstream oss;
+    oss << std::put_time(&utc, "%Y-%m-%dT%H:%M:%SZ");
+    return oss.str();
+}
+
+// Infers a Gerber X2 %TF.FileFunction% from a KiCad-style layer name
+// (F.Cu/B.Cu/F.SilkS/B.SilkS/F.Mask/B.Mask/Edge.Cuts/InN.Cu) -- the
+// convention this codebase's own PCB layers already use (see
+// CopperPourTests.cpp and friends). Falls back to a generic "Other,User"
+// for a name that doesn't match any of these, a real, disclosed
+// heuristic rather than a stored per-layer role field.
+std::string inferFileFunction(const std::string& layerName) {
+    if (layerName == "F.Cu") return "Copper,L1,Top";
+    if (layerName == "B.Cu") return "Copper,L2,Bot";
+    if (layerName == "F.SilkS") return "Legend,Top";
+    if (layerName == "B.SilkS") return "Legend,Bot";
+    if (layerName == "F.Mask") return "Soldermask,Top";
+    if (layerName == "B.Mask") return "Soldermask,Bot";
+    if (layerName == "F.Paste") return "Paste,Top";
+    if (layerName == "B.Paste") return "Paste,Bot";
+    if (layerName == "Edge.Cuts") return "Profile,NP";
+    if (layerName.rfind("In", 0) == 0) {
+        const auto dotCu = layerName.find(".Cu");
+        if (dotCu != std::string::npos && dotCu > 2) return "Copper,L" + layerName.substr(2, dotCu - 2) + ",Inr";
+    }
+    return "Other,User";
+}
+
 } // namespace
 
 bool writeGerberLayer(const Document& doc, LayerId layer, const std::string& path, std::string* errorOut) {
@@ -113,6 +148,16 @@ bool writeGerberLayer(const Document& doc, LayerId layer, const std::string& pat
     out << "G04 KumCAD Gerber export*\n";
     out << "%FSLAX35Y35*%\n";
     out << "%MOMM*%\n";
+    // Real Gerber X2 file attributes -- a fab house's own auto-recognition
+    // tooling reads %TF.FileFunction% to sort layers without relying on
+    // filename conventions.
+    out << "%TF.GenerationSoftware,KumCAD,KumCAD,1.0*%\n";
+    out << "%TF.CreationDate," << isoCreationDate() << "*%\n";
+    if (const Layer* layerInfo = doc.findLayer(layer)) {
+        out << "%TF.FileFunction," << inferFileFunction(layerInfo->name) << "*%\n";
+    }
+    out << "%TF.FilePolarity,Positive*%\n";
+    out << "%TF.Part,Single*%\n";
     out << "%LPD*%\n";
     out << apertures.definitions();
 
@@ -128,10 +173,14 @@ bool writeGerberLayer(const Document& doc, LayerId layer, const std::string& pat
         out << "X" << formatCoord(v->position().x) << "Y" << formatCoord(v->position().y) << "D03*\n";
     }
     for (const auto* fp : footprints) {
+        const std::string* refdes = fp->attributeValue("REFDES");
+        const bool haveRefdes = refdes && !refdes->empty();
+        if (haveRefdes) out << "%TO.C," << *refdes << "*%\n";
         for (const auto& padWorld : fp->padWorldPositions()) {
             out << "D" << padAperture[padWorld.pad] << "*\n";
             out << "X" << formatCoord(padWorld.position.x) << "Y" << formatCoord(padWorld.position.y) << "D03*\n";
         }
+        if (haveRefdes) out << "%TD*%\n";
     }
     for (const auto* pour : pours) {
         const auto& verts = pour->vertices();

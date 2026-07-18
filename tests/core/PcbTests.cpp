@@ -244,6 +244,62 @@ TEST_CASE("writeGerberLayer emits a well-formed RS-274X file with apertures, dra
     REQUIRE(text.find("M02*") != std::string::npos);
 }
 
+TEST_CASE("writeGerberLayer emits real Gerber X2 file attributes with FileFunction inferred from the layer name",
+         "[pcb][gerber]") {
+    TempPath temp;
+    Document doc;
+    const LayerId cuLayer = doc.addLayer("F.Cu", Color(0, 0, 0));
+    doc.addEntity(std::make_unique<TrackEntity>(doc.reserveEntityId(), cuLayer,
+                                                std::vector<Point2D>{Point2D(0, 0), Point2D(10, 0)}, 0.25));
+
+    REQUIRE(writeGerberLayer(doc, cuLayer, temp.path.string()));
+    const std::string text = readFile(temp.path);
+
+    REQUIRE(text.find("%TF.GenerationSoftware,KumCAD,") != std::string::npos);
+    REQUIRE(text.find("%TF.CreationDate,") != std::string::npos);
+    REQUIRE(text.find("%TF.FileFunction,Copper,L1,Top*%") != std::string::npos);
+    REQUIRE(text.find("%TF.FilePolarity,Positive*%") != std::string::npos);
+
+    TempPath temp2;
+    Document doc2;
+    const LayerId silkLayer = doc2.addLayer("B.SilkS", Color(0, 0, 0));
+    doc2.addEntity(std::make_unique<TrackEntity>(doc2.reserveEntityId(), silkLayer,
+                                                 std::vector<Point2D>{Point2D(0, 0), Point2D(10, 0)}, 0.25));
+    REQUIRE(writeGerberLayer(doc2, silkLayer, temp2.path.string()));
+    REQUIRE(readFile(temp2.path).find("%TF.FileFunction,Legend,Bot*%") != std::string::npos);
+
+    TempPath temp3;
+    Document doc3;
+    const LayerId innerLayer = doc3.addLayer("In2.Cu", Color(0, 0, 0));
+    doc3.addEntity(std::make_unique<TrackEntity>(doc3.reserveEntityId(), innerLayer,
+                                                 std::vector<Point2D>{Point2D(0, 0), Point2D(10, 0)}, 0.25));
+    REQUIRE(writeGerberLayer(doc3, innerLayer, temp3.path.string()));
+    REQUIRE(readFile(temp3.path).find("%TF.FileFunction,Copper,L2,Inr*%") != std::string::npos);
+}
+
+TEST_CASE("writeGerberLayer wraps each footprint's pad flashes in %TO.C%/%TD*% naming its REFDES",
+         "[pcb][gerber]") {
+    TempPath temp;
+    Document doc;
+    registerBuiltinSymbols(doc);
+    const BlockDefinition* rfp = doc.findBlock("R_FP");
+
+    auto insert = std::make_unique<InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), rfp, Point2D(0, 0));
+    insert->setAttribute("REFDES", "R1");
+    doc.addEntity(std::move(insert));
+
+    REQUIRE(writeGerberLayer(doc, doc.currentLayer(), temp.path.string()));
+    const std::string text = readFile(temp.path);
+
+    const std::size_t openPos = text.find("%TO.C,R1*%");
+    REQUIRE(openPos != std::string::npos);
+    const std::size_t closePos = text.find("%TD*%", openPos);
+    REQUIRE(closePos != std::string::npos);
+    const std::size_t flashPos = text.find("D03*", openPos);
+    REQUIRE(flashPos != std::string::npos);
+    REQUIRE(flashPos < closePos);
+}
+
 TEST_CASE("writeGerberLayer draws a solid Hatch as a G36/G37 region (a copper pour)", "[pcb][gerber]") {
     TempPath temp;
     Document doc;
