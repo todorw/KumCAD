@@ -120,6 +120,7 @@
 #include <QImage>
 #include <QRegularExpression>
 #include <QStringList>
+#include <QThread>
 
 CommandDispatcher::CommandDispatcher(lcad::Document& document, CommandLine& commandLine, QObject* parent)
     : QObject(parent), m_document(document), m_commandLine(commandLine),
@@ -1177,24 +1178,61 @@ void CommandDispatcher::runScriptFile(const QString& path) {
 
     ++m_scriptDepth;
     int fed = 0;
-    for (const lcad::ScriptLine& line : lines) {
-        if (line.blank()) {
-            handleCommandText(QString());
-            ++fed;
-            continue;
-        }
-        for (std::size_t i = 0; i < line.tokens.size(); ++i) {
-            if (m_activeCommand && m_activeCommand->wantsTextInput()) {
-                // Free-text stage (TEXT's "Enter text:"): the untokenized
-                // rest of the line is one entry, spaces included.
-                handleCommandText(QString::fromStdString(line.raw.substr(line.offsets[i])));
+    // RSCRIPT (real AutoCAD's own script-restart command, typically the
+    // last line of a continuously-looping slideshow-style script) is
+    // bounded here rather than truly infinite: real AutoCAD relies on the
+    // user pressing Escape to break the loop, a live keypress this
+    // batch/typed-command player has no hook for mid-playback -- capping
+    // at kMaxRscriptRepeats keeps a script that ends in RSCRIPT (a very
+    // common real .scr pattern) from hanging the app forever instead of
+    // erroring out immediately.
+    constexpr int kMaxRscriptRepeats = 1000;
+    int repeats = 0;
+    bool restart;
+    do {
+        restart = false;
+        for (const lcad::ScriptLine& line : lines) {
+            if (line.blank()) {
+                handleCommandText(QString());
                 ++fed;
-                break;
+                continue;
             }
-            handleCommandText(QString::fromStdString(line.tokens[i]));
-            ++fed;
+            for (std::size_t i = 0; i < line.tokens.size(); ++i) {
+                if (m_activeCommand && m_activeCommand->wantsTextInput()) {
+                    // Free-text stage (TEXT's "Enter text:"): the
+                    // untokenized rest of the line is one entry, spaces
+                    // included.
+                    handleCommandText(QString::fromStdString(line.raw.substr(line.offsets[i])));
+                    ++fed;
+                    break;
+                }
+                // DELAY/RSCRIPT are script-control tokens, not real
+                // commands -- intercepted here rather than routed through
+                // handleCommandText, which has no concept of pausing or
+                // restarting script playback.
+                if (!m_activeCommand && line.tokens[i].compare(0, 5, "DELAY") == 0 &&
+                    line.tokens[i].size() == 5 && i + 1 < line.tokens.size()) {
+                    bool ok = false;
+                    const int ms = QString::fromStdString(line.tokens[i + 1]).toInt(&ok);
+                    // A real, blocking delay -- matching real AutoCAD's own
+                    // DELAY, which also blocks command processing during
+                    // the pause (the UI won't repaint until it elapses).
+                    if (ok && ms > 0) QThread::msleep(static_cast<unsigned long>(ms));
+                    ++i;
+                    ++fed;
+                    continue;
+                }
+                if (!m_activeCommand && line.tokens[i] == "RSCRIPT") {
+                    if (++repeats < kMaxRscriptRepeats) restart = true;
+                    ++fed;
+                    continue;
+                }
+                handleCommandText(QString::fromStdString(line.tokens[i]));
+                ++fed;
+            }
+            if (restart) break;
         }
-    }
+    } while (restart);
     --m_scriptDepth;
     m_commandLine.appendLine(QStringLiteral("*Script finished: %1 input(s)*").arg(fed));
     emit documentChanged();
