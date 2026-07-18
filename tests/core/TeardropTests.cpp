@@ -57,6 +57,33 @@ TEST_CASE("buildTeardrop rejects degenerate inputs", "[pcb][teardrop]") {
     REQUIRE(buildTeardrop(Point2D(0, 0), 1.0, Point2D(0, 0), 0.3, 3.0).empty());   // degenerate direction
 }
 
+TEST_CASE("buildTeardrop's shoulder is a real tangent point: the line from the track edge to it is "
+         "perpendicular to the pad's own radius there",
+         "[pcb][teardrop]") {
+    // Standard tangent-line-from-an-external-point check: at a true
+    // tangent point T, the radius (padCenter -> T) is perpendicular to
+    // the tangent line (T -> the external point), i.e. their dot product
+    // is zero. The old fixed-angle shoulder had no reason to satisfy
+    // this for an arbitrary track-width/pad-radius ratio.
+    const Point2D padCenter(0, 0);
+    const double padRadius = 1.0;
+    const Point2D dir(1, 0);
+    const double trackWidth = 0.6; // wide enough relative to the pad that a fixed 45 degree angle wouldn't be tangent
+    const double length = 4.0;
+
+    const auto poly = buildTeardrop(padCenter, padRadius, dir, trackWidth, length);
+    REQUIRE(poly.size() >= 4);
+
+    const Point2D edge1 = poly.front();          // the track-side point on the +Y side
+    const Point2D shoulder1 = poly[1];            // the very next vertex: the +Y shoulder on the pad circle
+    REQUIRE(shoulder1.distanceTo(padCenter) == Approx(padRadius).margin(1e-6));
+
+    const Point2D radiusVec = shoulder1 - padCenter;
+    const Point2D tangentVec = edge1 - shoulder1;
+    const double dot = radiusVec.x * tangentVec.x + radiusVec.y * tangentVec.y;
+    REQUIRE(std::abs(dot) < 1e-6);
+}
+
 TEST_CASE("buildTeardrop works for any track direction, not just +X", "[pcb][teardrop]") {
     const Point2D padCenter(5, 5);
     const auto poly = buildTeardrop(padCenter, 0.8, Point2D(0, -1), 0.25, 2.0); // track leaves downward

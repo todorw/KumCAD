@@ -26,8 +26,31 @@ std::vector<Point2D> buildTeardrop(const Point2D& padCenter, double padRadius, c
     const Point2D edge1 = trackPoint + perp * (trackWidth / 2.0);
     const Point2D edge2 = trackPoint - perp * (trackWidth / 2.0);
 
-    // Pad-side shoulders sit on the pad's own circle, at +-halfAngle from
-    // the track direction (measured from pad center).
+    // True tangent-line construction: the shoulder is where a straight
+    // line from edge1/edge2 is tangent to the pad's own circle, not a
+    // fixed angle around it. In the right triangle (pad center C, tangent
+    // point T, edge point P) the right angle sits at T (CT is a radius,
+    // perpendicular to the tangent line PT), so the angle at C between CP
+    // and CT is acos(padRadius / |CP|) -- standard tangent-line-from-an-
+    // external-point geometry. edge1's own angle from the track direction
+    // (atan2(trackWidth/2, length)) plus that offset gives the shoulder's
+    // own angle around the pad; edge2's shoulder is the mirror image.
+    const double halfTrackWidth = trackWidth / 2.0;
+    const double distToEdge = std::sqrt(length * length + halfTrackWidth * halfTrackWidth);
+    double shoulderAngle = halfAngle;
+    if (distToEdge > padRadius + 1e-9) {
+        const double angleToEdge = std::atan2(halfTrackWidth, length);
+        const double tangentOffset = std::acos(std::clamp(padRadius / distToEdge, -1.0, 1.0));
+        shoulderAngle = angleToEdge + tangentOffset;
+    }
+    // A degenerate ratio (a very wide track on a small pad) can still push
+    // this past a half-turn, which would self-intersect -- halfAngleDegrees
+    // becomes a real cap in that case rather than the shoulder's own
+    // primary source, the one place it still matters now.
+    shoulderAngle = std::min(shoulderAngle, kPi - 1e-3);
+
+    // Pad-side shoulders sit on the pad's own circle, at +-shoulderAngle
+    // from the track direction (measured from pad center).
     auto onPadCircle = [&](double angleFromDir) {
         const double c = std::cos(angleFromDir), s = std::sin(angleFromDir);
         return padCenter + u * (padRadius * c) + perp * (padRadius * s);
@@ -35,16 +58,16 @@ std::vector<Point2D> buildTeardrop(const Point2D& padCenter, double padRadius, c
 
     std::vector<Point2D> poly;
     poly.push_back(edge1);
-    poly.push_back(onPadCircle(halfAngle));
+    poly.push_back(onPadCircle(shoulderAngle));
     // Hug the pad's curvature between the two shoulders, through the
     // point closest to the track (angle 0).
     const int samples = std::max(0, arcSamples);
     for (int i = 1; i < samples; ++i) {
         const double t = static_cast<double>(i) / samples; // (0,1)
-        const double angle = halfAngle - t * 2.0 * halfAngle;
+        const double angle = shoulderAngle - t * 2.0 * shoulderAngle;
         poly.push_back(onPadCircle(angle));
     }
-    poly.push_back(onPadCircle(-halfAngle));
+    poly.push_back(onPadCircle(-shoulderAngle));
     poly.push_back(edge2);
     poly.push_back(edge1); // close explicitly
 
