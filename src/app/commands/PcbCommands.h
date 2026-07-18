@@ -238,7 +238,7 @@ public:
     void cancel() override { m_finished = true; }
 
 private:
-    enum class Stage { NetlistPath, GridSize, TrackWidth, Clearance, NetClasses };
+    enum class Stage { NetlistPath, GridSize, TrackWidth, Clearance, Layers, NetClasses };
     lcad::Document& m_document;
     Stage m_stage = Stage::NetlistPath;
     std::vector<lcad::ImportedNet> m_nets;

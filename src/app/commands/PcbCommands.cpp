@@ -399,6 +399,32 @@ std::optional<QString> AutorouteCommand::onText(const QString& text) {
             if (!ok || value < 0.0) return QStringLiteral("*Invalid clearance*");
             m_params.clearance = value;
         }
+        m_stage = Stage::Layers;
+        return QStringLiteral("Layer stackup for via insertion, e.g. F.Cu,B.Cu (Enter for single-layer "
+                              "on the current layer):");
+    }
+    case Stage::Layers: {
+        const QString trimmed = text.trimmed();
+        if (!trimmed.isEmpty()) {
+            std::vector<lcad::LayerId> layers;
+            for (const QString& name : trimmed.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+                const std::string layerName = name.trimmed().toStdString();
+                bool found = false;
+                for (const lcad::Layer& layer : m_document.layers()) {
+                    if (layer.name == layerName) {
+                        layers.push_back(layer.id);
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) return QStringLiteral("*Layer \"%1\" not found*").arg(name.trimmed());
+            }
+            if (layers.size() < 2) {
+                return QStringLiteral("*Enter at least 2 layer names for multi-layer routing, or leave "
+                                      "blank for single-layer*");
+            }
+            m_params.stackup.layers = layers;
+        }
         m_stage = Stage::NetClasses;
         return QStringLiteral("Net class overrides <none> (name:trackWidth:clearance:net1,net2,...; "
                               "multiple separated by ;):");

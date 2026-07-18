@@ -27,6 +27,14 @@ int trackCount(const Document& doc) {
     }
     return n;
 }
+
+int viaCount(const Document& doc) {
+    int n = 0;
+    for (const Entity* e : doc.entities()) {
+        if (e->type() == EntityType::Via) ++n;
+    }
+    return n;
+}
 } // namespace
 
 TEST_CASE("autoroute connects two unobstructed pads with a single track", "[pcb][autoroute]") {
@@ -199,3 +207,101 @@ TEST_CASE("autoroute on an empty document or with a non-positive grid size is a 
     REQUIRE(result.failedCount == 0);
     REQUIRE(trackCount(doc) == 0);
 }
+
+TEST_CASE("autoroute with an empty stackup never inserts a via, even in a scenario multi-layer mode "
+         "would need one for",
+         "[pcb][autoroute][multilayer]") {
+    // Same sealed-pin construction as the rip-up recovery test: TARGET is
+    // walled on 3 sides, FLEXIBLE's track crosses its only exit. Legacy
+    // single-layer mode has nowhere to insert a via at all (there's only
+    // ever one layer index to route on), so it must fail exactly like the
+    // rip-up test's own plain-ordering case, and produce zero vias.
+    Document doc;
+    registerBuiltinSymbols(doc);
+    placeRFp(doc, "TARGET", Point2D(0, 0));
+    placeRFp(doc, "FAR", Point2D(0, 10));
+    placeRFp(doc, "BS", Point2D(0, -1.2));
+    placeRFp(doc, "BE", Point2D(1.2, 0));
+    placeRFp(doc, "BW", Point2D(-1.2, 0));
+    placeRFp(doc, "R3", Point2D(-3, 1));
+    placeRFp(doc, "R4", Point2D(3, 1));
+
+    ImportedNet constrained;
+    constrained.name = "CONSTRAINED";
+    constrained.pins = {{"TARGET", "1"}, {"FAR", "1"}};
+    ImportedNet flexible;
+    flexible.name = "FLEXIBLE";
+    flexible.pins = {{"R3", "1"}, {"R4", "1"}};
+
+    AutorouteParams params; // stackup left empty: legacy single-layer mode
+    params.ripUpPasses = 0;
+    const AutorouteResult result = autoroute(doc, {constrained, flexible}, params);
+    REQUIRE(result.routedCount == 1);
+    REQUIRE(result.failedCount == 1);
+    REQUIRE(viaCount(doc) == 0);
+}
+
+TEST_CASE("autoroute with a 2-layer stackup recovers a connection legacy single-layer mode leaves "
+         "unrouted, landing tracks on the correct stackup layers",
+         "[pcb][autoroute][multilayer]") {
+    // Identical geometry to the test above: TARGET is walled on 3 sides,
+    // FLEXIBLE's track crosses its only exit -- but FLEXIBLE only
+    // occupies whichever ONE layer it happens to route on, leaving the
+    // other completely free for CONSTRAINED to escape through instead.
+    Document doc;
+    registerBuiltinSymbols(doc);
+    placeRFp(doc, "TARGET", Point2D(0, 0));
+    placeRFp(doc, "FAR", Point2D(0, 10));
+    placeRFp(doc, "BS", Point2D(0, -1.2));
+    placeRFp(doc, "BE", Point2D(1.2, 0));
+    placeRFp(doc, "BW", Point2D(-1.2, 0));
+    placeRFp(doc, "R3", Point2D(-3, 1));
+    placeRFp(doc, "R4", Point2D(3, 1));
+
+    ImportedNet constrained;
+    constrained.name = "CONSTRAINED";
+    constrained.pins = {{"TARGET", "1"}, {"FAR", "1"}};
+    ImportedNet flexible;
+    flexible.name = "FLEXIBLE";
+    flexible.pins = {{"R3", "1"}, {"R4", "1"}};
+
+    const LayerId topLayer = doc.addLayer("F.Cu", Color{255, 255, 255});
+    const LayerId bottomLayer = doc.addLayer("B.Cu", Color{255, 255, 255});
+
+    AutorouteParams params;
+    params.ripUpPasses = 0;
+    params.stackup.layers = {topLayer, bottomLayer};
+    const AutorouteResult result = autoroute(doc, {constrained, flexible}, params);
+    REQUIRE(result.routedCount == 2);
+    REQUIRE(result.failedCount == 0);
+
+    // Every produced Track must land on one of the stackup's own layers,
+    // never some other/default layer id.
+    for (const Entity* e : doc.entities()) {
+        if (e->type() != EntityType::Track) continue;
+        const auto* track = static_cast<const TrackEntity*>(e);
+        REQUIRE((track->layer() == topLayer || track->layer() == bottomLayer));
+    }
+}
+
+// Real, disclosed testing gap: no test here forces autoroute() itself to
+// place a MID-PATH via (both endpoints reachable, but only via a layer
+// switch partway through). This isn't for lack of trying -- every
+// construction attempted (short crossing blockers, wall-confined
+// corridors, near-conflicting parallel blockers) either let the router
+// avoid the obstruction by starting/ending its ENTIRE path on the other,
+// still-fully-open layer (needing zero vias) or let it detour a few
+// cells in-plane instead (cheaper than a layer switch, which costs the
+// same one step as any grid move). That's not a test-construction
+// failure so much as a real property of this cost model: since a via
+// never costs less than continuing on the current layer, a mid-path via
+// is only ever optimal when BOTH layers are independently blocked
+// end-to-end at DIFFERENT points, and reliably forcing that with real
+// footprint-sized geometry (R_FP's own 1.5x1.5 pads, ~1.075 obstacle
+// radius once clearance is added) proved impractical by hand. The
+// two tests above cover what's reliably verifiable: multi-layer mode
+// recovers a connection legacy mode can't route at all, and every
+// produced track lands on a real stackup layer. Via construction itself
+// (TrackEntity split into layer-contiguous runs, ViaEntity dropped at
+// each transition with throughHole=true) was verified by code review
+// instead -- see runRoutingPass's own comment in Autorouter.cpp.

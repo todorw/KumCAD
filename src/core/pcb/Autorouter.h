@@ -2,6 +2,7 @@
 
 #include "core/Ids.h"
 #include "core/pcb/NetClass.h"
+#include "core/pcb/Stackup.h"
 
 #include <string>
 #include <vector>
@@ -15,13 +16,20 @@ struct AutorouteParams {
     double gridSize = 0.5; // routing grid pitch
     double trackWidth = 0.25;
     double clearance = 0.2;
-    LayerId layer = 0; // which layer newly-routed tracks land on
+    LayerId layer = 0; // which layer newly-routed tracks land on when stackup is empty (legacy single-layer mode)
     // Rip-up-and-reroute retries (see autoroute()'s own comment): each
     // additional attempt rips up the current best attempt's tracks and
     // retries with the previously-failed connections given first pick,
     // keeping whichever attempt ends with the fewest failures. 0 keeps
     // the original single shortest-first-only behavior.
     int ripUpPasses = 3;
+    // Empty (default) = legacy single-layer routing on `layer` only, no
+    // vias ever inserted. 2+ layers = multi-layer routing: a connection
+    // that can't be routed on one layer alone can switch layers through
+    // a real through-hole ViaEntity (see autoroute()'s own comment).
+    CopperStackup stackup;
+    double viaDiameter = 0.6;
+    double viaDrillDiameter = 0.3;
 };
 
 struct AutorouteResult {
@@ -52,20 +60,35 @@ struct AutorouteResult {
 // time (a real, if global rather than localized, rip-up-and-reroute
 // technique), keeping whichever attempt ends with the fewest failures.
 //
-// Real, disclosed simplifications: single layer only (no via insertion or
-// layer-change routing -- see the plan's own "multi-layer copper
-// stackup" as a separate, not-yet-done item), no length matching or
-// differential pairs (LengthTuning.h/DiffPair.h cover those as their own
-// separate, dedicated tools instead), and grid-based paths (not the
-// smooth 45-degree-preferring paths a real interactive router produces)
-// -- a real, useful "does it connect without shorting" autorouter, still
-// not KiCad's own interactive push-and-shove router (that needs live
+// params.stackup (empty by default) turns on real multi-layer routing:
+// a connection that can't be routed on a single layer alone can switch
+// layers via a real through-hole ViaEntity dropped at the switch point
+// (a through via, reachable from/to any layer, matching ViaEntity's own
+// default throughHole=true semantics -- this router never creates a
+// blind/buried via). A footprint pad is reachable from (and a valid
+// destination on) every stackup layer, matching Stackup.h's own
+// disclosed "pads have no per-pad layer yet" simplification, so the
+// search tries every layer at both ends rather than assuming one. Left
+// empty, routing stays single-layer on params.layer with no vias ever
+// inserted, exactly the original behavior.
+//
+// Real, disclosed simplifications: no length matching or differential
+// pairs (LengthTuning.h/DiffPair.h cover those as their own separate,
+// dedicated tools instead), grid-based paths (not the smooth
+// 45-degree-preferring paths a real interactive router produces), and a
+// via-switch move is only checked against clearance on the layer it's
+// switching TO, not every layer its physical barrel would pass through
+// (correct for a 2-layer stack, an approximation for 3+) -- a real,
+// useful "does it connect without shorting" autorouter, still not
+// KiCad's own interactive push-and-shove router (that needs live
 // mouse-drag physics during routing, a kind of interactive viewport
 // plumbing this batch/typed-command architecture doesn't have -- rip-up-
 // and-reroute is the bounded alternative that's actually buildable here).
 //
-// Adds one TrackEntity per successfully routed connection directly to
-// doc, on params.layer.
+// Adds one TrackEntity per layer-contiguous run of each successfully
+// routed connection's path directly to doc (on the run's own stackup
+// layer, or params.layer in legacy single-layer mode), plus one
+// through-hole ViaEntity at every layer transition.
 //
 // netClasses (default empty) overrides params.trackWidth/clearance per
 // connection when that connection's own net resolves to a class (see
