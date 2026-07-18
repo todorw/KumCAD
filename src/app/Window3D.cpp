@@ -1463,10 +1463,9 @@ void Window3D::openSketchEditor() {
     if (planeDialog.exec() != QDialog::Accepted) return;
     const lcad::SketchPlane plane = planeDialog.plane();
 
-    SketchEditorDialog dialog(this);
+    SketchEditorDialog dialog(m_document, plane, this);
     if (dialog.exec() != QDialog::Accepted) return;
 
-    dialog.view()->sketch().setPlacement(plane);
     const int index = m_document.addSketch(std::move(dialog.view()->sketch()));
     const auto& sketch = m_document.sketches()[static_cast<std::size_t>(index)];
     statusBar()->showMessage(QStringLiteral("Sketch %1 saved (%2 point(s), %3 line(s), %4 circle(s)) — "

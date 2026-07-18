@@ -255,6 +255,8 @@ if(LCAD_ENABLE_3D)
             core3d/Fem.cpp
             core3d/Pick3D.h
             core3d/Pick3D.cpp
+            core3d/ExternalGeometry.h
+            core3d/ExternalGeometry.cpp
             core3d/Fingerprint.h
             core3d/TopoNaming.h
             core3d/TopoNaming.cpp

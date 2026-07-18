@@ -99,7 +99,8 @@ if(LCAD_ENABLE_3D)
             FemTests.cpp
             Pick3DTests.cpp
             TopoNamingTests.cpp
-            LispBindings3DTests.cpp)
+            LispBindings3DTests.cpp
+            ExternalGeometryTests.cpp)
     endif()
 endif()
 

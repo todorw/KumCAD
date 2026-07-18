@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/sketch/SketchGeometry.h"
+
 #include <QDialog>
 
 #include <optional>
@@ -9,16 +11,33 @@
 class SketchView;
 class QLabel;
 
+namespace lcad {
+class Document3D;
+}
+
 // Phase 2 Sprint 2's sketch editor: draw lines/circles/arcs, select
 // geometry, apply constraints, see the solver resolve live.
 class SketchEditorDialog : public QDialog {
     Q_OBJECT
 public:
-    explicit SketchEditorDialog(QWidget* parent = nullptr);
+    // document is where "External Geometry..." looks up existing
+    // features' shapes to project an edge from; plane is applied to the
+    // new sketch immediately (not just on accept), so External Geometry
+    // can project onto it while the dialog is still open.
+    explicit SketchEditorDialog(lcad::Document3D& document, lcad::SketchPlane plane, QWidget* parent = nullptr);
 
     SketchView* view() const { return m_view; }
 
 private:
+    // EXTERNALGEO: prompts for a feature index (into document.features())
+    // and an edge index (into that feature's own shape, TopExp::MapShapes
+    // ordering -- the same typed-index convention Pick3D.h's own
+    // EdgePickResult documents), then projects it into the sketch as
+    // fixed-point construction geometry (see core/core3d/
+    // ExternalGeometry.h).
+    void addExternalGeometry();
+
+    lcad::Document3D& m_document;
     void applyHorizontal();
     void applyVertical();
     void applyParallel();

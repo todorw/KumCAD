@@ -1,6 +1,8 @@
 #include "SketchEditorDialog.h"
 #include "SketchView.h"
 
+#include "core/core3d/Document3D.h"
+#include "core/core3d/ExternalGeometry.h"
 #include "core/sketch/SketchGeometry.h"
 
 #include <QDialogButtonBox>
@@ -15,7 +17,8 @@ using Kind = SketchView::Selection::Kind;
 using lcad::SketchConstraint;
 using lcad::SketchConstraintType;
 
-SketchEditorDialog::SketchEditorDialog(QWidget* parent) : QDialog(parent) {
+SketchEditorDialog::SketchEditorDialog(lcad::Document3D& document, lcad::SketchPlane plane, QWidget* parent)
+    : QDialog(parent), m_document(document) {
     setWindowTitle(QStringLiteral("Sketch Editor"));
     resize(900, 700);
 
@@ -23,6 +26,7 @@ SketchEditorDialog::SketchEditorDialog(QWidget* parent) : QDialog(parent) {
 
     auto* toolbar = new QToolBar(this);
     m_view = new SketchView(this);
+    m_view->sketch().setPlacement(plane);
     toolbar->addAction(QStringLiteral("Select"), this, [this] { m_view->setTool(SketchView::Tool::Select); });
     toolbar->addAction(QStringLiteral("Line"), this, [this] { m_view->setTool(SketchView::Tool::Line); });
     toolbar->addAction(QStringLiteral("Circle"), this, [this] { m_view->setTool(SketchView::Tool::Circle); });
@@ -45,6 +49,8 @@ SketchEditorDialog::SketchEditorDialog(QWidget* parent) : QDialog(parent) {
     toolbar->addAction(QStringLiteral("Symmetric"), this, &SketchEditorDialog::applySymmetric);
     toolbar->addSeparator();
     toolbar->addAction(QStringLiteral("Toggle Construction"), this, &SketchEditorDialog::toggleConstruction);
+    toolbar->addSeparator();
+    toolbar->addAction(QStringLiteral("External Geometry..."), this, &SketchEditorDialog::addExternalGeometry);
     layout->addWidget(toolbar);
 
     layout->addWidget(m_view, 1);
@@ -342,4 +348,35 @@ void SketchEditorDialog::applySymmetric() {
     c.pointB = std::get<1>(*triple);
     m_view->sketch().addConstraint(c);
     m_view->resolve();
+}
+
+void SketchEditorDialog::addExternalGeometry() {
+    const int featureCount = static_cast<int>(m_document.features().size());
+    if (featureCount == 0) {
+        m_statusLabel->setText(QStringLiteral("No features in the 3D document yet"));
+        return;
+    }
+
+    bool ok = false;
+    const int featureIndex = QInputDialog::getInt(
+        this, QStringLiteral("External Geometry"),
+        QStringLiteral("Feature index (0-%1, see the main window's feature tree):").arg(featureCount - 1), 0, 0,
+        featureCount - 1, 1, &ok);
+    if (!ok) return;
+    if (!m_document.isValid(featureIndex)) {
+        m_statusLabel->setText(QStringLiteral("*That feature isn't valid*"));
+        return;
+    }
+
+    const int edgeIndex = QInputDialog::getInt(
+        this, QStringLiteral("External Geometry"),
+        QStringLiteral("Edge index (see the main window's \"List Edges...\"):"), 0, 0, 1000000, 1, &ok);
+    if (!ok) return;
+
+    if (lcad::projectExternalEdge(m_view->sketch(), m_document.shapeAt(featureIndex), edgeIndex)) {
+        m_view->update();
+        m_statusLabel->setText(QStringLiteral("External geometry added (construction, fixed points)"));
+    } else {
+        m_statusLabel->setText(QStringLiteral("*Invalid edge index*"));
+    }
 }
