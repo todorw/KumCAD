@@ -6,9 +6,11 @@
 #include "core/pcb/Drc.h"
 #include "core/pcb/GerberWriter.h"
 #include "core/pcb/Ratsnest.h"
+#include "core/pcb/ViaStitching.h"
 #include "core/schematic/SymbolLibrary.h"
 
 #include <algorithm>
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <filesystem>
 #include <fstream>
@@ -336,6 +338,55 @@ TEST_CASE("writeExcellonDrill lists one tool per distinct drill diameter", "[pcb
         if (pos + 3 < text.size() && text[pos + 3] == 'C') ++toolDefCount;
     }
     REQUIRE(toolDefCount == 2);
+}
+
+TEST_CASE("stitchVias places roughly perimeter/spacing vias inset from a square boundary's edge",
+         "[pcb][via-stitching]") {
+    Document doc;
+    const std::vector<Point2D> boundary = {Point2D(0, 0), Point2D(20, 0), Point2D(20, 20), Point2D(0, 20)};
+
+    const std::vector<EntityId> ids = stitchVias(doc, doc.currentLayer(), boundary, 5.0, 1.0);
+    // 80mm perimeter / 5mm spacing = 16 vias, give or take rounding to a
+    // whole step count.
+    REQUIRE(ids.size() >= 14);
+    REQUIRE(ids.size() <= 18);
+
+    for (const EntityId id : ids) {
+        const Entity* e = doc.findEntity(id);
+        REQUIRE(e != nullptr);
+        REQUIRE(e->type() == EntityType::Via);
+        const auto* via = static_cast<const ViaEntity*>(e);
+        // Every via must land strictly inside the original square, not on
+        // or outside its edge -- confirms the inward inset actually moved
+        // it off the boundary.
+        REQUIRE(via->position().x > 0.0);
+        REQUIRE(via->position().x < 20.0);
+        REQUIRE(via->position().y > 0.0);
+        REQUIRE(via->position().y < 20.0);
+    }
+}
+
+TEST_CASE("stitchVias applies the requested diameter and drill diameter to every placed via",
+         "[pcb][via-stitching]") {
+    Document doc;
+    const std::vector<Point2D> boundary = {Point2D(0, 0), Point2D(20, 0), Point2D(20, 20), Point2D(0, 20)};
+
+    const std::vector<EntityId> ids = stitchVias(doc, doc.currentLayer(), boundary, 5.0, 1.0, 0.8, 0.4);
+    REQUIRE_FALSE(ids.empty());
+    for (const EntityId id : ids) {
+        const auto* via = static_cast<const ViaEntity*>(doc.findEntity(id));
+        REQUIRE(via->diameter() == Catch::Approx(0.8));
+        REQUIRE(via->drillDiameter() == Catch::Approx(0.4));
+    }
+}
+
+TEST_CASE("stitchVias returns no vias for a degenerate boundary or non-positive spacing",
+         "[pcb][via-stitching]") {
+    Document doc;
+    REQUIRE(stitchVias(doc, doc.currentLayer(), {Point2D(0, 0), Point2D(1, 1)}, 5.0, 1.0).empty());
+
+    const std::vector<Point2D> boundary = {Point2D(0, 0), Point2D(20, 0), Point2D(20, 20), Point2D(0, 20)};
+    REQUIRE(stitchVias(doc, doc.currentLayer(), boundary, 0.0, 1.0).empty());
 }
 
 TEST_CASE("writePickAndPlace lists each footprint's reference designator and position", "[pcb][pnp]") {

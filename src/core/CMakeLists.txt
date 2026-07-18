@@ -93,6 +93,8 @@ add_library(lcad_core STATIC
     pcb/LengthTuning.cpp
     pcb/DiffPair.cpp
     pcb/Teardrop.cpp
+    pcb/ViaStitching.h
+    pcb/ViaStitching.cpp
     electrical/ElectricalLibrary.h
     electrical/ElectricalLibrary.cpp
     electrical/WireNumbering.h

@@ -184,6 +184,80 @@ std::optional<QString> CopperPourCommand::onText(const QString& text) {
     return QStringLiteral("*Copper pour: %1 piece(s)*").arg(ids.size());
 }
 
+std::optional<QString> ViaStitchCommand::onPoint(const lcad::Point2D& pt) {
+    if (m_stage != Stage::Pick) return std::nullopt;
+
+    const lcad::PolylineEntity* best = nullptr;
+    double bestDist = m_pickTolerance;
+    for (const lcad::Entity* e : m_document.entities()) {
+        if (e->type() != lcad::EntityType::Polyline) continue;
+        const auto* pl = static_cast<const lcad::PolylineEntity*>(e);
+        if (!pl->closed()) continue;
+        const double d = pl->distanceTo(pt);
+        if (d <= bestDist) {
+            bestDist = d;
+            best = pl;
+        }
+    }
+    if (!best) return QStringLiteral("*No closed polyline there*\nSelect a closed polyline boundary:");
+
+    m_boundary = best->flattenedVertices();
+    m_stage = Stage::Spacing;
+    return QStringLiteral("Via spacing <2.0>:");
+}
+
+std::optional<QString> ViaStitchCommand::onText(const QString& text) {
+    switch (m_stage) {
+    case Stage::Spacing: {
+        if (!text.trimmed().isEmpty()) {
+            bool ok = false;
+            const double value = text.trimmed().toDouble(&ok);
+            if (!ok || value <= 0.0) return QStringLiteral("*Invalid spacing*");
+            m_spacing = value;
+        }
+        m_stage = Stage::Inset;
+        return QStringLiteral("Inset from boundary <1.0>:");
+    }
+    case Stage::Inset: {
+        if (!text.trimmed().isEmpty()) {
+            bool ok = false;
+            const double value = text.trimmed().toDouble(&ok);
+            if (!ok || value < 0.0) return QStringLiteral("*Invalid inset*");
+            m_inset = value;
+        }
+        m_stage = Stage::Diameter;
+        return QStringLiteral("Via diameter <0.6>:");
+    }
+    case Stage::Diameter: {
+        if (!text.trimmed().isEmpty()) {
+            bool ok = false;
+            const double value = text.trimmed().toDouble(&ok);
+            if (!ok || value <= 0.0) return QStringLiteral("*Invalid diameter*");
+            m_diameter = value;
+        }
+        m_stage = Stage::Drill;
+        return QStringLiteral("Drill diameter <0.3>:");
+    }
+    case Stage::Drill: {
+        if (!text.trimmed().isEmpty()) {
+            bool ok = false;
+            const double value = text.trimmed().toDouble(&ok);
+            if (!ok || value <= 0.0 || value >= m_diameter) return QStringLiteral("*Invalid drill diameter*");
+            m_drillDiameter = value;
+        }
+        m_finished = true;
+        break;
+    }
+    default:
+        return std::nullopt;
+    }
+
+    const auto ids = lcad::stitchVias(m_document, m_document.currentLayer(), m_boundary, m_spacing, m_inset,
+                                      m_diameter, m_drillDiameter);
+    if (ids.empty()) return QStringLiteral("*No vias placed -- check boundary/spacing*");
+    return QStringLiteral("*Via stitching: %1 via(s) placed*").arg(ids.size());
+}
+
 std::optional<QString> AutorouteCommand::onText(const QString& text) {
     switch (m_stage) {
     case Stage::NetlistPath: {

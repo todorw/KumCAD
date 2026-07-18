@@ -5,6 +5,7 @@
 #include "core/pcb/Autorouter.h"
 #include "core/pcb/CopperPour.h"
 #include "core/pcb/Ratsnest.h"
+#include "core/pcb/ViaStitching.h"
 
 #include <vector>
 
@@ -129,6 +130,35 @@ private:
     double m_gridSize = 0.5;
     double m_clearance = 0.2;
     lcad::ThermalReliefParams m_thermalRelief;
+    bool m_finished = false;
+};
+
+// VIASTITCH: select a closed polyline boundary (the same pour-boundary
+// picking CopperPourCommand uses above), then via spacing, inset, pad
+// diameter, and drill diameter -- stitches ground/net-tie vias along it
+// on the current layer (see core/pcb/ViaStitching.h).
+class ViaStitchCommand : public DrawCommand {
+public:
+    ViaStitchCommand(lcad::Document& document, double pickTolerance)
+        : m_document(document), m_pickTolerance(pickTolerance) {}
+
+    QString start() override { return QStringLiteral("VIASTITCH  Select a closed polyline boundary:"); }
+    std::optional<QString> onPoint(const lcad::Point2D& pt) override;
+    bool wantsTextInput() const override { return m_stage != Stage::Pick; }
+    std::optional<QString> onText(const QString& text) override;
+    bool isFinished() const override { return m_finished; }
+    void cancel() override { m_finished = true; }
+
+private:
+    enum class Stage { Pick, Spacing, Inset, Diameter, Drill };
+    lcad::Document& m_document;
+    double m_pickTolerance;
+    Stage m_stage = Stage::Pick;
+    std::vector<lcad::Point2D> m_boundary;
+    double m_spacing = 2.0;
+    double m_inset = 1.0;
+    double m_diameter = 0.6;
+    double m_drillDiameter = 0.3;
     bool m_finished = false;
 };
 
