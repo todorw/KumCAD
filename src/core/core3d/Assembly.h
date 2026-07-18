@@ -50,6 +50,23 @@ enum class MateType {
     Distance,   // like Coincident, offset along the shared direction by `value`
     Angle,      // like Concentric, plus an extra rotation of `value` degrees
                 // around the shared axis after aligning
+    // Parallel and Perpendicular are orientation-only mates (SolidWorks'/
+    // FreeCAD's own "Parallel"/"Perpendicular" mate types): unlike every
+    // mate type above, they don't pin any point at all, so componentB's
+    // CURRENT world position is left untouched -- only its rotation is
+    // adjusted, pivoting about its own reference point (ax/ay/az-side
+    // fields are unused for these two; only the direction fields matter).
+    // A real mate-stack solver would leave the remaining translational (and,
+    // for Parallel, one rotational) DOF genuinely free; since this
+    // closed-form solver has no way to represent "still free," preserving
+    // whatever placement componentB already has is the most useful,
+    // disclosed choice.
+    Parallel,      // componentB's reference direction becomes parallel to componentA's (same sense)
+    Perpendicular, // componentB's reference direction becomes perpendicular to componentA's, rotated
+                   // the minimal amount from its own current direction (picks an arbitrary
+                   // perpendicular when componentB's current direction is already exactly
+                   // parallel to componentA's, since then any perpendicular direction is equally
+                   // valid and there's no "closest" one to prefer)
 };
 
 struct Mate {

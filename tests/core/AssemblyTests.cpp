@@ -2,9 +2,12 @@
 
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <gp_Pnt.hxx>
+#include <gp_Vec.hxx>
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+
+#include <cmath>
 
 using namespace lcad;
 using Catch::Approx;
@@ -124,6 +127,120 @@ TEST_CASE("Assembly Concentric mate aligns componentB's axis parallel (not flipp
     const gp_Pnt tipLocal(2.0, 2.0, 1.0); // one unit up B's local axis from its reference point
     const gp_Pnt tipWorld = tipLocal.Transformed(placement);
     REQUIRE(tipWorld.Z() == Approx(1.0).margin(1e-6)); // still moving in +Z, not flipped to -Z
+}
+
+TEST_CASE("Assembly Parallel mate rotates componentB's direction without moving its current position",
+         "[core3d][assembly]") {
+    Assembly asm_;
+    AssemblyComponent a;
+    a.shape = makeBox(10.0);
+    a.fixed = true;
+    const int idxA = asm_.addComponent(a);
+
+    AssemblyComponent b;
+    b.shape = makeBox(4.0);
+    const int idxB = asm_.addComponent(b);
+    // Give B some pre-existing world position, with identity rotation, so
+    // its own local +X currently points world +X -- unlike every other
+    // mate type, Parallel must leave this translation untouched.
+    asm_.components()[static_cast<std::size_t>(idxB)].placement.SetTranslationPart(gp_Vec(100.0, 50.0, 25.0));
+
+    Mate mate;
+    mate.type = MateType::Parallel;
+    mate.componentA = idxA;
+    mate.componentB = idxB;
+    mate.adx = 0.0; mate.ady = 0.0; mate.adz = 1.0; // A's reference direction, world +Z (A is fixed/identity)
+    mate.bx = 0.0; mate.by = 0.0; mate.bz = 0.0;     // pivot exactly at B's own placement origin
+    mate.bdx = 1.0; mate.bdy = 0.0; mate.bdz = 0.0;  // B's reference direction, local +X
+    asm_.addMate(mate);
+
+    asm_.solve();
+
+    const gp_Trsf& placement = asm_.components()[static_cast<std::size_t>(idxB)].placement;
+    // Position must be exactly preserved (pivot was at the origin of B's
+    // own placement).
+    REQUIRE(placement.TranslationPart().X() == Approx(100.0).margin(1e-6));
+    REQUIRE(placement.TranslationPart().Y() == Approx(50.0).margin(1e-6));
+    REQUIRE(placement.TranslationPart().Z() == Approx(25.0).margin(1e-6));
+
+    // B's local +X should now transform to something parallel to world +Z.
+    const gp_Pnt origin = gp_Pnt(0, 0, 0).Transformed(placement);
+    const gp_Pnt tip = gp_Pnt(1, 0, 0).Transformed(placement);
+    const gp_Vec dir(origin, tip);
+    REQUIRE(std::abs(dir.X()) < 1e-6);
+    REQUIRE(std::abs(dir.Y()) < 1e-6);
+    REQUIRE(std::abs(std::abs(dir.Z()) - 1.0) < 1e-6);
+}
+
+TEST_CASE("Assembly Perpendicular mate rotates componentB's direction to the closest perpendicular, "
+         "also without moving its current position",
+         "[core3d][assembly]") {
+    Assembly asm_;
+    AssemblyComponent a;
+    a.shape = makeBox(10.0);
+    a.fixed = true;
+    const int idxA = asm_.addComponent(a);
+
+    AssemblyComponent b;
+    b.shape = makeBox(4.0);
+    const int idxB = asm_.addComponent(b);
+    asm_.components()[static_cast<std::size_t>(idxB)].placement.SetTranslationPart(gp_Vec(1.0, 2.0, 3.0));
+
+    Mate mate;
+    mate.type = MateType::Perpendicular;
+    mate.componentA = idxA;
+    mate.componentB = idxB;
+    mate.adx = 0.0; mate.ady = 0.0; mate.adz = 1.0; // A's reference direction, world +Z
+    mate.bx = 0.0; mate.by = 0.0; mate.bz = 0.0;
+    // B's own current direction is 45 degrees off both X and Z -- the
+    // closest perpendicular-to-Z direction is +X, not some arbitrary one.
+    mate.bdx = 1.0; mate.bdy = 0.0; mate.bdz = 1.0;
+    asm_.addMate(mate);
+
+    asm_.solve();
+
+    const gp_Trsf& placement = asm_.components()[static_cast<std::size_t>(idxB)].placement;
+    REQUIRE(placement.TranslationPart().X() == Approx(1.0).margin(1e-6));
+    REQUIRE(placement.TranslationPart().Y() == Approx(2.0).margin(1e-6));
+    REQUIRE(placement.TranslationPart().Z() == Approx(3.0).margin(1e-6));
+
+    const gp_Pnt origin = gp_Pnt(0, 0, 0).Transformed(placement);
+    const gp_Pnt tip = gp_Pnt(1, 0, 1).Transformed(placement);
+    const gp_Vec dir(origin, tip);
+    const gp_Vec normalized = dir / dir.Magnitude();
+    REQUIRE(std::abs(normalized.Z()) < 1e-6); // perpendicular to A's world +Z
+    REQUIRE(std::abs(normalized.X()) > 0.99); // the closest perpendicular to (1,0,1) is (+-1,0,0)
+}
+
+TEST_CASE("Assembly Perpendicular mate still produces a perpendicular direction when componentB's own "
+         "current direction is already exactly parallel to componentA's",
+         "[core3d][assembly]") {
+    Assembly asm_;
+    AssemblyComponent a;
+    a.shape = makeBox(10.0);
+    a.fixed = true;
+    const int idxA = asm_.addComponent(a);
+
+    AssemblyComponent b;
+    b.shape = makeBox(4.0);
+    const int idxB = asm_.addComponent(b);
+
+    Mate mate;
+    mate.type = MateType::Perpendicular;
+    mate.componentA = idxA;
+    mate.componentB = idxB;
+    mate.adx = 0.0; mate.ady = 0.0; mate.adz = 1.0;
+    mate.bx = 0.0; mate.by = 0.0; mate.bz = 0.0;
+    mate.bdx = 0.0; mate.bdy = 0.0; mate.bdz = 1.0; // already exactly parallel to A's direction
+    asm_.addMate(mate);
+
+    asm_.solve();
+
+    const gp_Trsf& placement = asm_.components()[static_cast<std::size_t>(idxB)].placement;
+    const gp_Pnt origin = gp_Pnt(0, 0, 0).Transformed(placement);
+    const gp_Pnt tip = gp_Pnt(0, 0, 1).Transformed(placement);
+    const gp_Vec dir(origin, tip);
+    REQUIRE(std::abs(dir.Z()) < 1e-6); // some perpendicular direction, not necessarily a specific one
 }
 
 TEST_CASE("Assembly Angle mate rotates componentB around the shared axis by the given angle", "[core3d][assembly]") {

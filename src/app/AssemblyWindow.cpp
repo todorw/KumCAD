@@ -34,6 +34,8 @@ QString mateTypeName(MateType type) {
     case MateType::Concentric: return QStringLiteral("Concentric");
     case MateType::Distance: return QStringLiteral("Distance");
     case MateType::Angle: return QStringLiteral("Angle");
+    case MateType::Parallel: return QStringLiteral("Parallel");
+    case MateType::Perpendicular: return QStringLiteral("Perpendicular");
     }
     return QStringLiteral("Mate");
 }
@@ -102,7 +104,8 @@ public:
         auto* form = new QFormLayout(this);
 
         m_typeCombo = new QComboBox(this);
-        for (MateType type : {MateType::Coincident, MateType::Concentric, MateType::Distance, MateType::Angle}) {
+        for (MateType type : {MateType::Coincident, MateType::Concentric, MateType::Distance, MateType::Angle,
+                             MateType::Parallel, MateType::Perpendicular}) {
             m_typeCombo->addItem(mateTypeName(type), static_cast<int>(type));
         }
         form->addRow(QStringLiteral("Type:"), m_typeCombo);
@@ -135,7 +138,7 @@ public:
         form->addRow(QString(), pickB);
 
         m_value = makeSpin(0.0);
-        form->addRow(QStringLiteral("Distance offset / Angle degrees:"), m_value);
+        form->addRow(QStringLiteral("Distance offset / Angle degrees (unused for Parallel/Perpendicular):"), m_value);
 
         auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
         connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
