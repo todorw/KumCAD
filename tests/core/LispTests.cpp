@@ -2,7 +2,12 @@
 
 #include "core/document/Document.h"
 #include "core/geometry/Circle.h"
+#include "core/geometry/Dimension.h"
+#include "core/geometry/Ellipse.h"
+#include "core/geometry/Hatch.h"
 #include "core/geometry/Line.h"
+#include "core/geometry/MText.h"
+#include "core/geometry/Spline.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -136,6 +141,54 @@ TEST_CASE("LispInterpreter's entget returns a DXF-style association list", "[lis
     const auto r2 = interp.run("(assoc 10 e)");
     REQUIRE(r2.ok);
     REQUIRE(r2.resultText == "(10 1 2)");
+}
+
+TEST_CASE("LispInterpreter's entget covers MTEXT/ELLIPSE/SPLINE/DIMENSION/HATCH too, not just the "
+         "original 7 entity types",
+         "[lisp]") {
+    lcad::Document doc;
+
+    const lcad::EntityId mtextId = doc.reserveEntityId();
+    doc.addEntity(std::make_unique<lcad::MTextEntity>(mtextId, doc.currentLayer(), lcad::Point2D(1, 2), "hi", 2.5));
+
+    const lcad::EntityId ellipseId = doc.reserveEntityId();
+    doc.addEntity(
+        std::make_unique<lcad::EllipseEntity>(ellipseId, doc.currentLayer(), lcad::Point2D(0, 0), 5.0, 2.0));
+
+    const lcad::EntityId splineId = doc.reserveEntityId();
+    doc.addEntity(std::make_unique<lcad::SplineEntity>(
+        splineId, doc.currentLayer(), 3, std::vector<lcad::Point2D>{{0, 0}, {1, 1}, {2, 0}},
+        std::vector<double>{0, 0, 0, 0, 1, 1, 1, 1}));
+
+    const lcad::EntityId dimId = doc.reserveEntityId();
+    doc.addEntity(std::make_unique<lcad::DimensionEntity>(dimId, doc.currentLayer(), lcad::Point2D(0, 0),
+                                                          lcad::Point2D(10, 0), lcad::Point2D(5, 3), false));
+
+    const lcad::EntityId hatchId = doc.reserveEntityId();
+    doc.addEntity(std::make_unique<lcad::HatchEntity>(
+        hatchId, doc.currentLayer(), std::vector<lcad::Point2D>{{0, 0}, {4, 0}, {4, 4}, {0, 4}}));
+
+    lcad::LispInterpreter interp([](const std::string&) {}, &doc);
+
+    auto r = interp.run("(assoc 1 (entget " + std::to_string(mtextId) + "))");
+    REQUIRE(r.ok);
+    REQUIRE(r.resultText == "(1 \"hi\")");
+
+    r = interp.run("(assoc 40 (entget " + std::to_string(ellipseId) + "))");
+    REQUIRE(r.ok);
+    REQUIRE(r.resultText == "(40 5)");
+
+    r = interp.run("(assoc 71 (entget " + std::to_string(splineId) + "))");
+    REQUIRE(r.ok);
+    REQUIRE(r.resultText == "(71 3)");
+
+    r = interp.run("(assoc 13 (entget " + std::to_string(dimId) + "))");
+    REQUIRE(r.ok);
+    REQUIRE(r.resultText == "(13 0 0)");
+
+    r = interp.run("(assoc 70 (entget " + std::to_string(hatchId) + "))");
+    REQUIRE(r.ok);
+    REQUIRE(r.resultText == "(70 1)"); // 1 = solid fill, the simple constructor's own default pattern
 }
 
 TEST_CASE("LispInterpreter's ssget selects and filters entities", "[lisp]") {

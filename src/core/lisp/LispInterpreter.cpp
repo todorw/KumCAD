@@ -3,10 +3,15 @@
 #include "core/document/Document.h"
 #include "core/geometry/Arc.h"
 #include "core/geometry/Circle.h"
+#include "core/geometry/Dimension.h"
+#include "core/geometry/Ellipse.h"
+#include "core/geometry/Hatch.h"
 #include "core/geometry/Insert.h"
 #include "core/geometry/Line.h"
+#include "core/geometry/MText.h"
 #include "core/geometry/PointEnt.h"
 #include "core/geometry/Polyline.h"
+#include "core/geometry/Spline.h"
 #include "core/geometry/Text.h"
 
 #include <algorithm>
@@ -370,6 +375,57 @@ Value LispInterpreter::entityToAssocList(EntityId id) const {
         entries.push_back(assocPoint(10, insert->position().x, insert->position().y));
         entries.push_back(assocEntry(41, Value::num(insert->scaleFactor())));
         entries.push_back(assocEntry(50, Value::num(insert->rotation() * 180.0 / M_PI)));
+        break;
+    }
+    case EntityType::MText: {
+        const auto* mtext = static_cast<const MTextEntity*>(e);
+        entries.push_back(assocPoint(10, mtext->position().x, mtext->position().y));
+        entries.push_back(assocEntry(1, Value::str(mtext->text())));
+        entries.push_back(assocEntry(40, Value::num(mtext->height())));
+        entries.push_back(assocEntry(41, Value::num(mtext->width())));
+        entries.push_back(assocEntry(50, Value::num(mtext->rotation() * 180.0 / M_PI)));
+        break;
+    }
+    case EntityType::Ellipse: {
+        const auto* ellipse = static_cast<const EllipseEntity*>(e);
+        // Real DXF group 11/21 is the major axis endpoint relative to the
+        // center and group 40 is minor/major ratio; entget exposes the
+        // simpler radiusX/radiusY/rotation this codebase's own Ellipse
+        // constructor already takes, rather than re-deriving the DXF
+        // encoding just to immediately invert it again.
+        entries.push_back(assocPoint(10, ellipse->center().x, ellipse->center().y));
+        entries.push_back(assocEntry(40, Value::num(ellipse->radiusX())));
+        entries.push_back(assocEntry(41, Value::num(ellipse->radiusY())));
+        entries.push_back(assocEntry(50, Value::num(ellipse->rotation() * 180.0 / M_PI)));
+        break;
+    }
+    case EntityType::Spline: {
+        const auto* spline = static_cast<const SplineEntity*>(e);
+        entries.push_back(assocEntry(71, Value::num(spline->degree())));
+        for (const Point2D& p : spline->controlPoints()) entries.push_back(assocPoint(10, p.x, p.y));
+        for (const Point2D& p : spline->fitPoints()) entries.push_back(assocPoint(11, p.x, p.y));
+        break;
+    }
+    case EntityType::Dimension: {
+        const auto* dim = static_cast<const DimensionEntity*>(e);
+        entries.push_back(assocEntry(70, Value::num(static_cast<int>(dim->kind()))));
+        entries.push_back(assocPoint(10, dim->linePoint().x, dim->linePoint().y));
+        entries.push_back(assocPoint(13, dim->point1().x, dim->point1().y));
+        entries.push_back(assocPoint(14, dim->point2().x, dim->point2().y));
+        if (dim->kind() == DimensionKind::Angular) entries.push_back(assocPoint(15, dim->vertex().x, dim->vertex().y));
+        entries.push_back(assocEntry(140, Value::num(dim->textHeight())));
+        break;
+    }
+    case EntityType::Hatch: {
+        const auto* hatch = static_cast<const HatchEntity*>(e);
+        // A real, disclosed simplification: exposes the boundary and
+        // solid/pattern flag, not real DXF HATCH's own full associative-
+        // boundary-path/pattern-line encoding (see DxfWriter.cpp's own
+        // HATCH case for that full complexity) -- enough for a script to
+        // inspect or rebuild the boundary, matching the same level of
+        // detail this function's own Polyline case already settles for.
+        entries.push_back(assocEntry(70, Value::num(hatch->pattern() == HatchPattern::Solid ? 1 : 0)));
+        for (const Point2D& v : hatch->vertices()) entries.push_back(assocPoint(10, v.x, v.y));
         break;
     }
     default:

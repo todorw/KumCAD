@@ -29,8 +29,9 @@ class Document;
 // When constructed with a Document, also supports getvar/setvar (CLAYER is
 // wired to the document's current layer; any other name is a plain in-memory
 // variable, not a real AutoCAD system variable), entget (a DXF-group-code
-// association list, covering LINE/CIRCLE/ARC/TEXT/POINT/LWPOLYLINE/INSERT --
-// other types return just their (0 "type") and (8 "layer") entries), and
+// association list, covering LINE/CIRCLE/ARC/TEXT/POINT/LWPOLYLINE/INSERT/
+// MTEXT/ELLIPSE/SPLINE/DIMENSION/HATCH -- other types return just their
+// (0 "type") and (8 "layer") entries), and
 // ssget ("X" selects everything, optionally filtered by a DXF-style
 // ((0 "LINE") (8 "layer")) list -- proper 2-element lists rather than real
 // AutoLISP's dotted (0 . "LINE") pairs, since this reader has no dotted-pair
