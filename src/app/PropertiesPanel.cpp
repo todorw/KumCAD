@@ -26,6 +26,7 @@
 #include "core/geometry/Text.h"
 #include "core/geometry/Track.h"
 #include "core/geometry/Via.h"
+#include "core/geometry/Wipeout.h"
 #include "core/geometry/Wire.h"
 
 #include <QColorDialog>
@@ -509,6 +510,13 @@ void PropertiesPanel::refresh() {
         m_summaryLabel->setText(QStringLiteral("Via"));
         addRow(QStringLiteral("Diameter:"), formatNumber(via->diameter()));
         addRow(QStringLiteral("Drill:"), formatNumber(via->drillDiameter()));
+        break;
+    }
+    case lcad::EntityType::Wipeout: {
+        const auto* wipeout = static_cast<const lcad::WipeoutEntity*>(e);
+        m_summaryLabel->setText(QStringLiteral("Wipeout"));
+        addRow(QStringLiteral("Vertices:"), QString::number(wipeout->vertices().size()));
+        addRow(QStringLiteral("Show Frame:"), wipeout->showFrame() ? QStringLiteral("Yes") : QStringLiteral("No"));
         break;
     }
     }

@@ -38,15 +38,6 @@ struct PendingConnection {
     std::string netName;
 };
 
-double pointToSegmentDistance(const Point2D& p, const Point2D& a, const Point2D& b) {
-    const Point2D dir = b - a;
-    const double lenSq = dir.dot(dir);
-    if (lenSq < 1e-12) return p.distanceTo(a);
-    double t = (p - a).dot(dir) / lenSq;
-    t = std::clamp(t, 0.0, 1.0);
-    return p.distanceTo(a + dir * t);
-}
-
 // Marks every grid cell within radius of center as an obstacle, only
 // scanning that cell's own local bounding box (not the whole grid) for
 // efficiency.
