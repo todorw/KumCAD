@@ -24,13 +24,17 @@ namespace lcad {
 // The projection is orthogonal onto sketch's plane (drop the
 // out-of-plane component along its normal), matching FreeCAD's own
 // external-geometry projection behavior. A straight edge (GeomAbs_Line)
-// becomes one SketchLine between two new projected points. A full
-// circular edge (GeomAbs_Circle, untrimmed) whose own axis is parallel
-// to sketch's normal projects to an exact SketchCircle at the projected
-// center with the circle's own true radius -- an oblique circle would
-// distort into an ellipse under orthogonal projection, which
-// SketchGeometry.h has no representation for. Everything else (arcs,
-// non-parallel circles, ellipses, B-splines) is tessellated into a
+// becomes one SketchLine between two new projected points. A circular
+// edge (GeomAbs_Circle) whose own axis is parallel to sketch's normal
+// projects to an exact SketchCircle (if untrimmed/a full circle) or
+// SketchArc (if trimmed) at the projected center with the circle's own
+// true radius -- an oblique circle would distort into an ellipse under
+// orthogonal projection, which SketchGeometry.h has no representation
+// for, so both of these cases require that parallel check. A trimmed
+// arc's ccw direction is determined empirically from its own projected
+// midpoint rather than the 3D axis's sign (isParallel allows the axis to
+// point either way relative to sketch's own normal). Everything else
+// (non-parallel circles/arcs, ellipses, B-splines) is tessellated into a
 // polyline of SketchLine segments instead (same sampling technique as
 // TechDraw.cpp/Cam3D.cpp/Pick3D.cpp's own curve sampling), a disclosed
 // approximation rather than an exact conic projection.

@@ -1,9 +1,15 @@
 #include "core/core3d/ExternalGeometry.h"
 
+#include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
+#include <BRep_Builder.hxx>
+#include <Geom_Circle.hxx>
+#include <Geom_TrimmedCurve.hxx>
 #include <TopExp.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
+#include <TopoDS_Compound.hxx>
+#include <TopoDS_Edge.hxx>
 #include <gp_Ax2.hxx>
 #include <gp_Dir.hxx>
 #include <gp_Pnt.hxx>
@@ -78,6 +84,46 @@ TEST_CASE("projectExternalEdge preserves an exact circle when its plane is paral
                                               [](const SketchCircle& c) { return c.radius == Catch::Approx(5.0); });
     REQUIRE(hasExpectedRadius);
     for (const SketchCircle& c : sketch.circles()) REQUIRE(c.construction);
+}
+
+TEST_CASE("projectExternalEdge preserves an exact SketchArc for a trimmed circular edge parallel to the "
+         "sketch",
+         "[core3d][external-geometry]") {
+    // A quarter-circle arc, radius 5, centered at (3,4,0), axis +Z
+    // (parallel to the sketch's own default XY plane), XDirection pinned
+    // to world +X so the expected projected points are exact -- from
+    // angle 0 (world (8,4,0)) to angle PI/2 (world (3,9,0)).
+    const gp_Ax2 axis(gp_Pnt(3, 4, 0), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0));
+    Handle(Geom_Circle) circle = new Geom_Circle(axis, 5.0);
+    Handle(Geom_TrimmedCurve) trimmed = new Geom_TrimmedCurve(circle, 0.0, M_PI / 2.0);
+    const TopoDS_Edge arcEdge = BRepBuilderAPI_MakeEdge(trimmed).Edge();
+
+    TopoDS_Compound compound;
+    BRep_Builder builder;
+    builder.MakeCompound(compound);
+    builder.Add(compound, arcEdge);
+
+    Sketch sketch;
+    REQUIRE(projectExternalEdge(sketch, compound, 0));
+
+    REQUIRE(sketch.arcs().size() == 1);
+    REQUIRE(sketch.lines().empty());  // a real arc, not a tessellated polyline
+    REQUIRE(sketch.circles().empty()); // trimmed, not a full circle
+
+    const SketchArc& arc = sketch.arcs()[0];
+    REQUIRE(arc.construction);
+    REQUIRE(arc.radius == Catch::Approx(5.0));
+    REQUIRE(arc.ccw); // increasing angle 0 -> PI/2 is the CCW direction
+
+    const Point2D& center = sketch.points()[static_cast<std::size_t>(arc.center)];
+    const Point2D& start = sketch.points()[static_cast<std::size_t>(arc.start)];
+    const Point2D& end = sketch.points()[static_cast<std::size_t>(arc.end)];
+    REQUIRE(center.x == Catch::Approx(3.0));
+    REQUIRE(center.y == Catch::Approx(4.0));
+    REQUIRE(start.x == Catch::Approx(8.0));
+    REQUIRE(start.y == Catch::Approx(4.0));
+    REQUIRE(end.x == Catch::Approx(3.0));
+    REQUIRE(end.y == Catch::Approx(9.0));
 }
 
 TEST_CASE("projectExternalEdge tessellates a circular edge whose plane isn't parallel to the sketch",

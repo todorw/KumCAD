@@ -24,6 +24,13 @@ Point2D projectToPlane(const gp_Pnt& p, const SketchPlane& plane) {
     return Point2D(localX, localY);
 }
 
+// atan2 angle, normalized to [0, 2*PI).
+double positiveAngle(double angle) {
+    while (angle < 0.0) angle += 2.0 * M_PI;
+    while (angle >= 2.0 * M_PI) angle -= 2.0 * M_PI;
+    return angle;
+}
+
 void tessellateIntoSketch(Sketch& sketch, BRepAdaptor_Curve& curve, const SketchPlane& plane, int segments) {
     const double u1 = curve.FirstParameter();
     const double u2 = curve.LastParameter();
@@ -73,6 +80,36 @@ bool projectExternalEdge(Sketch& sketch, const TopoDS_Shape& shape, int edgeInde
             const Point2D center = projectToPlane(circ.Location(), plane);
             const int centerIdx = sketch.addPoint(center, /*fixed=*/true);
             sketch.addCircle(centerIdx, circ.Radius(), /*construction=*/true);
+            return true;
+        }
+
+        // A TRIMMED circular edge whose axis is parallel to sketch's own
+        // plane -- the same no-foreshortening case the full-circle branch
+        // above already relies on (an oblique arc really would distort
+        // into an elliptical arc under projection, which SketchArc has no
+        // representation for), just not a complete loop. Same exact-
+        // radius projection, plus a real SketchArc instead of tessellating
+        // -- closes the gap the untrimmed-circle case already closed.
+        if (isParallel) {
+            const Point2D center = projectToPlane(circ.Location(), plane);
+            const Point2D start = projectToPlane(curve.Value(curve.FirstParameter()), plane);
+            const Point2D end = projectToPlane(curve.Value(curve.LastParameter()), plane);
+            // ccw is determined empirically from the projected midpoint
+            // rather than reasoning about the 3D axis's own sign relative
+            // to sketch's normal (isParallel allows either sign) --
+            // robust regardless of which way the curve's own axis points.
+            const Point2D mid = projectToPlane(curve.Value((curve.FirstParameter() + curve.LastParameter()) / 2.0), plane);
+            const double startAngle = std::atan2(start.y - center.y, start.x - center.x);
+            const double endAngle = std::atan2(end.y - center.y, end.x - center.x);
+            const double midAngle = std::atan2(mid.y - center.y, mid.x - center.x);
+            const double ccwSpanToMid = positiveAngle(midAngle - startAngle);
+            const double ccwSpanToEnd = positiveAngle(endAngle - startAngle);
+            const bool ccw = ccwSpanToMid < ccwSpanToEnd;
+
+            const int centerIdx = sketch.addPoint(center, /*fixed=*/true);
+            const int startIdx = sketch.addPoint(start, /*fixed=*/true);
+            const int endIdx = sketch.addPoint(end, /*fixed=*/true);
+            sketch.addArc(centerIdx, startIdx, endIdx, circ.Radius(), ccw, /*construction=*/true);
             return true;
         }
     }
