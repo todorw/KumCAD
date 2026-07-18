@@ -62,10 +62,13 @@ enum class FeatureType {
                    // "empty means every edge" convention)
     Loft,          // builds a solid through 2+ sketch profiles
                    // (sketchIndices, each a Document3D::sketches() index),
-                   // in listed order, via BRepOffsetAPI_ThruSections --
-                   // a ruled (ThruSections' own default, no interior
-                   // smoothing) surface between consecutive profiles'
-                   // outer wires
+                   // in listed order, via BRepOffsetAPI_ThruSections.
+                   // cutMode reused as ruled-vs-smooth (see its own field
+                   // comment below): false (default) is a smooth BSpline-
+                   // blended surface through every profile; true is a
+                   // real ruled surface, straight-line generators between
+                   // consecutive profiles' outer wires -- both are
+                   // legitimate, commonly-wanted real-FreeCAD Loft modes.
     Sweep,         // sweeps sketchIndex's face profile along
                    // pathSketchIndex's own path via BRepOffsetAPI_MakePipe.
                    // Real, disclosed scope cut: the path must be exactly
@@ -155,7 +158,11 @@ struct Feature3D {
     // Document3D's feature list. -1 means unset.
     int inputA = -1;
     int inputB = -1;
-    bool cutMode = false; // Pad/Revolve only: true = Pocket/Groove (cut from inputA), false = fuse into inputA
+    // Pad/Revolve: true = Pocket/Groove (cut from inputA), false = fuse
+    // into inputA. Loft: true = ruled (straight-line generators between
+    // profiles), false = smooth (BSpline-blended) -- see FeatureType::
+    // Loft's own comment. Unused by every other type.
+    bool cutMode = false;
 
     // Which Document3D::sketches() entry to profile -- Pad/Revolve/Sweep
     // only (for Sweep, the cross-section; the path is pathSketchIndex).

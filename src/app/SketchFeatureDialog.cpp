@@ -168,7 +168,8 @@ void SketchFeatureDialog::updateHint() {
         break;
     case FeatureType::Loft:
         m_hintLabel->setText(QStringLiteral("Loft: builds a solid through the listed Sketch Indices (2+, in order) "
-                                            "spread evenly along Height."));
+                                            "spread evenly along Height. Cut Mode is reused here as ruled (checked) "
+                                            "vs. smooth/BSpline-blended (unchecked, the default) between profiles."));
         break;
     case FeatureType::Sweep:
         m_hintLabel->setText(QStringLiteral("Sweep: sweeps Sketch (the profile) along Path Sketch's own single "

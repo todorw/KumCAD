@@ -447,7 +447,13 @@ void Document3D::recomputeOne(int index) {
             ok = false;
             break;
         }
-        BRepOffsetAPI_ThruSections loftBuilder(true); // true = build a solid, not just a shell surface
+        // isSolid=true; ruled=f.cutMode (reusing the same field Pad/Revolve
+        // use for their own per-type discrete choice -- see FeatureType::
+        // Loft's own comment). false (the default, and OCCT's own default
+        // when unspecified) is a smooth BSpline-blended surface through
+        // every profile; true is a real ruled surface, straight-line
+        // generators between consecutive profiles.
+        BRepOffsetAPI_ThruSections loftBuilder(true, f.cutMode);
         bool everyProfileValid = true;
         const double stepZ = f.p1 / static_cast<double>(f.sketchIndices.size() - 1);
         for (std::size_t i = 0; i < f.sketchIndices.size(); ++i) {

@@ -314,6 +314,42 @@ TEST_CASE("Document3D Loft through three profiles builds a single continuous sol
     REQUIRE(volumeOf(doc.shapeAt(loftIdx)) > twoProfileApprox);
 }
 
+TEST_CASE("Document3D Loft's cutMode toggles ruled vs. smooth, producing a genuinely different volume "
+         "for the same three profiles",
+         "[core3d][loft]") {
+    Document3D doc;
+    Sketch bottom;
+    bottom.addCircle(bottom.addPoint(Point2D(0, 0), true), 8.0);
+    Sketch middle;
+    middle.addCircle(middle.addPoint(Point2D(0, 0), true), 12.0);
+    Sketch top;
+    top.addCircle(top.addPoint(Point2D(0, 0), true), 6.0);
+    const int bottomIdx = doc.addSketch(bottom);
+    const int middleIdx = doc.addSketch(middle);
+    const int topIdx = doc.addSketch(top);
+
+    Feature3D smoothLoft;
+    smoothLoft.type = FeatureType::Loft;
+    smoothLoft.sketchIndices = {bottomIdx, middleIdx, topIdx};
+    smoothLoft.p1 = 30.0;
+    smoothLoft.cutMode = false; // smooth (default) -- a BSpline-blended surface
+    const int smoothIdx = doc.addFeature(smoothLoft);
+    REQUIRE(doc.isValid(smoothIdx));
+
+    Feature3D ruledLoft = smoothLoft;
+    ruledLoft.cutMode = true; // ruled -- straight-line generators between profiles
+    const int ruledIdx = doc.addFeature(ruledLoft);
+    REQUIRE(doc.isValid(ruledIdx));
+
+    const double smoothVolume = volumeOf(doc.shapeAt(smoothIdx));
+    const double ruledVolume = volumeOf(doc.shapeAt(ruledIdx));
+    // Genuinely different surfaces (a smooth blend bulges past a ruled
+    // surface's straight-line taper through the same bulging middle
+    // profile), not just numerical noise between two nominally-identical
+    // builds.
+    REQUIRE(std::abs(smoothVolume - ruledVolume) > 1.0);
+}
+
 TEST_CASE("Document3D Loft rejects fewer than 2 profiles or a non-positive height", "[core3d][loft]") {
     Document3D doc;
     Sketch circle;
