@@ -902,6 +902,28 @@ TEST_CASE("DXF multileader round-trips", "[dxf][mleader]") {
     REQUIRE(mleader->arrowSize() == Approx(1.5));
 }
 
+TEST_CASE("MLeaderEntity::addLeg appends an independent leg sharing the existing landing (MLEADEREDIT "
+         "\"Add leader\")",
+         "[mleader]") {
+    std::vector<std::vector<lcad::Point2D>> legs{{{0, 0}, {3, 3}}};
+    lcad::MLeaderEntity mleader(1, 0, legs, lcad::Point2D(8, 3), 1.5);
+    REQUIRE(mleader.legs().size() == 1);
+
+    mleader.addLeg({{10, -2}, {9, 1}});
+    REQUIRE(mleader.legs().size() == 2);
+    REQUIRE(mleader.legs()[1].size() == 2);
+    REQUIRE(mleader.legs()[1][0].x == Approx(10.0));
+    REQUIRE(mleader.legs()[1][1].y == Approx(1.0));
+    // Landing/arrowSize are untouched -- the new leg shares the SAME
+    // landing rather than getting its own.
+    REQUIRE(mleader.landing().x == Approx(8.0));
+    REQUIRE(mleader.arrowSize() == Approx(1.5));
+
+    // The new leg is really part of the entity's own geometry now: a
+    // point on it (not just near the old leg) reports zero distance.
+    REQUIRE(mleader.distanceTo(lcad::Point2D(9.5, -0.5)) < 0.1);
+}
+
 TEST_CASE("DXF table round-trips", "[dxf][table]") {
     TempDxfPath temp;
 

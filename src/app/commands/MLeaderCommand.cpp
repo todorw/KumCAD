@@ -79,3 +79,35 @@ std::vector<std::pair<lcad::Point2D, lcad::Point2D>> MLeaderCommand::previewSegm
     }
     return segs;
 }
+
+std::optional<QString> MLeaderAddLeaderCommand::onPoint(const lcad::Point2D& pt) {
+    m_points.push_back(pt);
+    return QStringLiteral("Specify next point or [Enter to connect to the landing]:");
+}
+
+bool MLeaderAddLeaderCommand::requestFinish() {
+    m_finished = true;
+    if (m_points.empty()) return false;
+    const lcad::Entity* e = m_document.findEntity(m_mleaderId);
+    if (!e || e->type() != lcad::EntityType::MLeader) return false;
+    const auto* existing = static_cast<const lcad::MLeaderEntity*>(e);
+
+    auto updated = std::make_unique<lcad::MLeaderEntity>(m_mleaderId, existing->layer(), existing->legs(),
+                                                          existing->landing(), existing->arrowSize());
+    updated->addLeg(m_points);
+    m_document.commandStack().execute(
+        std::make_unique<lcad::ReplaceEntityCommand>(m_document, m_mleaderId, std::move(updated)));
+    return true;
+}
+
+void MLeaderAddLeaderCommand::onPreviewPoint(const lcad::Point2D& pt) {
+    m_previewPoint = pt;
+    m_hasPreview = true;
+}
+
+std::vector<std::pair<lcad::Point2D, lcad::Point2D>> MLeaderAddLeaderCommand::previewSegments() const {
+    std::vector<std::pair<lcad::Point2D, lcad::Point2D>> segs;
+    for (std::size_t i = 0; i + 1 < m_points.size(); ++i) segs.emplace_back(m_points[i], m_points[i + 1]);
+    if (!m_points.empty() && m_hasPreview) segs.emplace_back(m_points.back(), m_previewPoint);
+    return segs;
+}

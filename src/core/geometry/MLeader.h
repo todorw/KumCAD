@@ -9,9 +9,9 @@ namespace lcad {
 // AutoCAD MULTILEADER (simplified): one or more independent leader "legs",
 // each a polyline from its own arrowhead to a landing point shared by every
 // leg. The annotation itself is a separate MTEXT entity at the landing, like
-// LeaderEntity. Legs beyond the first can only be authored by hand-edited DXF
-// today -- the MLEADER command creates a single-leg multileader; adding legs
-// to an existing one ("Add Leader") isn't implemented yet.
+// LeaderEntity. MLEADER creates a single-leg multileader; MLEADEREDIT
+// (MLeaderAddLeaderCommand, app/commands/MLeaderCommand.h) adds more legs to
+// an existing one, sharing its own already-placed landing.
 class MLeaderEntity : public Entity {
 public:
     MLeaderEntity(EntityId id, LayerId layer, std::vector<std::vector<Point2D>> legs, Point2D landing,
@@ -21,6 +21,12 @@ public:
     const std::vector<std::vector<Point2D>>& legs() const { return m_legs; }
     const Point2D& landing() const { return m_landing; }
     double arrowSize() const { return m_arrowSize; }
+
+    // MLEADEREDIT "Add Leader": appends one more independent leg sharing
+    // this multileader's own existing landing point -- points is the new
+    // leg's own arrowhead..last-point-before-landing chain, same shape
+    // as a leg entry the constructor's own legs vector already takes.
+    void addLeg(std::vector<Point2D> points) { m_legs.push_back(std::move(points)); }
 
     EntityType type() const override { return EntityType::MLeader; }
     BoundingBox boundingBox() const override;

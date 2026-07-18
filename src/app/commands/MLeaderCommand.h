@@ -47,3 +47,35 @@ private:
     bool m_hasPreview = false;
     bool m_finished = false;
 };
+
+// MLEADEREDIT: real AutoCAD's own multileader-editing command, here
+// scoped to just its "Add leader" mode (Remove leader isn't
+// implemented) -- picks up one more leg's own arrowhead..points on an
+// EXISTING, pre-selected MLeaderEntity, sharing its own already-placed
+// landing point. Same point-collection shape as MLeaderCommand's own
+// Points stage above, minus the separate annotation stage, since an
+// added leg reuses the existing MTEXT rather than creating a new one.
+class MLeaderAddLeaderCommand : public DrawCommand {
+public:
+    MLeaderAddLeaderCommand(lcad::Document& document, lcad::EntityId mleaderId)
+        : m_document(document), m_mleaderId(mleaderId) {}
+
+    QString start() override { return QStringLiteral("MLEADEREDIT  Specify new leader arrowhead location:"); }
+    std::optional<QString> onPoint(const lcad::Point2D& pt) override;
+    void onPreviewPoint(const lcad::Point2D& pt) override;
+    std::vector<std::pair<lcad::Point2D, lcad::Point2D>> previewSegments() const override;
+    std::optional<lcad::Point2D> anchorPoint() const override {
+        return m_points.empty() ? std::nullopt : std::optional<lcad::Point2D>(m_points.back());
+    }
+    bool requestFinish() override;
+    bool isFinished() const override { return m_finished; }
+    void cancel() override { m_finished = true; }
+
+private:
+    lcad::Document& m_document;
+    lcad::EntityId m_mleaderId;
+    std::vector<lcad::Point2D> m_points;
+    lcad::Point2D m_previewPoint;
+    bool m_hasPreview = false;
+    bool m_finished = false;
+};

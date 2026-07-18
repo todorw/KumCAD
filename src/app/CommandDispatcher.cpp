@@ -566,6 +566,14 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         startCommand(std::make_unique<LeaderCommand>(m_document), QStringLiteral("LEADER"));
     } else if (cmd == QLatin1String("MLEADER") || cmd == QLatin1String("MLD")) {
         startCommand(std::make_unique<MLeaderCommand>(m_document), QStringLiteral("MLEADER"));
+    } else if (cmd == QLatin1String("MLEADEREDIT")) {
+        const std::vector<lcad::EntityId> ids = selectionForModify();
+        if (ids.size() != 1 || !m_document.findEntity(ids[0]) ||
+            m_document.findEntity(ids[0])->type() != lcad::EntityType::MLeader) {
+            if (!ids.empty()) m_commandLine.appendLine(QStringLiteral("*Select exactly one multileader*"));
+        } else {
+            startCommand(std::make_unique<MLeaderAddLeaderCommand>(m_document, ids[0]), QStringLiteral("MLEADEREDIT"));
+        }
     } else if (cmd == QLatin1String("MLEADERSTYLE") || cmd == QLatin1String("MLS")) {
         startCommand(std::make_unique<MLeaderStyleCommand>(m_document), QStringLiteral("MLEADERSTYLE"));
     } else if (cmd == QLatin1String("DATALINK") || cmd == QLatin1String("DL")) {
