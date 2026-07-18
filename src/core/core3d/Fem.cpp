@@ -5,21 +5,43 @@
 #include <BRepBndLib.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
+#include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>
+#include <BRepExtrema_DistShapeShape.hxx>
 #include <BRep_Builder.hxx>
 #include <Bnd_Box.hxx>
+#include <TopExp.hxx>
+#include <TopTools_IndexedMapOfShape.hxx>
+#include <TopoDS.hxx>
 #include <TopoDS_Compound.hxx>
 #include <TopoDS_Face.hxx>
+#include <TopoDS_Vertex.hxx>
 #include <gp_Pnt.hxx>
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <map>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace lcad {
 
 namespace {
+
+// A node is fixed if it's within fixedXMax's plane clamp OR listed in
+// fixedNodeIndices (real per-face selection, see nodesOnFaces) -- a
+// union of both, not a replacement, so an existing plane-clamp caller
+// stays unaffected by fixedNodeIndices simply being empty.
+std::vector<bool> fixedNodeMask(std::size_t numNodes, const std::vector<std::array<double, 3>>& nodes, double fixedXMax,
+                                const std::vector<int>& fixedNodeIndices) {
+    std::vector<bool> mask(numNodes, false);
+    for (std::size_t n = 0; n < numNodes; ++n) mask[n] = nodes[n][0] <= fixedXMax;
+    for (int idx : fixedNodeIndices) {
+        if (idx >= 0 && static_cast<std::size_t>(idx) < numNodes) mask[static_cast<std::size_t>(idx)] = true;
+    }
+    return mask;
+}
 
 double tetVolume(const std::array<double, 3>& p0, const std::array<double, 3>& p1, const std::array<double, 3>& p2,
                   const std::array<double, 3>& p3) {
@@ -287,9 +309,14 @@ std::vector<FemLoad> distributedBodyForce(const FemMesh& mesh, const std::array<
     return loads;
 }
 
-std::vector<FemLoad> distributedPressureLoad(const FemMesh& mesh, const std::array<double, 3>& boxMin,
-                                             const std::array<double, 3>& boxMax, double pressure,
-                                             const std::array<double, 3>& direction) {
+namespace {
+// Shared by distributedPressureLoad/distributedPressureLoadOnFaces: walks
+// every boundary triangular face of mesh (a face belonging to exactly
+// one tet), calling selected(centroid, nodesIdx) to decide whether it's
+// included, and distributing pressure*area/3 to each of its 3 nodes if so.
+std::vector<FemLoad> distributedPressureLoadImpl(
+    const FemMesh& mesh, double pressure, const std::array<double, 3>& direction,
+    const std::function<bool(const std::array<double, 3>&, const std::array<int, 3>&)>& selected) {
     std::vector<FemLoad> loads;
     const double dirLen = std::sqrt(direction[0] * direction[0] + direction[1] * direction[1] + direction[2] * direction[2]);
     if (dirLen < 1e-12) return loads;
@@ -323,10 +350,7 @@ std::vector<FemLoad> distributedPressureLoad(const FemMesh& mesh, const std::arr
         const auto& p2 = mesh.nodes[static_cast<std::size_t>(nodesIdx[2])];
         const std::array<double, 3> centroid = {(p0[0] + p1[0] + p2[0]) / 3.0, (p0[1] + p1[1] + p2[1]) / 3.0,
                                                 (p0[2] + p1[2] + p2[2]) / 3.0};
-        if (centroid[0] < boxMin[0] || centroid[0] > boxMax[0] || centroid[1] < boxMin[1] || centroid[1] > boxMax[1] ||
-            centroid[2] < boxMin[2] || centroid[2] > boxMax[2]) {
-            continue;
-        }
+        if (!selected(centroid, nodesIdx)) continue;
 
         const double ax = p1[0] - p0[0], ay = p1[1] - p0[1], az = p1[2] - p0[2];
         const double bx = p2[0] - p0[0], by = p2[1] - p0[1], bz = p2[2] - p0[2];
@@ -339,6 +363,63 @@ std::vector<FemLoad> distributedPressureLoad(const FemMesh& mesh, const std::arr
         }
     }
     return loads;
+}
+} // namespace
+
+std::vector<int> nodesOnFaces(const FemMesh& mesh, const TopoDS_Shape& shape, const std::vector<int>& faceIndices,
+                              double tolerance) {
+    std::vector<int> result;
+    if (faceIndices.empty()) return result;
+
+    TopTools_IndexedMapOfShape faceMap;
+    TopExp::MapShapes(shape, TopAbs_FACE, faceMap);
+
+    std::vector<TopoDS_Face> faces;
+    faces.reserve(faceIndices.size());
+    for (int idx : faceIndices) {
+        if (idx < 0 || idx >= faceMap.Extent()) continue;
+        faces.push_back(TopoDS::Face(faceMap(idx + 1)));
+    }
+    if (faces.empty()) return result;
+
+    for (std::size_t n = 0; n < mesh.nodes.size(); ++n) {
+        const auto& p = mesh.nodes[n];
+        const TopoDS_Vertex vertex = BRepBuilderAPI_MakeVertex(gp_Pnt(p[0], p[1], p[2]));
+        for (const TopoDS_Face& face : faces) {
+            BRepExtrema_DistShapeShape dist(vertex, face);
+            if (dist.IsDone() && dist.NbSolution() > 0 && dist.Value() <= tolerance) {
+                result.push_back(static_cast<int>(n));
+                break;
+            }
+        }
+    }
+    return result;
+}
+
+std::vector<FemLoad> distributedPressureLoad(const FemMesh& mesh, const std::array<double, 3>& boxMin,
+                                             const std::array<double, 3>& boxMax, double pressure,
+                                             const std::array<double, 3>& direction) {
+    return distributedPressureLoadImpl(mesh, pressure, direction,
+                                       [&](const std::array<double, 3>& centroid, const std::array<int, 3>&) {
+                                           return !(centroid[0] < boxMin[0] || centroid[0] > boxMax[0] ||
+                                                   centroid[1] < boxMin[1] || centroid[1] > boxMax[1] ||
+                                                   centroid[2] < boxMin[2] || centroid[2] > boxMax[2]);
+                                       });
+}
+
+std::vector<FemLoad> distributedPressureLoadOnFaces(const FemMesh& mesh, const TopoDS_Shape& shape,
+                                                     const std::vector<int>& faceIndices, double pressure,
+                                                     const std::array<double, 3>& direction, double tolerance) {
+    const std::vector<int> onFaceNodes = nodesOnFaces(mesh, shape, faceIndices, tolerance);
+    const std::unordered_set<int> onFaceSet(onFaceNodes.begin(), onFaceNodes.end());
+    // A boundary face of the mesh counts only if ALL 3 of its own nodes
+    // are on one of the picked faces -- a face straddling a real edge of
+    // shape (some nodes on the picked face, some not) is excluded rather
+    // than partially loaded.
+    return distributedPressureLoadImpl(
+        mesh, pressure, direction, [&](const std::array<double, 3>&, const std::array<int, 3>& nodesIdx) {
+            return onFaceSet.count(nodesIdx[0]) > 0 && onFaceSet.count(nodesIdx[1]) > 0 && onFaceSet.count(nodesIdx[2]) > 0;
+        });
 }
 
 FemResult solveLinearStatic(const FemMesh& mesh, const FemMaterial& material,
@@ -374,8 +455,10 @@ FemResult solveLinearStatic(const FemMesh& mesh, const FemMaterial& material,
         force[static_cast<std::size_t>(nearest) * 3 + 2] += load.forceVector[2];
     }
 
+    const std::vector<bool> fixedMask =
+        fixedNodeMask(numNodes, mesh.nodes, boundaryCondition.fixedXMax, boundaryCondition.fixedNodeIndices);
     for (std::size_t n = 0; n < numNodes; ++n) {
-        if (mesh.nodes[n][0] > boundaryCondition.fixedXMax) continue;
+        if (!fixedMask[n]) continue;
         for (int d = 0; d < 3; ++d) {
             const std::size_t dof = n * 3 + static_cast<std::size_t>(d);
             for (std::size_t col = 0; col < numDofs; ++col) stiffness[dof][col] = 0.0;
@@ -434,8 +517,10 @@ FemModalResult solveModal(const FemMesh& mesh, const FemMaterial& material,
     // Same boundary-condition treatment as solveLinearStatic's -- an
     // identity row/column in K for each fixed DOF -- plus zeroing that
     // DOF's lumped mass, which removes it from the eigenproblem entirely.
+    const std::vector<bool> fixedMask =
+        fixedNodeMask(numNodes, mesh.nodes, boundaryCondition.fixedXMax, boundaryCondition.fixedNodeIndices);
     for (std::size_t n = 0; n < numNodes; ++n) {
-        if (mesh.nodes[n][0] > boundaryCondition.fixedXMax) continue;
+        if (!fixedMask[n]) continue;
         for (int d = 0; d < 3; ++d) {
             const std::size_t dof = n * 3 + static_cast<std::size_t>(d);
             for (std::size_t col = 0; col < numDofs; ++col) stiffness[dof][col] = 0.0;
@@ -562,8 +647,8 @@ FemThermalResult solveThermalSteadyState(const FemMesh& mesh, const FemThermalMa
     // fixed node were held at 0 instead of fixedTemperature. This is the
     // standard non-homogeneous-Dirichlet FEM technique, done here rather
     // than solveLinearStatic ever needing it.
-    std::vector<bool> isFixed(numNodes, false);
-    for (std::size_t n = 0; n < numNodes; ++n) isFixed[n] = mesh.nodes[n][0] <= boundaryCondition.fixedXMax;
+    const std::vector<bool> isFixed =
+        fixedNodeMask(numNodes, mesh.nodes, boundaryCondition.fixedXMax, boundaryCondition.fixedNodeIndices);
 
     if (boundaryCondition.fixedTemperature != 0.0) {
         for (std::size_t r = 0; r < numNodes; ++r) {

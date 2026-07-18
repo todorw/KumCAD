@@ -3,11 +3,16 @@
 #include <BRepGProp.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <GProp_GProps.hxx>
+#include <TopExp.hxx>
+#include <TopTools_IndexedMapOfShape.hxx>
+#include <TopoDS.hxx>
+#include <TopoDS_Face.hxx>
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <limits>
 
 using namespace lcad;
 using Catch::Approx;
@@ -17,6 +22,45 @@ double volumeOf(const TopoDS_Shape& shape) {
     GProp_GProps props;
     BRepGProp::VolumeProperties(shape, props);
     return props.Mass();
+}
+
+// Finds the face of shape whose own centroid has the smallest X --
+// robust against however BRepPrimAPI_MakeBox happens to order its own
+// faces (not formally specified/guaranteed by OCCT), unlike hardcoding
+// an assumed index.
+int minXFaceIndex(const TopoDS_Shape& shape) {
+    TopTools_IndexedMapOfShape faceMap;
+    TopExp::MapShapes(shape, TopAbs_FACE, faceMap);
+    int best = -1;
+    double bestX = std::numeric_limits<double>::max();
+    for (int i = 0; i < faceMap.Extent(); ++i) {
+        GProp_GProps props;
+        BRepGProp::SurfaceProperties(faceMap(i + 1), props);
+        const double x = props.CentreOfMass().X();
+        if (x < bestX) {
+            bestX = x;
+            best = i;
+        }
+    }
+    return best;
+}
+
+// Same as minXFaceIndex, but the largest-X face.
+int maxXFaceIndex(const TopoDS_Shape& shape) {
+    TopTools_IndexedMapOfShape faceMap;
+    TopExp::MapShapes(shape, TopAbs_FACE, faceMap);
+    int best = -1;
+    double bestX = std::numeric_limits<double>::lowest();
+    for (int i = 0; i < faceMap.Extent(); ++i) {
+        GProp_GProps props;
+        BRepGProp::SurfaceProperties(faceMap(i + 1), props);
+        const double x = props.CentreOfMass().X();
+        if (x > bestX) {
+            bestX = x;
+            best = i;
+        }
+    }
+    return best;
 }
 
 double tetVolumeSum(const FemMesh& mesh) {
@@ -216,6 +260,101 @@ TEST_CASE("distributedPressureLoad on a beam's end face reproduces the manually-
     REQUIRE(endNodeCount == 4);
     averageDisplacement /= endNodeCount;
     REQUIRE(averageDisplacement == Approx(expectedDisplacement).epsilon(0.10));
+}
+
+TEST_CASE("nodesOnFaces finds exactly the same nodes as the equivalent fixedXMax plane clamp",
+         "[core3d][fem][faces]") {
+    const TopoDS_Shape box = BRepPrimAPI_MakeBox(40.0, 20.0, 20.0).Shape();
+    const FemMesh mesh = buildVoxelMesh(box, 4);
+    REQUIRE_FALSE(mesh.tets.empty());
+
+    const int minFace = minXFaceIndex(box);
+    REQUIRE(minFace >= 0);
+    // A generous tolerance relative to the mesh's own voxel cell width
+    // (40/4 = 10 units) -- real boundary nodes should sit very close to
+    // the true face here (an axis-aligned box's own faces are exactly
+    // representable by the voxel mesh's boundary), so this mostly just
+    // needs to not be pathologically tight.
+    const std::vector<int> onFace = nodesOnFaces(mesh, box, {minFace}, 1.0);
+    REQUIRE_FALSE(onFace.empty());
+
+    std::vector<int> expected;
+    for (std::size_t n = 0; n < mesh.nodes.size(); ++n) {
+        if (mesh.nodes[n][0] <= 1e-6) expected.push_back(static_cast<int>(n));
+    }
+    REQUIRE_FALSE(expected.empty());
+
+    std::vector<int> sortedOnFace = onFace;
+    std::sort(sortedOnFace.begin(), sortedOnFace.end());
+    std::sort(expected.begin(), expected.end());
+    REQUIRE(sortedOnFace == expected);
+}
+
+TEST_CASE("nodesOnFaces returns empty for an out-of-range face index or empty faceIndices",
+         "[core3d][fem][faces]") {
+    const TopoDS_Shape box = BRepPrimAPI_MakeBox(40.0, 20.0, 20.0).Shape();
+    const FemMesh mesh = buildVoxelMesh(box, 4);
+    REQUIRE(nodesOnFaces(mesh, box, {}, 1.0).empty());
+    REQUIRE(nodesOnFaces(mesh, box, {999}, 1.0).empty());
+    REQUIRE(nodesOnFaces(mesh, box, {-1}, 1.0).empty());
+}
+
+TEST_CASE("FemBoundaryCondition::fixedNodeIndices (real face-picking) fixes the same nodes as the "
+         "equivalent fixedXMax plane clamp",
+         "[core3d][fem][faces]") {
+    const TopoDS_Shape box = BRepPrimAPI_MakeBox(40.0, 20.0, 20.0).Shape();
+    const FemMesh mesh = buildVoxelMesh(box, 4);
+
+    const int minFace = minXFaceIndex(box);
+    REQUIRE(minFace >= 0);
+
+    FemMaterial material;
+    std::vector<FemLoad> loads = {{{40.0, 10.0, 10.0}, {1000.0, 0.0, 0.0}}};
+
+    FemBoundaryCondition faceBc;
+    faceBc.fixedNodeIndices = nodesOnFaces(mesh, box, {minFace}, 1.0);
+    REQUIRE_FALSE(faceBc.fixedNodeIndices.empty());
+    const FemResult faceResult = solveLinearStatic(mesh, material, faceBc, loads);
+    REQUIRE(faceResult.solved);
+
+    FemBoundaryCondition planeBc;
+    planeBc.fixedXMax = 1e-6;
+    const FemResult planeResult = solveLinearStatic(mesh, material, planeBc, loads);
+    REQUIRE(planeResult.solved);
+
+    for (std::size_t i = 0; i < mesh.nodes.size(); ++i) {
+        REQUIRE(faceResult.displacements[i][0] == Approx(planeResult.displacements[i][0]).margin(1e-9));
+        REQUIRE(faceResult.displacements[i][1] == Approx(planeResult.displacements[i][1]).margin(1e-9));
+        REQUIRE(faceResult.displacements[i][2] == Approx(planeResult.displacements[i][2]).margin(1e-9));
+    }
+}
+
+TEST_CASE("distributedPressureLoadOnFaces on a beam's far face reproduces distributedPressureLoad's own "
+         "box-selected result",
+         "[core3d][fem][faces][distributed]") {
+    const double length = 100.0, width = 20.0, height = 20.0;
+    const TopoDS_Shape beam = BRepPrimAPI_MakeBox(length, width, height).Shape();
+    const FemMesh mesh = buildVoxelMesh(beam, 5);
+    REQUIRE_FALSE(mesh.tets.empty());
+
+    const int farFace = maxXFaceIndex(beam);
+    REQUIRE(farFace >= 0);
+
+    const double pressure = 100.0;
+    const double area = width * height;
+    const std::vector<FemLoad> faceLoads =
+        distributedPressureLoadOnFaces(mesh, beam, {farFace}, pressure, {1.0, 0.0, 0.0}, 1.0);
+    REQUIRE(faceLoads.size() == 6); // same 2-triangle end face as the box-selected test
+
+    double totalForceX = 0.0;
+    for (const FemLoad& load : faceLoads) totalForceX += load.forceVector[0];
+    REQUIRE(totalForceX == Approx(pressure * area).epsilon(1e-4));
+}
+
+TEST_CASE("distributedPressureLoadOnFaces returns empty for an out-of-range face index", "[core3d][fem][faces]") {
+    const TopoDS_Shape box = BRepPrimAPI_MakeBox(40.0, 20.0, 20.0).Shape();
+    const FemMesh mesh = buildVoxelMesh(box, 4);
+    REQUIRE(distributedPressureLoadOnFaces(mesh, box, {999}, 100.0, {1.0, 0.0, 0.0}, 1.0).empty());
 }
 
 TEST_CASE("solveModal's fundamental frequency scales exactly with material stiffness and mass", "[core3d][fem][modal]") {

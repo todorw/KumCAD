@@ -39,13 +39,32 @@ struct FemMaterial {
 };
 
 // Every node with X <= fixedXMax is fully fixed (zero displacement) -- a
-// plane-based clamp (the classic cantilever-beam setup), not general per-
-// node/per-face selection, since there's no face-picking in the still-
-// unverified 3D viewport (the same scope cut Sprint 3's Fillet/Chamfer and
-// Sprint 5's Assembly mates made).
+// plane-based clamp (the classic cantilever-beam setup), kept as a real,
+// still-supported option (some setups genuinely are cantilevers) rather
+// than replaced outright. fixedNodeIndices is real per-face selection
+// instead: resolve node indices via nodesOnFaces() below (Pick3D.h's own
+// pickFace now exists, unlike when this plane-only clamp was first
+// written) and pass them here -- unioned with fixedXMax's own clamp, not
+// a replacement for it, so an existing plane-clamp caller is unaffected.
 struct FemBoundaryCondition {
     double fixedXMax = 0.0;
+    std::vector<int> fixedNodeIndices;
 };
+
+// Resolves faceIndices (0-based indices into TopExp::MapShapes(shape,
+// TopAbs_FACE, ...)'s own ordering -- the same numbering Pick3D.h's
+// pickFace returns, so a real viewport face pick can drive this
+// directly) against mesh's own nodes: a node counts as "on" one of these
+// faces if its nearest-point distance to that face
+// (BRepExtrema_DistShapeShape) is within tolerance. "On the face" is a
+// distance test, not exact containment, since the voxel mesh's own
+// boundary is a staircase approximation of the true surface (see
+// buildVoxelMesh's own comment) -- a real boundary node can sit
+// measurably off the true face, so tolerance should be at least the
+// mesh's own voxel cell width to reliably catch them (too tight a
+// tolerance silently fixes/loads nothing).
+std::vector<int> nodesOnFaces(const FemMesh& mesh, const TopoDS_Shape& shape, const std::vector<int>& faceIndices,
+                              double tolerance);
 
 // A point load (force vector) applied at the single mesh node closest to
 // point. Multiple loads can approximate a distributed load by spreading
@@ -77,12 +96,20 @@ std::vector<FemLoad> distributedBodyForce(const FemMesh& mesh, const std::array<
 // tet) whose centroid falls within the axis-aligned box
 // [boxMin,boxMax], split evenly across that face's 3 nodes -- the exact
 // consistent nodal load for a uniform traction over a linear triangle.
-// A box selection rather than real face-picking, the same simplification
-// FemBoundaryCondition's own fixedXMax plane already makes and for the
-// same reason (no face-picking in the still-unverified 3D viewport).
+// A box selection; see distributedPressureLoadOnFaces below for real
+// face-picking instead.
 std::vector<FemLoad> distributedPressureLoad(const FemMesh& mesh, const std::array<double, 3>& boxMin,
                                              const std::array<double, 3>& boxMax, double pressure,
                                              const std::array<double, 3>& direction);
+
+// Same idea as distributedPressureLoad, but selecting boundary faces of
+// the mesh by real face-picking (via nodesOnFaces' own distance-to-face
+// test) instead of an axis-aligned box: a boundary triangular face of
+// the mesh counts if all 3 of its own nodes are within tolerance of one
+// of shape's faceIndices (see nodesOnFaces' own comment on tolerance).
+std::vector<FemLoad> distributedPressureLoadOnFaces(const FemMesh& mesh, const TopoDS_Shape& shape,
+                                                     const std::vector<int>& faceIndices, double pressure,
+                                                     const std::array<double, 3>& direction, double tolerance);
 
 // Assembles constant-strain-tetrahedron element stiffnesses (shape
 // function gradients are found by solving, per element, the same kind of
@@ -131,13 +158,13 @@ struct FemThermalMaterial {
     double thermalConductivity = 1.0; // consistent power/(length*temperature) units
 };
 
-// Every node with X <= fixedXMax is held at fixedTemperature -- the same
-// plane-based simplification FemBoundaryCondition already makes for
-// structural analysis, and for the same reason (no face-picking in the
-// still-unverified 3D viewport).
+// Every node with X <= fixedXMax, OR listed in fixedNodeIndices (real
+// per-face selection via nodesOnFaces above, same as
+// FemBoundaryCondition's own field), is held at fixedTemperature.
 struct FemThermalBoundaryCondition {
     double fixedXMax = 0.0;
     double fixedTemperature = 0.0;
+    std::vector<int> fixedNodeIndices;
 };
 
 // A heat source/sink (positive = heat entering the model) applied at the
