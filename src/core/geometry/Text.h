@@ -38,6 +38,13 @@ public:
     const std::string& styleName() const { return m_styleName; }
     void setStyleName(std::string name) { m_styleName = std::move(name); }
 
+    // Per-entity horizontal stretch (real DXF group code 41, "Relative
+    // X scale factor") -- separate from the STYLE table's own width
+    // factor, matching real AutoCAD (TEXTFIT sets this per-object
+    // override, not the whole style). 1.0 = no stretch.
+    double widthFactor() const { return m_widthFactor; }
+    void setWidthFactor(double factor) { m_widthFactor = factor; }
+
     double approximateWidth() const;
 
     EntityType type() const override { return EntityType::Text; }
@@ -59,6 +66,7 @@ private:
     double m_rotation;
     std::string m_styleName = "Standard";
     std::string m_fieldTemplate;
+    double m_widthFactor = 1.0;
 };
 
 } // namespace lcad

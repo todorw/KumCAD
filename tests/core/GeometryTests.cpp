@@ -264,6 +264,18 @@ TEST_CASE("TextEntity bounding box, distance, and grip editing (unrotated)", "[g
     REQUIRE(text.position().y == Approx(5.0));
 }
 
+TEST_CASE("TextEntity widthFactor stretches approximateWidth and defaults to 1.0", "[geometry][text]") {
+    lcad::TextEntity text(1, 0, lcad::Point2D(0, 0), "HI", 2.0);
+    REQUIRE(text.widthFactor() == Approx(1.0));
+    const double baseWidth = text.approximateWidth();
+
+    text.setWidthFactor(2.0);
+    REQUIRE(text.approximateWidth() == Approx(baseWidth * 2.0));
+
+    text.setWidthFactor(0.5);
+    REQUIRE(text.approximateWidth() == Approx(baseWidth * 0.5));
+}
+
 TEST_CASE("TextEntity rotate carries its own rotation and translate/scale behave", "[geometry]") {
     lcad::TextEntity text(1, 0, lcad::Point2D(10, 0), "X", 1.0);
 

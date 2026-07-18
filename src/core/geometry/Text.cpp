@@ -15,7 +15,7 @@ double clampedAxisDistance(double p, double lo, double hi) {
 } // namespace
 
 double TextEntity::approximateWidth() const {
-    return 0.6 * m_height * static_cast<double>(m_text.size());
+    return 0.6 * m_height * static_cast<double>(m_text.size()) * m_widthFactor;
 }
 
 BoundingBox TextEntity::boundingBox() const {

@@ -350,6 +350,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
     bool closed = false;
     double textHeight = 0.0;
     double textRotationDeg = 0.0;
+    double textWidthFactor = 1.0; // TEXT group 41
     std::string textContent;
     double mtextWidth = 0.0;
     int mtextAttachment = 1;
@@ -447,6 +448,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             auto text = std::make_unique<TextEntity>(id, layerId, p10, textContent, textHeight,
                                                      textRotationDeg * M_PI / 180.0);
             if (!entityTextStyle.empty()) text->setStyleName(entityTextStyle);
+            text->setWidthFactor(textWidthFactor);
             made = std::move(text);
         } else if (curEntityType == "MTEXT") {
             const std::string content = decodeMTextContent(mtextChunks + textContent);
@@ -630,6 +632,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
         closed = false;
         textHeight = 0.0;
         textRotationDeg = 0.0;
+        textWidthFactor = 1.0;
         textContent.clear();
         mtextWidth = 0.0;
         mtextAttachment = 1;
@@ -1116,6 +1119,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             else if (curEntityType == "VIEWPORT") vpHeight = toDouble(g.value);
             else if (curEntityType == "IMAGE") imageHeight = toDouble(g.value);
             else if (curEntityType == "VIA") viaDrillDiameter = toDouble(g.value, 0.3);
+            else if (curEntityType == "TEXT") textWidthFactor = toDouble(g.value, 1.0);
             break;
         case 290:
             if (curEntityType == "WIPEOUT") wipeoutShowFrame = toInt(g.value, 1) != 0;

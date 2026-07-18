@@ -235,6 +235,13 @@ void writeEntity(std::ofstream& out, const Document& document, const Entity& e) 
         writeGroup(out, 40, text.height());
         writeGroup(out, 1, text.text());
         writeGroup(out, 50, text.rotation() * 180.0 / M_PI);
+        // Group 41 is a REAL DXF code (TEXT's own "Relative X scale
+        // factor" -- width factor), not a $KUMCAD_* extension; a real
+        // DXF reader interprets this exactly the way AutoCAD itself does.
+        // Only written when it differs from the default so an unstretched
+        // TEXT round-trips byte-for-byte identically to before this field
+        // existed.
+        if (std::abs(text.widthFactor() - 1.0) > 1e-9) writeGroup(out, 41, text.widthFactor());
         writeGroup(out, 7, text.styleName());
         break;
     }

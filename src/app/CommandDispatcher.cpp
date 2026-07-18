@@ -26,6 +26,8 @@
 #include "commands/WipeoutCommand.h"
 #include "commands/LayTransCommand.h"
 #include "commands/AuditCommand.h"
+#include "commands/NCopyCommand.h"
+#include "commands/TextFitCommand.h"
 #include "commands/RevcloudCommand.h"
 #include "commands/LibraryCommands.h"
 #include "commands/ExpressToolCommands.h"
@@ -878,6 +880,22 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         }
     } else if (cmd == QLatin1String("TRAN")) {
         startCommand(std::make_unique<TranCommand>(m_document), QStringLiteral("TRAN"));
+    } else if (cmd == QLatin1String("NCOPY")) {
+        const std::vector<lcad::EntityId> ids = selectionForModify();
+        if (ids.size() != 1 || !m_document.findEntity(ids[0]) ||
+            m_document.findEntity(ids[0])->type() != lcad::EntityType::Insert) {
+            if (!ids.empty()) m_commandLine.appendLine(QStringLiteral("*Select exactly one block (INSERT)*"));
+        } else {
+            startCommand(std::make_unique<NCopyCommand>(m_document, ids[0]), QStringLiteral("NCOPY"));
+        }
+    } else if (cmd == QLatin1String("TEXTFIT")) {
+        const std::vector<lcad::EntityId> ids = selectionForModify();
+        if (ids.size() != 1 || !m_document.findEntity(ids[0]) ||
+            m_document.findEntity(ids[0])->type() != lcad::EntityType::Text) {
+            if (!ids.empty()) m_commandLine.appendLine(QStringLiteral("*Select exactly one single-line TEXT*"));
+        } else {
+            startCommand(std::make_unique<TextFitCommand>(m_document, ids[0]), QStringLiteral("TEXTFIT"));
+        }
     } else if (cmd == QLatin1String("AUDIT")) {
         startCommand(std::make_unique<AuditCommand>(m_document), QStringLiteral("AUDIT"));
     } else if (cmd == QLatin1String("LAYTRANS")) {

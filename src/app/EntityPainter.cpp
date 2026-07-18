@@ -316,6 +316,7 @@ void paint(QPainter& painter, const lcad::Entity& entity, const WorldToScreen& t
         // further flip -- our world angle convention is CCW-positive (visually),
         // so it needs the opposite sign here, same reasoning as the ARC case above.
         painter.rotate(-qRadiansToDegrees(text.rotation()));
+        if (std::abs(text.widthFactor() - 1.0) > 1e-9) painter.scale(text.widthFactor(), 1.0);
         painter.drawText(QPointF(0, 0), QString::fromStdString(text.text()));
         painter.restore();
         break;

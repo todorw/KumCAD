@@ -37,6 +37,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 
 using Catch::Approx;
 
@@ -1521,4 +1522,46 @@ TEST_CASE("DXF round-trips a WipeoutEntity including showFrame", "[dxf][wipeout]
         ++found;
     }
     REQUIRE(found == 2);
+}
+
+TEST_CASE("DXF round-trips TEXT's width factor via the real group-41 code", "[dxf][text]") {
+    TempDxfPath temp;
+
+    lcad::Document doc;
+    auto stretched = std::make_unique<lcad::TextEntity>(doc.reserveEntityId(), doc.currentLayer(), lcad::Point2D(0, 0),
+                                                        "Stretched", 2.5);
+    stretched->setWidthFactor(1.75);
+    doc.addEntity(std::move(stretched));
+    // A default (unstretched) text: group 41 must NOT be written for it,
+    // so old files stay byte-for-byte unaffected by this field existing.
+    doc.addEntity(std::make_unique<lcad::TextEntity>(doc.reserveEntityId(), doc.currentLayer(), lcad::Point2D(0, 10),
+                                                     "Plain", 2.5));
+
+    REQUIRE(lcad::writeDxf(doc, temp.path.string()));
+    const std::string raw = [&] {
+        std::ifstream in(temp.path);
+        std::ostringstream ss;
+        ss << in.rdbuf();
+        return ss.str();
+    }();
+    // Exactly one "41" group code line among the TEXT entities' own data.
+    REQUIRE(raw.find("\n41\n") != std::string::npos);
+
+    lcad::Document loaded;
+    REQUIRE(lcad::readDxf(loaded, temp.path.string()));
+
+    bool foundStretched = false, foundPlain = false;
+    for (const lcad::Entity* e : loaded.entities()) {
+        if (e->type() != lcad::EntityType::Text) continue;
+        const auto& text = static_cast<const lcad::TextEntity&>(*e);
+        if (text.text() == "Stretched") {
+            REQUIRE(text.widthFactor() == Approx(1.75));
+            foundStretched = true;
+        } else if (text.text() == "Plain") {
+            REQUIRE(text.widthFactor() == Approx(1.0));
+            foundPlain = true;
+        }
+    }
+    REQUIRE(foundStretched);
+    REQUIRE(foundPlain);
 }
