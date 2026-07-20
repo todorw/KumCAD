@@ -256,6 +256,109 @@ void registerBuiltinSymbols(Document& doc) {
         addIfMissing(doc, "I", std::move(body), std::move(pins));
     }
 
+    // Crystal/resonator: a rectangular can body (two vertical side bars,
+    // real IEEE-315 crystal glyph) between the two leads.
+    {
+        std::vector<std::unique_ptr<Entity>> body;
+        body.push_back(std::make_unique<PolylineEntity>(
+            doc.reserveEntityId(), LayerId(0),
+            std::vector<Point2D>{Point2D(8, -5), Point2D(12, -5), Point2D(12, 5), Point2D(8, 5)}, true));
+        addLine(doc, body, Point2D(6, -6), Point2D(6, 6)); // left plate
+        addLine(doc, body, Point2D(14, -6), Point2D(14, 6)); // right plate
+        std::vector<Pin> pins = {
+            Pin{"1", "1", PinElectricalType::Passive, Point2D(0, 0), Point2D(6, 0)},
+            Pin{"2", "2", PinElectricalType::Passive, Point2D(20, 0), Point2D(14, 0)},
+        };
+        addIfMissing(doc, "XTAL", std::move(body), std::move(pins));
+    }
+
+    // Fuse: a rectangle body with a straight element line through it (the
+    // standard "rectangle" fuse glyph, as opposed to IEC's sine-wave
+    // variant).
+    {
+        std::vector<std::unique_ptr<Entity>> body;
+        body.push_back(std::make_unique<PolylineEntity>(
+            doc.reserveEntityId(), LayerId(0),
+            std::vector<Point2D>{Point2D(7, -3), Point2D(13, -3), Point2D(13, 3), Point2D(7, 3)}, true));
+        addLine(doc, body, Point2D(7, 0), Point2D(13, 0));
+        std::vector<Pin> pins = {
+            Pin{"1", "1", PinElectricalType::Passive, Point2D(0, 0), Point2D(7, 0)},
+            Pin{"2", "2", PinElectricalType::Passive, Point2D(20, 0), Point2D(13, 0)},
+        };
+        addIfMissing(doc, "F", std::move(body), std::move(pins));
+    }
+
+    // Battery: a REAL physical part (unlike V's own simulation-only DC
+    // source), so -- unlike V -- it gets a matching _FP below. Two
+    // long/short plate pairs (the standard "more than one cell" battery
+    // glyph, as opposed to V's own single pair).
+    {
+        std::vector<std::unique_ptr<Entity>> body;
+        addLine(doc, body, Point2D(8, -5), Point2D(8, 5));   // + plate (tall)
+        addLine(doc, body, Point2D(10, -3), Point2D(10, 3)); // - plate (short)
+        addLine(doc, body, Point2D(12, -5), Point2D(12, 5)); // + plate (tall)
+        addLine(doc, body, Point2D(14, -3), Point2D(14, 3)); // - plate (short)
+        std::vector<Pin> pins = {
+            Pin{"1", "1", PinElectricalType::PowerOutput, Point2D(0, 0), Point2D(8, 0)},   // +
+            Pin{"2", "2", PinElectricalType::PowerOutput, Point2D(20, 0), Point2D(14, 0)}, // -
+        };
+        addIfMissing(doc, "BAT", std::move(body), std::move(pins));
+    }
+
+    // Op-amp: the standard triangle body (point at x=20), 5 pins -- the
+    // two inputs and output real signal flow needs, plus V+/V- power
+    // pins ERC's own undriven-power-pin check can verify are actually
+    // driven (see Erc.h), matching how a real op-amp symbol is drawn
+    // rather than a signal-only 3-pin simplification.
+    {
+        std::vector<std::unique_ptr<Entity>> body;
+        addLine(doc, body, Point2D(5, -10), Point2D(5, 10));
+        addLine(doc, body, Point2D(5, -10), Point2D(20, 0));
+        addLine(doc, body, Point2D(5, 10), Point2D(20, 0));
+        addLine(doc, body, Point2D(7, 6), Point2D(11, 6)); // "+" input marker
+        addLine(doc, body, Point2D(9, 4), Point2D(9, 8));
+        addLine(doc, body, Point2D(7, -6), Point2D(11, -6)); // "-" input marker
+        std::vector<Pin> pins = {
+            Pin{"IN+", "1", PinElectricalType::Input, Point2D(0, 6), Point2D(5, 6)},
+            Pin{"IN-", "2", PinElectricalType::Input, Point2D(0, -6), Point2D(5, -6)},
+            Pin{"OUT", "3", PinElectricalType::Output, Point2D(25, 0), Point2D(20, 0)},
+            Pin{"V+", "4", PinElectricalType::Power, Point2D(12, 15), Point2D(12, 10)},
+            Pin{"V-", "5", PinElectricalType::Power, Point2D(12, -15), Point2D(12, -10)},
+        };
+        addIfMissing(doc, "OPAMP", std::move(body), std::move(pins));
+    }
+
+    // Ground: the standard 3-descending-bar power-flag glyph. A single
+    // PowerOutput pin -- like V/I's own terminals -- so ERC's undriven-
+    // power-pin check treats every net a GND symbol touches as driven,
+    // the real reason a schematic needs GND symbols at all rather than
+    // just naming a wire "GND" and hoping ERC notices.
+    {
+        std::vector<std::unique_ptr<Entity>> body;
+        addLine(doc, body, Point2D(10, 5), Point2D(10, 0));
+        addLine(doc, body, Point2D(6, 0), Point2D(14, 0));
+        addLine(doc, body, Point2D(7.5, -2), Point2D(12.5, -2));
+        addLine(doc, body, Point2D(9, -4), Point2D(11, -4));
+        std::vector<Pin> pins = {
+            Pin{"GND", "1", PinElectricalType::PowerOutput, Point2D(10, 5), Point2D(10, 0)},
+        };
+        addIfMissing(doc, "GND", std::move(body), std::move(pins));
+    }
+
+    // VCC: the standard upward-arrow power-flag glyph, same PowerOutput-
+    // pin reasoning as GND above but for a positive supply rail instead
+    // of the 0V reference.
+    {
+        std::vector<std::unique_ptr<Entity>> body;
+        addLine(doc, body, Point2D(10, -5), Point2D(10, 3));
+        addLine(doc, body, Point2D(10, 3), Point2D(7, 0));
+        addLine(doc, body, Point2D(10, 3), Point2D(13, 0));
+        std::vector<Pin> pins = {
+            Pin{"VCC", "1", PinElectricalType::PowerOutput, Point2D(10, -5), Point2D(10, -5)},
+        };
+        addIfMissing(doc, "VCC", std::move(body), std::move(pins));
+    }
+
     // A matching PCB footprint for each schematic symbol above (see
     // BlockDefinition::pads) -- named "<Symbol>_FP" so both live in the
     // same document's block table without colliding.
@@ -332,6 +435,33 @@ void registerBuiltinSymbols(Document& doc) {
                            Pad{"2", PadShape::Round, Point2D(0, 2.54), 1.7, 1.7, 1.0},
                            Pad{"3", PadShape::Round, Point2D(0, 5.08), 1.7, 1.7, 1.0},
                            Pad{"4", PadShape::Round, Point2D(0, 7.62), 1.7, 1.7, 1.0}});
+
+    // Two-pin through-hole can, real HC-49-style crystal footprint pitch.
+    addFootprintIfMissing(doc, "XTAL_FP", rectOutline(doc, -2, -3, 6.9, 3),
+                          {Pad{"1", PadShape::Round, Point2D(0, 0), 1.5, 1.5, 0.8},
+                           Pad{"2", PadShape::Round, Point2D(4.88, 0), 1.5, 1.5, 0.8}});
+    // Radial (0.2in lead spacing) through-hole fuse footprint.
+    addFootprintIfMissing(doc, "F_FP", rectOutline(doc, -2, -2, 7.08, 2),
+                          {Pad{"1", PadShape::Round, Point2D(0, 0), 1.4, 1.4, 0.8},
+                           Pad{"2", PadShape::Round, Point2D(5.08, 0), 1.4, 1.4, 0.8}});
+    // A 2-pin JST-style connector footprint, since a real battery mounts
+    // via a cable connector rather than direct through-hole leads.
+    addFootprintIfMissing(doc, "BAT_FP", rectOutline(doc, -1.5, -2, 3.5, 2),
+                          {Pad{"1", PadShape::Round, Point2D(0, 0), 1.5, 1.5, 0.8},
+                           Pad{"2", PadShape::Round, Point2D(2.0, 0), 1.5, 1.5, 0.8}});
+    // 8-pin DIP, real generic single-op-amp package pinout order (1-4
+    // down the left side, 5-8 back up the right, matching IC_FP's own
+    // 4-pin left/right convention just with twice as many pins per side).
+    {
+        std::vector<std::unique_ptr<Entity>> body = rectOutline(doc, 0, -12, 20, 12);
+        std::vector<Pad> pads = {
+            Pad{"1", PadShape::Round, Point2D(0, 9), 1.6, 1.6, 0.8},  Pad{"2", PadShape::Round, Point2D(0, 3), 1.6, 1.6, 0.8},
+            Pad{"3", PadShape::Round, Point2D(0, -3), 1.6, 1.6, 0.8}, Pad{"4", PadShape::Round, Point2D(0, -9), 1.6, 1.6, 0.8},
+            Pad{"5", PadShape::Round, Point2D(20, -9), 1.6, 1.6, 0.8}, Pad{"6", PadShape::Round, Point2D(20, -3), 1.6, 1.6, 0.8},
+            Pad{"7", PadShape::Round, Point2D(20, 3), 1.6, 1.6, 0.8}, Pad{"8", PadShape::Round, Point2D(20, 9), 1.6, 1.6, 0.8},
+        };
+        addFootprintIfMissing(doc, "OPAMP_FP", std::move(body), std::move(pads));
+    }
 }
 
 } // namespace lcad
