@@ -12,33 +12,57 @@ enum class DimensionKind {
     Radius,   // "R" + radius of a circle/arc (DIMRADIUS)
     Diameter, // diameter symbol + diameter (DIMDIAMETER)
     Angular,  // angle at a vertex between two rays (DIMANGULAR, 3-point)
+    // AutoCAD's remaining common dimension types, matching DIMORDINATE/
+    // DIMJOGGED/DIMARC's own real geometric definitions -- see each
+    // case in Dimension.cpp's own geometry() for exactly how the
+    // p1/p2/linePoint/vertex fields below are interpreted per kind.
+    Ordinate,  // X or Y offset of a feature point from a datum origin (DIMORDINATE)
+    Jogged,    // radius dimension whose line doesn't reach the true (off-page) center (DIMJOGGED)
+    ArcLength, // length along a real arc, arc-symbol-prefixed label (DIMARC)
 };
 
-// Dimension entity covering AutoCAD's linear/aligned/radial/diameter/angular
-// kinds. The stored points mean different things per kind:
+// Dimension entity covering AutoCAD's linear/aligned/radial/diameter/
+// angular/ordinate/jogged/arc-length kinds. The stored points mean
+// different things per kind:
 //   Linear/Aligned: p1/p2 = measured points, linePoint = dimension line drag
 //   Radius/Diameter: p1 = center, p2 = point on the curve, linePoint = label
 //   Angular: vertex() = corner, p1/p2 = ray points, linePoint = arc position
-// All derived drawing geometry (lines, the arc for angular, arrowheads, the
-// ready-made label) comes from geometry(), shared by rendering and picking.
+//   Ordinate: p1 = feature point, linePoint = leader end/label, vertex =
+//     datum origin -- X vs Y is auto-detected from the leader's own
+//     direction (a mostly-vertical leader measures X, mostly-horizontal
+//     measures Y), the same rule real AutoCAD's own DIMORDINATE uses,
+//     not a separately stored flag
+//   Jogged: p1 = true center, p2 = point on the curve (both drive the
+//     MEASURED radius only), vertex = override center the drawn
+//     dimension line actually radiates from instead (the true center is
+//     assumed off-page/inconvenient -- the whole reason this kind
+//     exists), linePoint = label position
+//   ArcLength: vertex = arc center, p1/p2 = points ON that same arc (its
+//     real radius, not a user-draggable one like Angular's), linePoint
+//     = which side of the arc the label/dimension-arc position falls on
+// All derived drawing geometry (lines, the arc for angular/arc-length,
+// arrowheads, the ready-made label) comes from geometry(), shared by
+// rendering and picking.
 class DimensionEntity : public Entity {
 public:
     struct Geometry {
         Point2D dimA, dimB;      // dimension line endpoints (arrow tips); for
-                                 // angular these are the arc's endpoints
+                                 // angular/arc-length these are the arc's endpoints
         Point2D ext1A, ext1B;    // extension line from p1 (may be degenerate)
         Point2D ext2A, ext2B;    // extension line from p2
         Point2D textPos;         // label anchor (center of the text)
         double textAngle = 0.0;  // label rotation, radians CCW
-        double value = 0.0;      // measured distance (or angle in degrees)
+        double value = 0.0;      // measured distance (or angle in degrees, or arc length)
         std::string label;       // formatted text, e.g. "12.50", "R5.00", "45.0\xC2\xB0"
         bool arrow1 = true;      // draw arrowhead at dimA / arc start
         bool arrow2 = true;      // draw arrowhead at dimB / arc end
         bool angular = false;    // dimension line is an arc, not a segment
-        Point2D arcCenter;       // angular only: arc parameters, CCW sweep
+        Point2D arcCenter;       // angular/arc-length only: arc parameters, CCW sweep
         double arcRadius = 0.0;
         double arcStartAngle = 0.0;
         double arcEndAngle = 0.0;
+        bool jogged = false;   // jogged-radius only: draw the zigzag jog symbol at jogPoint
+        Point2D jogPoint;
     };
 
     DimensionEntity(EntityId id, LayerId layer, Point2D p1, Point2D p2, Point2D linePoint, bool aligned,

@@ -853,6 +853,70 @@ TEST_CASE("Radial, diameter, and angular dimension geometry", "[geometry][dimens
     }
 }
 
+TEST_CASE("Ordinate, jogged-radius, and arc-length dimension geometry", "[geometry][dimension]") {
+    SECTION("ordinate auto-detects X-type from a mostly-vertical leader") {
+        // Feature point (12, 7), datum origin (0,0), leader mostly
+        // vertical (dx=0, dy=10) -> X-type, value == feature.x - origin.x.
+        lcad::DimensionEntity dim(1, 0, lcad::DimensionKind::Ordinate, lcad::Point2D(12, 7), lcad::Point2D(12, 7),
+                                  lcad::Point2D(12, 17), lcad::Point2D(0, 0));
+        const auto geo = dim.geometry();
+        REQUIRE(geo.value == Approx(12.0));
+        REQUIRE(geo.label == "12.00");
+        REQUIRE_FALSE(geo.arrow1);
+        REQUIRE_FALSE(geo.arrow2);
+        REQUIRE(geo.textPos.x == Approx(12.0));
+        REQUIRE(geo.textPos.y == Approx(17.0));
+    }
+    SECTION("ordinate auto-detects Y-type from a mostly-horizontal leader") {
+        lcad::DimensionEntity dim(1, 0, lcad::DimensionKind::Ordinate, lcad::Point2D(12, 7), lcad::Point2D(12, 7),
+                                  lcad::Point2D(22, 7), lcad::Point2D(0, 0));
+        const auto geo = dim.geometry();
+        REQUIRE(geo.value == Approx(7.0));
+    }
+    SECTION("ordinate value is relative to a non-zero datum origin") {
+        lcad::DimensionEntity dim(1, 0, lcad::DimensionKind::Ordinate, lcad::Point2D(12, 7), lcad::Point2D(12, 7),
+                                  lcad::Point2D(12, 17), lcad::Point2D(2, 3));
+        REQUIRE(dim.geometry().value == Approx(12.0 - 2.0));
+    }
+    SECTION("jogged radius measures from the TRUE center/curve point, not the override center") {
+        // True center (0,0), point on curve (5,0) -> radius 5, even
+        // though the drawn line radiates from a totally different
+        // override center (100,100).
+        lcad::DimensionEntity dim(1, 0, lcad::DimensionKind::Jogged, lcad::Point2D(0, 0), lcad::Point2D(5, 0),
+                                  lcad::Point2D(120, 100), lcad::Point2D(100, 100));
+        const auto geo = dim.geometry();
+        REQUIRE(geo.value == Approx(5.0));
+        REQUIRE(geo.label == "R5.00");
+        REQUIRE(geo.jogged);
+        REQUIRE(geo.dimA.x == Approx(100.0)); // line starts at the override center...
+        REQUIRE(geo.dimA.y == Approx(100.0));
+        REQUIRE(geo.dimB.x == Approx(120.0)); // ...not the true center.
+        REQUIRE(geo.dimB.y == Approx(100.0));
+        // The jog mark sits off the straight dimA-dimB line, not on it.
+        const double onLineY = 100.0;
+        REQUIRE(std::abs(geo.jogPoint.y - onLineY) > 1e-6);
+    }
+    SECTION("arc length uses the arc's own real radius, ignoring linePoint's distance from center") {
+        // Center (0,0), arc from (10,0) to (0,10) (a real quarter circle,
+        // radius 10) -- linePoint only decides which side/label
+        // placement, its OWN distance from center must be ignored.
+        lcad::DimensionEntity dim(1, 0, lcad::DimensionKind::ArcLength, lcad::Point2D(10, 0), lcad::Point2D(0, 10),
+                                  lcad::Point2D(4, 4), lcad::Point2D(0, 0));
+        const auto geo = dim.geometry();
+        REQUIRE(geo.angular);
+        REQUIRE(geo.arcRadius == Approx(10.0));
+        // Arc length = radius * angle(radians) = 10 * (pi/2).
+        REQUIRE(geo.value == Approx(10.0 * M_PI / 2.0));
+        REQUIRE(geo.label.find("\xE2\x8C\x92") != std::string::npos); // arc-length symbol prefix
+    }
+    SECTION("arc length picks the reflex sweep when linePoint falls on the far side") {
+        lcad::DimensionEntity dim(1, 0, lcad::DimensionKind::ArcLength, lcad::Point2D(10, 0), lcad::Point2D(0, 10),
+                                  lcad::Point2D(-4, -4), lcad::Point2D(0, 0));
+        // The 270-degree reflex arc, same radius 10.
+        REQUIRE(dim.geometry().value == Approx(10.0 * (3.0 * M_PI / 2.0)));
+    }
+}
+
 TEST_CASE("offsetPolyline makes a parallel copy with preserved bulges", "[geometry][polyline][offset]") {
     // L-shape: (0,0) -> (10,0) -> (10,10), offset 1 to the upper-left side.
     std::vector<lcad::Point2D> verts{{0, 0}, {10, 0}, {10, 10}};

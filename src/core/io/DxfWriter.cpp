@@ -222,6 +222,66 @@ void writeEntity(std::ofstream& out, const Document& document, const Entity& e) 
             writeGroup(out, 35, 0.0);
             writeGroup(out, 70, 5 | 32);
             break;
+        // Ordinate/Jogged/ArcLength: real AutoCAD distinguishes these at
+        // the DXF level via subclass markers (AcDbOrdinateDimension/
+        // AcDbRadialDimensionLarge/AcDbArcDimension), not group 70 alone
+        // -- rather than reverse-engineer those exactly, group 71 here
+        // is this codebase's own explicit subkind marker (1/2/3), same
+        // "real subset, own pragmatic round-trippable scheme, honestly
+        // disclosed" spirit as the $KUMCAD_* header pseudo-variables.
+        // group 70 is still set to a real, closest-matching base value
+        // (6 = ordinate per the true DXF spec, incl. its own real
+        // bit-64 X-type flag; 4/5 = radius/angular-3pt family for
+        // Jogged/ArcLength) so a reader that ignores group 71 entirely
+        // still sees a plausible, if less specific, dimension type.
+        case DimensionKind::Ordinate: {
+            const Point2D leader = dim.linePoint() - dim.point1();
+            const bool xType = std::abs(leader.x) <= std::abs(leader.y);
+            writeGroup(out, 10, dim.vertex().x); // datum origin
+            writeGroup(out, 20, dim.vertex().y);
+            writeGroup(out, 30, 0.0);
+            writeGroup(out, 13, dim.point1().x); // feature point
+            writeGroup(out, 23, dim.point1().y);
+            writeGroup(out, 33, 0.0);
+            writeGroup(out, 14, dim.linePoint().x); // leader endpoint / label
+            writeGroup(out, 24, dim.linePoint().y);
+            writeGroup(out, 34, 0.0);
+            writeGroup(out, 70, 6 | (xType ? 64 : 0) | 32);
+            writeGroup(out, 71, 1);
+            break;
+        }
+        case DimensionKind::Jogged:
+            writeGroup(out, 10, dim.point1().x); // true center
+            writeGroup(out, 20, dim.point1().y);
+            writeGroup(out, 30, 0.0);
+            writeGroup(out, 15, dim.point2().x); // point on the curve
+            writeGroup(out, 25, dim.point2().y);
+            writeGroup(out, 35, 0.0);
+            writeGroup(out, 13, dim.vertex().x); // override (jog) center
+            writeGroup(out, 23, dim.vertex().y);
+            writeGroup(out, 33, 0.0);
+            writeGroup(out, 11, dim.linePoint().x); // text position
+            writeGroup(out, 21, dim.linePoint().y);
+            writeGroup(out, 31, 0.0);
+            writeGroup(out, 70, 4 | 32);
+            writeGroup(out, 71, 2);
+            break;
+        case DimensionKind::ArcLength:
+            writeGroup(out, 15, dim.vertex().x); // arc center
+            writeGroup(out, 25, dim.vertex().y);
+            writeGroup(out, 35, 0.0);
+            writeGroup(out, 13, dim.point1().x); // arc start point
+            writeGroup(out, 23, dim.point1().y);
+            writeGroup(out, 33, 0.0);
+            writeGroup(out, 14, dim.point2().x); // arc end point
+            writeGroup(out, 24, dim.point2().y);
+            writeGroup(out, 34, 0.0);
+            writeGroup(out, 10, dim.linePoint().x); // which side the label falls on
+            writeGroup(out, 20, dim.linePoint().y);
+            writeGroup(out, 30, 0.0);
+            writeGroup(out, 70, 5 | 32);
+            writeGroup(out, 71, 3);
+            break;
         }
         writeGroup(out, 140, dim.textHeight()); // dim style text-height override
         break;

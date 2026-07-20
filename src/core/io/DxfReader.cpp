@@ -346,6 +346,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
     std::string curLayerRef = "0";
     Point2D p10, p11, p13, p14, p15;
     int dimType = 32;
+    int dimSubkind = 0; // group 71: this codebase's own Ordinate(1)/Jogged(2)/ArcLength(3) marker, see DxfWriter
     double dimTextHeight = 2.5;
     double radius = 0.0;
     double ellipseRatio = 1.0;
@@ -479,27 +480,35 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             }
         } else if (curEntityType == "DIMENSION") {
             std::unique_ptr<DimensionEntity> dim;
-            switch (dimType & 7) { // low bits select the dimension kind
-            case 3: { // diameter: 10 and 15 are opposite chord points
-                const Point2D center = (p10 + p15) * 0.5;
-                const Point2D textAt = p11.distanceTo(Point2D()) > 1e-12 ? p11 : p15;
-                dim = std::make_unique<DimensionEntity>(id, layerId, DimensionKind::Diameter, center, p15, textAt);
-                break;
-            }
-            case 4: { // radius: 10 = center, 15 = point on the curve
-                const Point2D textAt = p11.distanceTo(Point2D()) > 1e-12 ? p11 : p15;
-                dim = std::make_unique<DimensionEntity>(id, layerId, DimensionKind::Radius, p10, p15, textAt);
-                break;
-            }
-            case 5: // 3-point angular: 13/14 = rays, 15 = vertex, 10 = arc point
-                dim = std::make_unique<DimensionEntity>(id, layerId, DimensionKind::Angular, p13, p14, p10, p15);
-                break;
-            case 1: // aligned
-                dim = std::make_unique<DimensionEntity>(id, layerId, p13, p14, p10, true);
-                break;
-            default: // rotated/linear (and kinds we don't model yet)
-                dim = std::make_unique<DimensionEntity>(id, layerId, p13, p14, p10, false);
-                break;
+            if (dimSubkind == 1) { // Ordinate: 10 = datum origin, 13 = feature point, 14 = leader end
+                dim = std::make_unique<DimensionEntity>(id, layerId, DimensionKind::Ordinate, p13, p13, p14, p10);
+            } else if (dimSubkind == 2) { // Jogged: 10 = true center, 15 = point on curve, 13 = override center, 11 = text
+                dim = std::make_unique<DimensionEntity>(id, layerId, DimensionKind::Jogged, p10, p15, p11, p13);
+            } else if (dimSubkind == 3) { // ArcLength: 15 = center, 13 = arc start, 14 = arc end, 10 = label side
+                dim = std::make_unique<DimensionEntity>(id, layerId, DimensionKind::ArcLength, p13, p14, p10, p15);
+            } else {
+                switch (dimType & 7) { // low bits select the dimension kind
+                case 3: { // diameter: 10 and 15 are opposite chord points
+                    const Point2D center = (p10 + p15) * 0.5;
+                    const Point2D textAt = p11.distanceTo(Point2D()) > 1e-12 ? p11 : p15;
+                    dim = std::make_unique<DimensionEntity>(id, layerId, DimensionKind::Diameter, center, p15, textAt);
+                    break;
+                }
+                case 4: { // radius: 10 = center, 15 = point on the curve
+                    const Point2D textAt = p11.distanceTo(Point2D()) > 1e-12 ? p11 : p15;
+                    dim = std::make_unique<DimensionEntity>(id, layerId, DimensionKind::Radius, p10, p15, textAt);
+                    break;
+                }
+                case 5: // 3-point angular: 13/14 = rays, 15 = vertex, 10 = arc point
+                    dim = std::make_unique<DimensionEntity>(id, layerId, DimensionKind::Angular, p13, p14, p10, p15);
+                    break;
+                case 1: // aligned
+                    dim = std::make_unique<DimensionEntity>(id, layerId, p13, p14, p10, true);
+                    break;
+                default: // rotated/linear (and kinds we don't model yet)
+                    dim = std::make_unique<DimensionEntity>(id, layerId, p13, p14, p10, false);
+                    break;
+                }
             }
             dim->setStyle(dimTextHeight, fresh.dimStyle().arrowSize, fresh.dimStyle().decimals);
             made = std::move(dim);
@@ -630,6 +639,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
         p14 = Point2D();
         p15 = Point2D();
         dimType = 32;
+        dimSubkind = 0;
         dimTextHeight = 2.5;
         radius = 0.0;
         ellipseRatio = 1.0;
@@ -1204,6 +1214,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             if (curEntityType == "SPLINE") splineDegree = std::max(1, toInt(g.value, 3));
             else if (curEntityType == "MTEXT") mtextAttachment = toInt(g.value, 1);
             else if (curEntityType == "IMAGE") imagePdfPage = toInt(g.value);
+            else if (curEntityType == "DIMENSION") dimSubkind = toInt(g.value, 0);
             break;
         case 93:
             if (curEntityType == "HATCH") hatchVertsExpected = toInt(g.value);

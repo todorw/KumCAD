@@ -198,6 +198,30 @@ struct DwgExport {
                 applyCommon(dwg_add_DIMENSION_ANG3PT(blkhdr, &vertex, &p1, &p2, &lp), e);
                 return true;
             }
+            case DimensionKind::Ordinate: {
+                // LibreDWG's own dwg_add_DIMENSION_ORDINATE has no field
+                // for a per-dimension datum origin (real DWG ordinate
+                // dimensions read the feature point relative to whatever
+                // UCS was active at creation, which this codebase doesn't
+                // model) -- a real, disclosed limitation: dim.vertex()'s
+                // own origin offset is lost on DWG export (DXF's own
+                // $KUMCAD_GROUP-adjacent per-dimension group 10 doesn't
+                // have this gap, see DxfWriter.cpp). use_x_axis uses the
+                // same leader-direction auto-detection geometry() does.
+                const dwg_point_3d featurePt = pt3(dim.point1());
+                const dwg_point_3d leaderEnd = pt3(dim.linePoint());
+                const Point2D leader = dim.linePoint() - dim.point1();
+                const bool useXAxis = std::abs(leader.x) <= std::abs(leader.y);
+                applyCommon(dwg_add_DIMENSION_ORDINATE(blkhdr, &featurePt, &leaderEnd, useXAxis), e);
+                return true;
+            }
+            case DimensionKind::Jogged:
+            case DimensionKind::ArcLength:
+                // LibreDWG's own add-API has no jogged-radius or arc-
+                // length dimension constructor (unlike Ordinate, which it
+                // does support) -- a real, disclosed DWG-export gap;
+                // DxfWriter.cpp's own DXF export supports both.
+                return false;
             }
             return false;
         }

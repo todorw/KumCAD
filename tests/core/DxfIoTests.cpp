@@ -858,6 +858,49 @@ TEST_CASE("DXF radial/diameter/angular dimensions and dim style round-trip", "[d
     REQUIRE(angular->geometry().value == Approx(90.0));
 }
 
+TEST_CASE("DXF ordinate/jogged-radius/arc-length dimensions round-trip", "[dxf][dimension]") {
+    TempDxfPath temp;
+
+    lcad::Document doc;
+    // Ordinate: feature (12,7), leader mostly vertical -> X-type, datum origin (2,3).
+    doc.addEntity(std::make_unique<lcad::DimensionEntity>(doc.reserveEntityId(), 0, lcad::DimensionKind::Ordinate,
+                                                          lcad::Point2D(12, 7), lcad::Point2D(12, 7),
+                                                          lcad::Point2D(12, 17), lcad::Point2D(2, 3)));
+    // Jogged: true center (0,0), point on curve (5,0) -> radius 5, override center (100,100).
+    doc.addEntity(std::make_unique<lcad::DimensionEntity>(doc.reserveEntityId(), 0, lcad::DimensionKind::Jogged,
+                                                          lcad::Point2D(0, 0), lcad::Point2D(5, 0),
+                                                          lcad::Point2D(120, 100), lcad::Point2D(100, 100)));
+    // ArcLength: center (0,0), quarter circle radius 10.
+    doc.addEntity(std::make_unique<lcad::DimensionEntity>(doc.reserveEntityId(), 0, lcad::DimensionKind::ArcLength,
+                                                          lcad::Point2D(10, 0), lcad::Point2D(0, 10),
+                                                          lcad::Point2D(4, 4), lcad::Point2D(0, 0)));
+
+    REQUIRE(lcad::writeDxf(doc, temp.path.string()));
+    lcad::Document loaded;
+    REQUIRE(lcad::readDxf(loaded, temp.path.string()));
+
+    const auto entities = loaded.entities();
+    REQUIRE(entities.size() == 3);
+
+    const auto* ordinate = static_cast<const lcad::DimensionEntity*>(entities[0]);
+    REQUIRE(ordinate->kind() == lcad::DimensionKind::Ordinate);
+    REQUIRE(ordinate->point1().x == Approx(12.0));
+    REQUIRE(ordinate->vertex().x == Approx(2.0)); // datum origin survived
+    REQUIRE(ordinate->vertex().y == Approx(3.0));
+    REQUIRE(ordinate->geometry().value == Approx(12.0 - 2.0));
+
+    const auto* jogged = static_cast<const lcad::DimensionEntity*>(entities[1]);
+    REQUIRE(jogged->kind() == lcad::DimensionKind::Jogged);
+    REQUIRE(jogged->geometry().value == Approx(5.0)); // true radius, not the override center's distance
+    REQUIRE(jogged->vertex().x == Approx(100.0)); // override center survived
+    REQUIRE(jogged->vertex().y == Approx(100.0));
+
+    const auto* arcLength = static_cast<const lcad::DimensionEntity*>(entities[2]);
+    REQUIRE(arcLength->kind() == lcad::DimensionKind::ArcLength);
+    REQUIRE(arcLength->geometry().arcRadius == Approx(10.0));
+    REQUIRE(arcLength->geometry().value == Approx(10.0 * M_PI / 2.0));
+}
+
 TEST_CASE("DXF leader round-trips", "[dxf][leader]") {
     TempDxfPath temp;
 

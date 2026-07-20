@@ -139,6 +139,91 @@ DimensionEntity::Geometry DimensionEntity::geometry() const {
         geo.textAngle = readableAngle(midAngle - M_PI / 2); // tangent direction
         return geo;
     }
+    case DimensionKind::Ordinate: {
+        // Real AutoCAD's own rule: a leader drawn mostly VERTICALLY from
+        // the feature point measures the X ordinate ("Xdatum"); mostly
+        // HORIZONTALLY measures Y ("Ydatum") -- auto-detected from the
+        // leader's own end point rather than a separately stored flag.
+        const Point2D leader = m_linePoint - m_p1;
+        const bool xType = std::abs(leader.x) <= std::abs(leader.y);
+        geo.value = xType ? (m_p1.x - m_vertex.x) : (m_p1.y - m_vertex.y);
+        geo.label = formatValue(geo.value, m_decimals);
+        // A real ordinate leader jogs to align with the label instead of
+        // running diagonally: straight along the measured axis first,
+        // then over to linePoint.
+        const Point2D jog = xType ? Point2D(m_p1.x, m_linePoint.y) : Point2D(m_linePoint.x, m_p1.y);
+        geo.ext1A = m_p1;
+        geo.ext1B = jog;
+        geo.dimA = jog;
+        geo.dimB = m_linePoint;
+        geo.ext2A = geo.ext2B = jog; // no second extension line needed
+        geo.arrow1 = false;
+        geo.arrow2 = false;
+        geo.textPos = m_linePoint;
+        geo.textAngle = 0.0; // ordinate labels stay horizontal regardless of measurement axis
+        return geo;
+    }
+    case DimensionKind::Jogged: {
+        // The measured value comes from the TRUE center/curve point
+        // (p1/p2); the drawn line instead runs from the override center
+        // (m_vertex, picked because the true center is off-page/
+        // inconvenient -- the entire reason this kind exists) to the
+        // label, with a jog (zigzag) partway marked via jogPoint below
+        // for the renderer to draw that symbol.
+        geo.value = m_p1.distanceTo(m_p2);
+        geo.label = formatValue(geo.value, m_decimals, "R");
+        geo.dimA = m_vertex;
+        geo.dimB = m_linePoint;
+        geo.arrow1 = true;
+        geo.arrow2 = false;
+        geo.jogged = true;
+        const Point2D lineSpan = geo.dimB - geo.dimA;
+        const double lineLen = lineSpan.length();
+        const Point2D lineDir = lineLen > 1e-12 ? lineSpan * (1.0 / lineLen) : Point2D(1, 0);
+        const Point2D lineNormal(-lineDir.y, lineDir.x);
+        geo.jogPoint = geo.dimA + lineDir * (lineLen * 0.5) + lineNormal * (0.75 * m_textHeight);
+        geo.ext1A = geo.ext1B = geo.dimA;
+        geo.ext2A = geo.ext2B = geo.dimB;
+        geo.textPos = m_linePoint;
+        geo.textAngle = readableAngle(std::atan2(lineDir.y, lineDir.x));
+        return geo;
+    }
+    case DimensionKind::ArcLength: {
+        // Same construction as Angular, except the dimension arc is
+        // drawn at the MEASURED arc's own real radius (p1's distance
+        // from vertex) rather than an arbitrary user-dragged one --
+        // an arc-length dimension measures that one real arc, not an
+        // abstract angle at a chosen radius.
+        const Point2D r1 = m_p1 - m_vertex;
+        const Point2D r2 = m_p2 - m_vertex;
+        const double a1 = std::atan2(r1.y, r1.x);
+        const double a2 = std::atan2(r2.y, r2.x);
+        const double radius = r1.length();
+        const double aL = std::atan2(m_linePoint.y - m_vertex.y, m_linePoint.x - m_vertex.x);
+        double start = a1;
+        double sweep = normalizeAngle(a2 - a1);
+        if (normalizeAngle(aL - a1) > sweep) {
+            start = a2;
+            sweep = 2 * M_PI - sweep;
+        }
+        geo.angular = true;
+        geo.arcCenter = m_vertex;
+        geo.arcRadius = radius;
+        geo.arcStartAngle = start;
+        geo.arcEndAngle = start + sweep;
+        geo.value = radius * sweep; // arc length = radius * angle (radians)
+        geo.label = formatValue(geo.value, m_decimals, "\xE2\x8C\x92"); // U+2312 ARC symbol, AutoCAD's own arc-length prefix
+        geo.dimA = m_vertex + Point2D(std::cos(start), std::sin(start)) * radius;
+        geo.dimB = m_vertex + Point2D(std::cos(start + sweep), std::sin(start + sweep)) * radius;
+        geo.ext1A = m_p1;
+        geo.ext1B = geo.dimA;
+        geo.ext2A = m_p2;
+        geo.ext2B = geo.dimB;
+        const double midAngle = start + sweep / 2.0;
+        geo.textPos = m_vertex + Point2D(std::cos(midAngle), std::sin(midAngle)) * (radius + 0.9 * m_textHeight);
+        geo.textAngle = readableAngle(midAngle - M_PI / 2);
+        return geo;
+    }
     }
 
     const Point2D dimSpan = geo.dimB - geo.dimA;
@@ -162,6 +247,10 @@ BoundingBox DimensionEntity::boundingBox() const {
         box.expand(geo.arcCenter - Point2D(geo.arcRadius, 0));
         box.expand(geo.arcCenter + Point2D(0, geo.arcRadius));
         box.expand(geo.arcCenter - Point2D(0, geo.arcRadius));
+    }
+    if (geo.jogged) box.expand(geo.jogPoint);
+    if (m_kind == DimensionKind::Ordinate || m_kind == DimensionKind::Jogged || m_kind == DimensionKind::ArcLength) {
+        box.expand(m_vertex);
     }
     return box;
 }
@@ -217,8 +306,15 @@ void DimensionEntity::mirror(const Point2D& a, const Point2D& b) {
     m_vertex = mirrorAcross(m_vertex, a, b);
 }
 
+namespace {
+bool usesVertexGrip(DimensionKind kind) {
+    return kind == DimensionKind::Angular || kind == DimensionKind::Ordinate || kind == DimensionKind::Jogged ||
+          kind == DimensionKind::ArcLength;
+}
+} // namespace
+
 std::vector<Point2D> DimensionEntity::gripPoints() const {
-    if (m_kind == DimensionKind::Angular) return {m_p1, m_p2, m_linePoint, m_vertex};
+    if (usesVertexGrip(m_kind)) return {m_p1, m_p2, m_linePoint, m_vertex};
     return {m_p1, m_p2, m_linePoint};
 }
 
@@ -226,7 +322,7 @@ void DimensionEntity::moveGripPoint(std::size_t index, const Point2D& newPos) {
     if (index == 0) m_p1 = newPos;
     else if (index == 1) m_p2 = newPos;
     else if (index == 2) m_linePoint = newPos;
-    else if (index == 3 && m_kind == DimensionKind::Angular) m_vertex = newPos;
+    else if (index == 3 && usesVertexGrip(m_kind)) m_vertex = newPos;
 }
 
 std::vector<SnapPoint> DimensionEntity::snapCandidates() const {

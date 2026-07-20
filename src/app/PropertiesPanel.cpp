@@ -312,6 +312,9 @@ void PropertiesPanel::refresh() {
         case lcad::DimensionKind::Radius: kind = QStringLiteral("Radius"); break;
         case lcad::DimensionKind::Diameter: kind = QStringLiteral("Diameter"); break;
         case lcad::DimensionKind::Angular: kind = QStringLiteral("Angular"); break;
+        case lcad::DimensionKind::Ordinate: kind = QStringLiteral("Ordinate"); break;
+        case lcad::DimensionKind::Jogged: kind = QStringLiteral("Jogged Radius"); break;
+        case lcad::DimensionKind::ArcLength: kind = QStringLiteral("Arc Length"); break;
         }
         addRow(QStringLiteral("Type:"), kind);
         addRow(QStringLiteral("Value:"), QString::fromUtf8(dim->geometry().label.c_str()));
