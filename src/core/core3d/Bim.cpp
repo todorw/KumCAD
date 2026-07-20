@@ -1,16 +1,22 @@
 #include "core/core3d/Bim.h"
 
 #include "core/document/Document.h"
+#include "core/geometry/Polyline.h"
 #include "core/geometry/Table.h"
 
 #include <BRepAlgoAPI_Cut.hxx>
+#include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
+#include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
+#include <BRepOffsetAPI_MakePipeShell.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRep_Builder.hxx>
+#include <Geom_Circle.hxx>
+#include <Geom_TrimmedCurve.hxx>
 #include <TopoDS_Compound.hxx>
 #include <gp_Ax1.hxx>
 #include <gp_Ax2.hxx>
@@ -19,8 +25,10 @@
 #include <gp_Trsf.hxx>
 #include <gp_Vec.hxx>
 
+#include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <optional>
 #include <sstream>
 
 namespace lcad {
@@ -42,10 +50,142 @@ gp_Trsf segmentLocalToWorld(double x1, double y1, double x2, double y2) {
 
 gp_Trsf wallLocalToWorld(const Wall& wall) { return segmentLocalToWorld(wall.x1, wall.y1, wall.x2, wall.y2); }
 
+// A point plus the centerline's own unit "along the wall" direction
+// there -- what buildOpeningCutter needs to place a door/window frame at
+// an arbitrary arc-length offset, whether the wall is the plain
+// (x1,y1)-(x2,y2) case or a real multi-segment/curved path.
+struct WallFrame {
+    Point2D point;
+    Point2D tangent;
+};
+
+gp_Trsf frameToWorld(const WallFrame& frame) {
+    return segmentLocalToWorld(frame.point.x, frame.point.y, frame.point.x + frame.tangent.x,
+                               frame.point.y + frame.tangent.y);
+}
+
+// Walks wall's own centerline by arc length (its path if set, else the
+// plain (x1,y1)-(x2,y2) segment) and returns the point/tangent at
+// distanceAlong, clamped to the centerline's own extent at either end --
+// matching how a real BIM tool still places an opening past a wall's
+// last vertex rather than rejecting it. nullopt only for a degenerate
+// wall (zero-length fallback segment, or a path whose every segment is
+// itself degenerate).
+std::optional<WallFrame> wallFrameAtOffset(const Wall& wall, double distanceAlong) {
+    if (wall.path.size() < 2) {
+        const double dx = wall.x2 - wall.x1, dy = wall.y2 - wall.y1;
+        const double length = std::sqrt(dx * dx + dy * dy);
+        if (length <= 1e-9) return std::nullopt;
+        const Point2D tangent(dx / length, dy / length);
+        const double t = std::clamp(distanceAlong, 0.0, length);
+        return WallFrame{Point2D(wall.x1 + tangent.x * t, wall.y1 + tangent.y * t), tangent};
+    }
+
+    double remaining = std::max(0.0, distanceAlong);
+    for (std::size_t i = 0; i + 1 < wall.path.size(); ++i) {
+        const Point2D& a = wall.path[i];
+        const Point2D& b = wall.path[i + 1];
+        const bool lastSegment = i + 2 == wall.path.size();
+        const double bulge = i < wall.bulges.size() ? wall.bulges[i] : 0.0;
+        const auto arcOpt = bulgeToArc(a, b, bulge);
+        if (!arcOpt) {
+            const double dx = b.x - a.x, dy = b.y - a.y;
+            const double segLen = std::sqrt(dx * dx + dy * dy);
+            if (segLen <= 1e-9) continue;
+            if (remaining <= segLen || lastSegment) {
+                const double t = std::clamp(remaining, 0.0, segLen);
+                const Point2D tangent(dx / segLen, dy / segLen);
+                return WallFrame{Point2D(a.x + tangent.x * t, a.y + tangent.y * t), tangent};
+            }
+            remaining -= segLen;
+        } else {
+            const BulgeArc& arc = *arcOpt;
+            const double segLen = arc.radius * std::abs(arc.sweep);
+            if (segLen <= 1e-9) continue;
+            if (remaining <= segLen || lastSegment) {
+                const double t = std::clamp(remaining, 0.0, segLen);
+                const double sign = arc.sweep >= 0.0 ? 1.0 : -1.0;
+                const double angle = arc.startAngle + sign * (t / arc.radius);
+                const Point2D radial(std::cos(angle), std::sin(angle));
+                const Point2D point(arc.center.x + arc.radius * radial.x, arc.center.y + arc.radius * radial.y);
+                const Point2D tangent(-sign * radial.y, sign * radial.x); // radial rotated 90 deg, signed by sweep
+                return WallFrame{point, tangent};
+            }
+            remaining -= segLen;
+        }
+    }
+    return std::nullopt;
+}
+
+// Real OCCT edge for one bulged wall-path segment, at Z=0 -- same
+// gp_Ax2-with-pinned-X-direction trick Document3D.cpp's own
+// makeSweepPathArcEdge and SketchToFace.cpp's makeArcEdge use, so the
+// trimmed circle's parametrization actually matches BulgeArc's own
+// atan2-based startAngle/sweep rather than an implementation-defined X
+// axis.
+TopoDS_Edge makeWallBulgeArcEdge(const BulgeArc& arc) {
+    const gp_Ax2 axis(gp_Pnt(arc.center.x, arc.center.y, 0.0), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0));
+    Handle(Geom_Circle) circle = new Geom_Circle(axis, arc.radius);
+    const double angle1 = arc.startAngle;
+    const double angle2 = arc.startAngle + arc.sweep;
+    Handle(Geom_TrimmedCurve) trimmed = new Geom_TrimmedCurve(circle, std::min(angle1, angle2), std::max(angle1, angle2));
+    return BRepBuilderAPI_MakeEdge(trimmed).Edge();
+}
+
+// Sweeps a thickness x height rectangular profile along wall.path (a
+// chain of straight/bulged-arc segments in the Z=0 plane, same
+// convention as PolylineEntity) via MakePipeShell -- the same technique
+// Document3D.cpp's own multi-segment/curved Sweep feature uses, RightCorner
+// transition mode included so straight-run corners still miter cleanly.
+// Returns a null shape if the path has fewer than 2 points or any
+// segment is degenerate enough to fail wire-building.
+TopoDS_Shape buildWallPathShape(const Wall& wall) {
+    BRepBuilderAPI_MakeWire wireBuilder;
+    for (std::size_t i = 0; i + 1 < wall.path.size(); ++i) {
+        const Point2D& a = wall.path[i];
+        const Point2D& b = wall.path[i + 1];
+        const double bulge = i < wall.bulges.size() ? wall.bulges[i] : 0.0;
+        const auto arcOpt = bulgeToArc(a, b, bulge);
+        if (!arcOpt) {
+            wireBuilder.Add(BRepBuilderAPI_MakeEdge(gp_Pnt(a.x, a.y, 0.0), gp_Pnt(b.x, b.y, 0.0)));
+        } else {
+            wireBuilder.Add(makeWallBulgeArcEdge(*arcOpt));
+        }
+    }
+    if (!wireBuilder.IsDone()) return TopoDS_Shape();
+
+    const auto startFrame = wallFrameAtOffset(wall, 0.0);
+    if (!startFrame) return TopoDS_Shape();
+    const Point2D& p0 = startFrame->point;
+    const Point2D n(-startFrame->tangent.y, startFrame->tangent.x); // horizontal, perpendicular to travel
+
+    const gp_Pnt c1(p0.x - n.x * wall.thickness / 2.0, p0.y - n.y * wall.thickness / 2.0, 0.0);
+    const gp_Pnt c2(p0.x + n.x * wall.thickness / 2.0, p0.y + n.y * wall.thickness / 2.0, 0.0);
+    const gp_Pnt c3(c2.X(), c2.Y(), wall.height);
+    const gp_Pnt c4(c1.X(), c1.Y(), wall.height);
+    BRepBuilderAPI_MakeWire profileWireBuilder;
+    profileWireBuilder.Add(BRepBuilderAPI_MakeEdge(c1, c2));
+    profileWireBuilder.Add(BRepBuilderAPI_MakeEdge(c2, c3));
+    profileWireBuilder.Add(BRepBuilderAPI_MakeEdge(c3, c4));
+    profileWireBuilder.Add(BRepBuilderAPI_MakeEdge(c4, c1));
+    if (!profileWireBuilder.IsDone()) return TopoDS_Shape();
+
+    BRepOffsetAPI_MakePipeShell pipeBuilder(wireBuilder.Wire());
+    pipeBuilder.SetTransitionMode(BRepBuilderAPI_RightCorner);
+    pipeBuilder.Add(profileWireBuilder.Wire());
+    pipeBuilder.Build();
+    if (!pipeBuilder.IsDone()) return TopoDS_Shape();
+    pipeBuilder.MakeSolid();
+    return pipeBuilder.Shape();
+}
+
 TopoDS_Shape buildWallShape(const Wall& wall) {
+    if (wall.thickness <= 1e-9 || wall.height <= 1e-9) return TopoDS_Shape();
+    if (wall.path.size() >= 2) return buildWallPathShape(wall);
+
     const double dx = wall.x2 - wall.x1, dy = wall.y2 - wall.y1;
     const double length = std::sqrt(dx * dx + dy * dy);
-    if (length <= 1e-9 || wall.thickness <= 1e-9 || wall.height <= 1e-9) return TopoDS_Shape();
+    if (length <= 1e-9) return TopoDS_Shape();
 
     const TopoDS_Shape box =
         BRepPrimAPI_MakeBox(gp_Pnt(0.0, -wall.thickness / 2.0, 0.0), length, wall.thickness, wall.height).Shape();
@@ -78,15 +218,21 @@ TopoDS_Shape buildBeamShape(const Beam& beam) {
 
 TopoDS_Shape buildOpeningCutter(const Wall& wall, const Opening& opening) {
     if (opening.width <= 1e-9 || opening.height <= 1e-9) return TopoDS_Shape();
+    const auto frame = wallFrameAtOffset(wall, opening.offsetAlongWall);
+    if (!frame) return TopoDS_Shape();
+
     // Deliberately taller across the wall's thickness than the wall itself
     // (2x), so the cut always fully punches through regardless of floating
-    // point tolerance at the wall's own faces.
+    // point tolerance at the wall's own faces. Built at local X=0 (the
+    // opening's own arc-length offset is already baked into frame's own
+    // point) rather than at X=offsetAlongWall the way a single straight
+    // segment's own local frame would need -- frameToWorld's translation
+    // already IS that offset, for either a straight or curved wall.
     const double cutDepth = wall.thickness * 2.0;
     const TopoDS_Shape box =
-        BRepPrimAPI_MakeBox(gp_Pnt(opening.offsetAlongWall, -cutDepth / 2.0, opening.sillHeight), opening.width,
-                             cutDepth, opening.height)
+        BRepPrimAPI_MakeBox(gp_Pnt(0.0, -cutDepth / 2.0, opening.sillHeight), opening.width, cutDepth, opening.height)
             .Shape();
-    return BRepBuilderAPI_Transform(box, wallLocalToWorld(wall), true).Shape();
+    return BRepBuilderAPI_Transform(box, frameToWorld(*frame), true).Shape();
 }
 
 TopoDS_Shape buildSlabShape(const Slab& slab) {
@@ -245,8 +391,23 @@ bool writeIfcLite(const BimModel& model, const std::string& path) {
 
     int id = 1;
     for (const Wall& wall : model.walls) {
-        out << '#' << id++ << "=IFCWALL(" << wall.x1 << ',' << wall.y1 << ',' << wall.x2 << ',' << wall.y2 << ','
-            << wall.height << ',' << wall.thickness << ");\n";
+        if (wall.path.size() >= 2) {
+            // x1/y1/x2/y2 kept as path.front()/path.back() so an older
+            // reader (or anything only reading the first 6 args) still
+            // gets a sane straight-line stand-in for this wall's overall
+            // extent rather than nothing at all.
+            out << '#' << id++ << "=IFCWALL(" << wall.path.front().x << ',' << wall.path.front().y << ','
+                << wall.path.back().x << ',' << wall.path.back().y << ',' << wall.height << ',' << wall.thickness
+                << ',' << wall.path.size();
+            for (std::size_t i = 0; i < wall.path.size(); ++i) {
+                const double bulge = i < wall.bulges.size() ? wall.bulges[i] : 0.0;
+                out << ',' << wall.path[i].x << ',' << wall.path[i].y << ',' << bulge;
+            }
+            out << ");\n";
+        } else {
+            out << '#' << id++ << "=IFCWALL(" << wall.x1 << ',' << wall.y1 << ',' << wall.x2 << ',' << wall.y2 << ','
+                << wall.height << ',' << wall.thickness << ");\n";
+        }
     }
     for (const Opening& opening : model.openings) {
         out << '#' << id++ << "=IFCOPENING(" << opening.wallIndex << ',' << opening.offsetAlongWall << ','
@@ -303,7 +464,7 @@ bool readIfcLite(BimModel& model, const std::string& path) {
         const std::string name = line.substr(eq + 1, open - (eq + 1));
         const std::vector<double> values = splitArgs(line.substr(open + 1, close - open - 1));
 
-        if (name == "IFCWALL" && values.size() == 6) {
+        if (name == "IFCWALL" && values.size() >= 6) {
             Wall wall;
             wall.x1 = values[0];
             wall.y1 = values[1];
@@ -311,6 +472,19 @@ bool readIfcLite(BimModel& model, const std::string& path) {
             wall.y2 = values[3];
             wall.height = values[4];
             wall.thickness = values[5];
+            if (values.size() > 6) {
+                const auto n = static_cast<std::size_t>(values[6]);
+                if (values.size() == 7 + 3 * n) {
+                    for (std::size_t i = 0; i < n; ++i) {
+                        wall.path.emplace_back(values[7 + 3 * i], values[7 + 3 * i + 1]);
+                        wall.bulges.push_back(values[7 + 3 * i + 2]);
+                    }
+                }
+                // Malformed path extension: keep the straight x1..y2
+                // fallback already set above rather than dropping the
+                // whole wall, the same spirit as this file's other
+                // malformed-entity handling (e.g. IFCSLAB's point count).
+            }
             model.walls.push_back(wall);
         } else if (name == "IFCOPENING" && values.size() == 6) {
             Opening opening;

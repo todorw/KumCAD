@@ -632,6 +632,15 @@ public:
         form->addRow(QStringLiteral("Height:"), m_height);
         form->addRow(QStringLiteral("Thickness:"), m_thickness);
 
+        m_path = new QLineEdit(this);
+        m_path->setPlaceholderText(QStringLiteral("optional: x,y pairs for a multi-segment/curved run, e.g. "
+                                                   "0,0, 3000,0, 3000,2000 -- overrides Start/End X/Y when set"));
+        form->addRow(QStringLiteral("Path (x,y pairs):"), m_path);
+        m_bulges = new QLineEdit(this);
+        m_bulges->setPlaceholderText(QStringLiteral("optional: one bulge per path point (DXF bulge convention; "
+                                                     "0 = straight); last one unused"));
+        form->addRow(QStringLiteral("Bulges:"), m_bulges);
+
         auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
         connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
         connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
@@ -646,6 +655,20 @@ public:
         wall.y2 = m_y2->value();
         wall.height = m_height->value();
         wall.thickness = m_thickness->value();
+
+        std::vector<double> pathValues;
+        for (const QString& token : m_path->text().split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+            bool ok = false;
+            const double value = token.trimmed().toDouble(&ok);
+            if (ok) pathValues.push_back(value);
+        }
+        for (std::size_t i = 0; i + 1 < pathValues.size(); i += 2) wall.path.emplace_back(pathValues[i], pathValues[i + 1]);
+
+        for (const QString& token : m_bulges->text().split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+            bool ok = false;
+            const double value = token.trimmed().toDouble(&ok);
+            if (ok) wall.bulges.push_back(value);
+        }
         return wall;
     }
 
@@ -666,6 +689,7 @@ private:
     }
 
     QDoubleSpinBox *m_x1, *m_y1, *m_x2, *m_y2, *m_height, *m_thickness;
+    QLineEdit *m_path, *m_bulges;
 };
 
 class OpeningDialog : public QDialog {

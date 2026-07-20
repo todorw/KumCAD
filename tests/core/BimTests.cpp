@@ -93,6 +93,92 @@ TEST_CASE("buildBimShapes handles an angled wall correctly (volume is orientatio
     REQUIRE(volumeOf(shapes.wallShapes[0]) == Approx(5000.0 * 150.0 * 2500.0).margin(1.0));
 }
 
+TEST_CASE("buildBimShapes builds a multi-segment (L-shaped) wall with the expected total volume",
+         "[core3d][bim]") {
+    BimModel model;
+    Wall wall;
+    wall.path = {Point2D(0, 0), Point2D(3000, 0), Point2D(3000, 2000)}; // two straight legs, total length 5000
+    wall.height = 2700.0;
+    wall.thickness = 200.0;
+    model.walls.push_back(wall);
+
+    const BimShapes shapes = buildBimShapes(model);
+    REQUIRE(shapes.wallShapes.size() == 1);
+    REQUIRE_FALSE(shapes.wallShapes[0].IsNull());
+    // A symmetric offset around a bent centerline miters exactly (no gap
+    // or overlap at the corner), so volume == area * total centerline
+    // length holds here just like the single-segment case.
+    REQUIRE(volumeOf(shapes.wallShapes[0]) == Approx(5000.0 * 200.0 * 2700.0).epsilon(1e-3));
+}
+
+TEST_CASE("buildBimShapes builds a curved wall (semicircular path) with the volume Pappus's theorem predicts",
+         "[core3d][bim]") {
+    BimModel model;
+    Wall wall;
+    // bulge = 1.0 is a 180-degree arc (DXF bulge convention: bulge =
+    // tan(includedAngle/4)); chord (0,0)-(2000,0) with a semicircular
+    // bulge gives centerline radius = chord/2 = 1000.
+    wall.path = {Point2D(0, 0), Point2D(2000, 0)};
+    wall.bulges = {1.0, 0.0};
+    wall.height = 2700.0;
+    wall.thickness = 200.0;
+    model.walls.push_back(wall);
+
+    const BimShapes shapes = buildBimShapes(model);
+    REQUIRE_FALSE(shapes.wallShapes[0].IsNull());
+    const double centerlineRadius = 1000.0;
+    const double centerlineLength = centerlineRadius * M_PI; // half the circle's circumference
+    REQUIRE(volumeOf(shapes.wallShapes[0]) == Approx(centerlineLength * 200.0 * 2700.0).epsilon(1e-3));
+}
+
+TEST_CASE("buildBimShapes cuts a door out of the second leg of a multi-segment wall", "[core3d][bim]") {
+    BimModel model;
+    Wall wall;
+    wall.path = {Point2D(0, 0), Point2D(3000, 0), Point2D(3000, 2000)}; // total length 5000
+    wall.height = 2700.0;
+    wall.thickness = 200.0;
+    model.walls.push_back(wall);
+
+    Opening door;
+    door.wallIndex = 0;
+    door.offsetAlongWall = 3500.0; // 500 into the second leg
+    door.width = 900.0;
+    door.height = 2100.0;
+    model.openings.push_back(door);
+
+    const BimShapes shapes = buildBimShapes(model);
+    REQUIRE_FALSE(shapes.wallShapes[0].IsNull());
+    const double wallVolume = 5000.0 * 200.0 * 2700.0;
+    const double doorVolume = 900.0 * 200.0 * 2100.0;
+    REQUIRE(volumeOf(shapes.wallShapes[0]) == Approx(wallVolume - doorVolume).epsilon(1e-2));
+}
+
+TEST_CASE("writeIfcLite/readIfcLite round-trips a multi-segment wall's path and bulges", "[core3d][bim]") {
+    TempPath temp;
+    BimModel model;
+    Wall wall;
+    wall.path = {Point2D(0, 0), Point2D(3000, 0), Point2D(3000, 2000)};
+    wall.bulges = {0.0, 0.25, 0.0};
+    wall.height = 2700.0;
+    wall.thickness = 200.0;
+    model.walls.push_back(wall);
+
+    REQUIRE(writeIfcLite(model, temp.path.string()));
+
+    BimModel loaded;
+    REQUIRE(readIfcLite(loaded, temp.path.string()));
+    REQUIRE(loaded.walls.size() == 1);
+    REQUIRE(loaded.walls[0].path.size() == 3);
+    REQUIRE(loaded.walls[0].path[1].x == Approx(3000.0));
+    REQUIRE(loaded.walls[0].path[2].y == Approx(2000.0));
+    REQUIRE(loaded.walls[0].bulges.size() == 3);
+    REQUIRE(loaded.walls[0].bulges[1] == Approx(0.25));
+
+    const double originalVolume = volumeOf(buildBimShapes(model).wallShapes[0]);
+    const double loadedVolume = volumeOf(buildBimShapes(loaded).wallShapes[0]);
+    REQUIRE(loadedVolume == Approx(originalVolume).epsilon(1e-6));
+}
+
 TEST_CASE("buildBimShapes builds a rectangular slab with the expected volume", "[core3d][bim]") {
     BimModel model;
     Slab slab;

@@ -12,20 +12,36 @@ namespace lcad {
 class Document;
 class TableEntity;
 
-// A straight wall segment in plan, centered on (x1,y1)-(x2,y2), extruded
-// from Z=0 up to height, thickness split evenly either side of that
-// centerline -- covers the common straight-run case (an L/U/rectangular
-// floor plan built from several walls), not curved walls or walls that
-// change thickness partway, matching how far Phase 1's PCB/Electrical/P&ID
-// tracks scoped their own schematic-engine reuse.
+// A wall segment in plan, extruded from Z=0 up to height, thickness split
+// evenly either side of its centerline -- still doesn't support walls
+// that change thickness partway, matching how far Phase 1's PCB/
+// Electrical/P&ID tracks scoped their own schematic-engine reuse.
+//
+// The default, common case (path left empty) is a single straight run
+// centered on (x1,y1)-(x2,y2), unchanged from before. Setting path to 2+
+// points instead gives the centerline a real multi-segment/curved shape
+// -- built the same way real BIM tools chain wall runs and bay-window/
+// atrium curves -- with x1/y1/x2/y2 then ignored for the wall's own
+// shape (buildBimShapes) but still read by writeIfcLite as path.front()/
+// path.back() for older-reader compatibility. bulges is parallel to
+// path, reusing PolylineEntity's own DXF-bulge convention exactly
+// (bulges[i] curves the segment path[i]->path[i+1]; 0 or a short vector
+// means straight; the last entry is unused, same as an open polyline's
+// own) -- so a straight-only multi-segment path just needs path itself,
+// no bulges at all.
 struct Wall {
     double x1 = 0.0, y1 = 0.0, x2 = 1000.0, y2 = 0.0;
     double height = 2700.0;
     double thickness = 200.0;
+    std::vector<Point2D> path;
+    std::vector<double> bulges;
 };
 
 // A door (sillHeight == 0) or window (sillHeight > 0) cut into wallIndex,
-// offsetAlongWall from the wall's own (x1,y1) start point.
+// offsetAlongWall measured as arc length from the wall's own start --
+// (x1,y1) for a plain straight wall, or the first point of its path for
+// a multi-segment/curved one, walking through path's straight and
+// bulged-arc segments the same way its own shape is built.
 struct Opening {
     int wallIndex = -1;
     double offsetAlongWall = 0.0;
