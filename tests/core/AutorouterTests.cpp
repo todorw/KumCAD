@@ -305,3 +305,52 @@ TEST_CASE("autoroute with a 2-layer stackup recovers a connection legacy single-
 // (TrackEntity split into layer-contiguous runs, ViaEntity dropped at
 // each transition with throughHole=true) was verified by code review
 // instead -- see runRoutingPass's own comment in Autorouter.cpp.
+
+TEST_CASE("autoroute treats a KeepoutZone with blocksAutorouting as a real, impassable obstacle",
+         "[pcb][autoroute][keepout]") {
+    Document doc;
+    registerBuiltinSymbols(doc);
+    placeRFp(doc, "R1", Point2D(0, 0));
+    placeRFp(doc, "R2", Point2D(50, 0));
+
+    ImportedNet net;
+    net.name = "Net1";
+    net.pins = {{"R1", "2"}, {"R2", "1"}};
+
+    // Both pads sit at y=0, so the routing grid's own Y extent is just a
+    // thin band (params.gridSize*4 margin) around it -- a keepout
+    // spanning well past that band vertically, between the two pads in
+    // X, walls off every possible route rather than just the direct one.
+    KeepoutZone wall;
+    wall.polygon = {{25, -10}, {30, -10}, {30, 10}, {25, 10}};
+
+    AutorouteParams params;
+    params.keepouts = {wall};
+
+    const AutorouteResult result = autoroute(doc, {net}, params);
+    REQUIRE(result.routedCount == 0);
+    REQUIRE(result.failedCount == 1);
+    REQUIRE(trackCount(doc) == 0);
+}
+
+TEST_CASE("autoroute ignores a KeepoutZone with blocksAutorouting disabled", "[pcb][autoroute][keepout]") {
+    Document doc;
+    registerBuiltinSymbols(doc);
+    placeRFp(doc, "R1", Point2D(0, 0));
+    placeRFp(doc, "R2", Point2D(50, 0));
+
+    ImportedNet net;
+    net.name = "Net1";
+    net.pins = {{"R1", "2"}, {"R2", "1"}};
+
+    KeepoutZone zone;
+    zone.polygon = {{25, -10}, {30, -10}, {30, 10}, {25, 10}};
+    zone.blocksAutorouting = false; // e.g. a copper-pour-only keepout
+
+    AutorouteParams params;
+    params.keepouts = {zone};
+
+    const AutorouteResult result = autoroute(doc, {net}, params);
+    REQUIRE(result.routedCount == 1);
+    REQUIRE(result.failedCount == 0);
+}

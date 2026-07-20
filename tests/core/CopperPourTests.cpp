@@ -103,6 +103,35 @@ TEST_CASE("buildCopperPourWithClearance still excludes a via that isn't connecte
     REQUIRE(totalHatchArea(doc) < 20.0 * 16.0);
 }
 
+TEST_CASE("buildCopperPourWithClearance excludes a KeepoutZone that blocks copper pour", "[pcb][pour][keepout]") {
+    Document doc;
+    const LayerId layer = doc.addLayer("F.Cu", Color{200, 100, 0});
+    const std::vector<Point2D> boundary = {{0, 0}, {20, 0}, {20, 10}, {0, 10}};
+
+    KeepoutZone zone;
+    zone.polygon = {{5, 2}, {15, 2}, {15, 8}, {5, 8}}; // a 10x6 hole in the middle
+
+    const auto ids = buildCopperPourWithClearance(doc, layer, boundary, {}, 0.5, 0.0, {}, {zone});
+    REQUIRE_FALSE(ids.empty());
+    // No obstacles other than the zone itself, so the shortfall from a
+    // full fill is (approximately) exactly the zone's own area.
+    REQUIRE(totalHatchArea(doc) == Approx(20.0 * 10.0 - 10.0 * 6.0).margin(1.0));
+}
+
+TEST_CASE("buildCopperPourWithClearance ignores a KeepoutZone with blocksCopperPour disabled", "[pcb][pour][keepout]") {
+    Document doc;
+    const LayerId layer = doc.addLayer("F.Cu", Color{200, 100, 0});
+    const std::vector<Point2D> boundary = {{0, 0}, {20, 0}, {20, 10}, {0, 10}};
+
+    KeepoutZone zone;
+    zone.polygon = {{5, 2}, {15, 2}, {15, 8}, {5, 8}};
+    zone.blocksCopperPour = false; // e.g. a routing-only keepout
+
+    const auto ids = buildCopperPourWithClearance(doc, layer, boundary, {}, 1.0, 0.0, {}, {zone});
+    REQUIRE_FALSE(ids.empty());
+    REQUIRE(totalHatchArea(doc) == Approx(20.0 * 10.0).margin(1e-6));
+}
+
 TEST_CASE("buildCopperPourWithClearance rejects degenerate input", "[pcb][pour]") {
     Document doc;
     const LayerId layer = doc.addLayer("F.Cu", Color{200, 100, 0});

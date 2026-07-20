@@ -17,19 +17,6 @@ namespace lcad {
 
 namespace {
 
-bool pointInPolygon(const Point2D& p, const std::vector<Point2D>& poly) {
-    bool inside = false;
-    for (std::size_t i = 0, j = poly.size() - 1; i < poly.size(); j = i++) {
-        const Point2D& a = poly[i];
-        const Point2D& b = poly[j];
-        const bool crosses = ((a.y > p.y) != (b.y > p.y));
-        if (!crosses) continue;
-        const double xCross = a.x + (p.y - a.y) * (b.x - a.x) / (b.y - a.y);
-        if (p.x < xCross) inside = !inside;
-    }
-    return inside;
-}
-
 // Same union-find-by-coincident-endpoint connectivity tracer Drc.cpp and
 // Ratsnest.cpp each already build their own copy of, applied here so
 // exemption from the pour's own clearance check follows real electrical
@@ -212,7 +199,8 @@ bool inThermalKeepout(const Point2D& cellCenter, const std::vector<Point2D>& own
 
 std::vector<EntityId> buildCopperPourWithClearance(Document& doc, LayerId layer, const std::vector<Point2D>& boundary,
                                                     const std::vector<Point2D>& ownNetPositions, double gridSize,
-                                                    double clearance, const ThermalReliefParams& thermalRelief) {
+                                                    double clearance, const ThermalReliefParams& thermalRelief,
+                                                    const std::vector<KeepoutZone>& keepouts) {
     std::vector<EntityId> created;
     if (boundary.size() < 3 || gridSize <= 1e-9) return created;
 
@@ -275,7 +263,8 @@ std::vector<EntityId> buildCopperPourWithClearance(Document& doc, LayerId layer,
             const Point2D center(minX + (i + 0.5) * gridSize, minY + (j + 0.5) * gridSize);
             const bool keep = pointInPolygon(center, boundary) &&
                               clearanceOk(center, clearance, pointObstacles, tracks) &&
-                              !inThermalKeepout(center, ownNetPositions, thermalRelief);
+                              !inThermalKeepout(center, ownNetPositions, thermalRelief) &&
+                              !pointInKeepout(center, layer, keepouts, /*forPour=*/true);
             if (keep) {
                 if (runStart < 0) runStart = i;
             } else {

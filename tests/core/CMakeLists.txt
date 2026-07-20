@@ -38,6 +38,7 @@ add_executable(lcad_core_tests
     Board3DTests.cpp
     FootprintGeneratorTests.cpp
     SpecctraWriterTests.cpp
+    BoardOutlineTests.cpp
     CopperPourTests.cpp
     TeardropTests.cpp
     ElectricalTests.cpp

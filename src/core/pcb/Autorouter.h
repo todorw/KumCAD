@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/Ids.h"
+#include "core/pcb/BoardOutline.h"
 #include "core/pcb/NetClass.h"
 #include "core/pcb/Stackup.h"
 
@@ -30,6 +31,12 @@ struct AutorouteParams {
     CopperStackup stackup;
     double viaDiameter = 0.6;
     double viaDrillDiameter = 0.3;
+    // No-go regions (see BoardOutline.h's own KeepoutZone); a cell
+    // inside a zone with blocksAutorouting set (and no layer
+    // restriction, or one matching that cell's own layer) is treated as
+    // a permanent obstacle on every routing pass, same as another net's
+    // copper.
+    std::vector<KeepoutZone> keepouts;
 };
 
 struct AutorouteResult {

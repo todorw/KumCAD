@@ -234,6 +234,25 @@ RoutingPass runRoutingPass(Document& doc, const std::vector<PendingConnection>& 
     const int numLayers = static_cast<int>(layers.size());
     const std::size_t planeSize = static_cast<std::size_t>(nx) * static_cast<std::size_t>(ny);
 
+    // Keepouts don't depend on which connection is being routed, so this
+    // is computed once here rather than inside the per-connection loop
+    // below -- every connection's own fresh obstacle grid just starts as
+    // a copy of this instead of all-false.
+    std::vector<std::vector<bool>> keepoutGrid(static_cast<std::size_t>(numLayers), std::vector<bool>(planeSize, false));
+    if (!params.keepouts.empty()) {
+        for (int li = 0; li < numLayers; ++li) {
+            for (int gy = 0; gy < ny; ++gy) {
+                for (int gx = 0; gx < nx; ++gx) {
+                    const Point2D world = toWorld({gx, gy, li}, minX, minY, params.gridSize);
+                    if (pointInKeepout(world, layers[static_cast<std::size_t>(li)], params.keepouts, /*forPour=*/false)) {
+                        keepoutGrid[static_cast<std::size_t>(li)][static_cast<std::size_t>(gy) * static_cast<std::size_t>(nx) +
+                                                                  static_cast<std::size_t>(gx)] = true;
+                    }
+                }
+            }
+        }
+    }
+
     for (std::size_t idx = 0; idx < orderedPending.size(); ++idx) {
         const PendingConnection& conn = orderedPending[idx];
         // netClasses (see NetClass.h) lets different nets route with
@@ -244,7 +263,7 @@ RoutingPass runRoutingPass(Document& doc, const std::vector<PendingConnection>& 
         const double connTrackWidth = connClass ? connClass->trackWidth : params.trackWidth;
         const double connClearance = connClass ? connClass->clearance : params.clearance;
 
-        std::vector<std::vector<bool>> obstacle(static_cast<std::size_t>(numLayers), std::vector<bool>(planeSize, false));
+        std::vector<std::vector<bool>> obstacle = keepoutGrid;
         for (const PlacedPad& pad : allPads) {
             if (!pad.netName.empty() && pad.netName == conn.netName) continue;
             // Clearance to another net's copper uses the LARGER of the

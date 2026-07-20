@@ -86,6 +86,8 @@ add_library(lcad_core STATIC
     pcb/GerberWriter.cpp
     pcb/SpecctraWriter.h
     pcb/SpecctraWriter.cpp
+    pcb/BoardOutline.h
+    pcb/BoardOutline.cpp
     pcb/CopperPour.h
     pcb/CopperPour.cpp
     pcb/Autorouter.h

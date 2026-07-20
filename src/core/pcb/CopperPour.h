@@ -2,6 +2,7 @@
 
 #include "core/Ids.h"
 #include "core/geometry/Point2D.h"
+#include "core/pcb/BoardOutline.h"
 
 #include <vector>
 
@@ -42,10 +43,17 @@ struct ThermalReliefParams {
 // are merged into wider rectangular HatchEntity pieces rather than one
 // entity per tiny cell.
 //
+// keepouts (see BoardOutline.h; empty by default) excludes any cell
+// whose center falls inside a zone with blocksCopperPour set and either
+// no layer restriction or one matching layer, the same way boundary and
+// clearance already do -- a real no-go region, not just a disclosed gap
+// left for later.
+//
 // Returns the ids of every HatchEntity piece added (on layer).
 std::vector<EntityId> buildCopperPourWithClearance(Document& doc, LayerId layer, const std::vector<Point2D>& boundary,
                                                     const std::vector<Point2D>& ownNetPositions, double gridSize = 0.5,
                                                     double clearance = 0.2,
-                                                    const ThermalReliefParams& thermalRelief = {});
+                                                    const ThermalReliefParams& thermalRelief = {},
+                                                    const std::vector<KeepoutZone>& keepouts = {});
 
 } // namespace lcad
