@@ -28,6 +28,7 @@
 #include "core/geometry/Wire.h"
 #include "core/io/DxfColors.h"
 
+#include <algorithm>
 #include <cmath>
 #include <fstream>
 
@@ -642,6 +643,35 @@ bool writeDxf(const Document& document, const std::string& path, std::string* er
             writeGroup(out, 420, trueColor(entry.color));
             writeGroup(out, 6, lineTypeName(entry.linetype));
             writeGroup(out, 40, entry.lineweight);
+        }
+    }
+    if (!document.groups().empty()) {
+        // Real AutoCAD stores GROUP definitions as ACAD_GROUP dictionary
+        // objects (in the OBJECTS section) referencing members by handle;
+        // this uses the same repeatable $KUMCAD_GROUP header pseudo-
+        // variable convention as LAYERSTATE/PLOTSTYLE above instead,
+        // referencing members by their own ORDINAL position in
+        // document.entities() (this section's own write order below)
+        // rather than a raw EntityId -- ids aren't stable across a save/
+        // reload round-trip (DxfReader assigns fresh ones via
+        // reserveEntityId() in file order), but that same file order is
+        // exactly what an ordinal captures, so the reader can remap it
+        // back to whatever real id the Nth model-space entity gets
+        // reassigned. A member no longer present (deleted since the
+        // group was made) is simply omitted, same "dead ids tolerated"
+        // policy Document::groupOf itself already documents.
+        const std::vector<const Entity*> orderedEntities = document.entities();
+        for (const auto& [name, members] : document.groups()) {
+            writeGroup(out, 9, "$KUMCAD_GROUP");
+            writeGroup(out, 1, name);
+            std::vector<int> ordinals;
+            for (EntityId id : members) {
+                const auto it = std::find_if(orderedEntities.begin(), orderedEntities.end(),
+                                            [id](const Entity* e) { return e->id() == id; });
+                if (it != orderedEntities.end()) ordinals.push_back(static_cast<int>(it - orderedEntities.begin()));
+            }
+            writeGroup(out, 70, static_cast<int>(ordinals.size()));
+            for (int ord : ordinals) writeGroup(out, 90, ord);
         }
     }
     for (const PlotStyle& style : document.plotStyles()) {

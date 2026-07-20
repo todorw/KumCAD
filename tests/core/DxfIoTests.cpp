@@ -1588,3 +1588,104 @@ TEST_CASE("DXF round-trips TEXT's width factor via the real group-41 code", "[dx
     REQUIRE(foundStretched);
     REQUIRE(foundPlain);
 }
+
+TEST_CASE("DXF round-trips a named GROUP's real membership (previously never persisted at all)",
+         "[dxf][group]") {
+    // Real bug-shaped gap closed: entity ids are reassigned on load (see
+    // DxfReader's own reserveEntityId() sequencing), so this specifically
+    // exercises that the group's members survive as the SAME real
+    // entities post-reload, not just that a group with the right name
+    // and count exists.
+    TempDxfPath temp;
+    lcad::Document doc;
+
+    const lcad::EntityId line1 = doc.reserveEntityId();
+    doc.addEntity(std::make_unique<lcad::LineEntity>(line1, doc.currentLayer(), lcad::Point2D(0, 0), lcad::Point2D(10, 0)));
+    const lcad::EntityId circle1 = doc.reserveEntityId();
+    doc.addEntity(std::make_unique<lcad::CircleEntity>(circle1, doc.currentLayer(), lcad::Point2D(20, 20), 5.0));
+    // An entity deliberately NOT in the group, interleaved between the
+    // two members, so the ordinal remap has to skip over it correctly.
+    doc.addEntity(std::make_unique<lcad::LineEntity>(doc.reserveEntityId(), doc.currentLayer(), lcad::Point2D(50, 50),
+                                                      lcad::Point2D(60, 60)));
+    const lcad::EntityId circle2 = doc.reserveEntityId();
+    doc.addEntity(std::make_unique<lcad::CircleEntity>(circle2, doc.currentLayer(), lcad::Point2D(30, 30), 8.0));
+
+    doc.setGroup("MyGroup", {line1, circle1, circle2});
+
+    REQUIRE(lcad::writeDxf(doc, temp.path.string()));
+    lcad::Document loaded;
+    REQUIRE(lcad::readDxf(loaded, temp.path.string()));
+
+    REQUIRE(loaded.groups().size() == 1);
+    REQUIRE(loaded.groups()[0].first == "MyGroup");
+    REQUIRE(loaded.groups()[0].second.size() == 3);
+
+    // Resolve the loaded group's members back to real entities by
+    // geometry (positions are exact and unambiguous here) rather than by
+    // id, since ids are reassigned on load -- the whole point of this test.
+    bool foundLine = false, foundCircle5 = false, foundCircle8 = false;
+    for (lcad::EntityId id : loaded.groups()[0].second) {
+        const lcad::Entity* e = loaded.findEntity(id);
+        REQUIRE(e != nullptr);
+        if (e->type() == lcad::EntityType::Line) {
+            const auto& line = static_cast<const lcad::LineEntity&>(*e);
+            REQUIRE(line.start().x == Approx(0.0));
+            foundLine = true;
+        } else if (e->type() == lcad::EntityType::Circle) {
+            const auto& circle = static_cast<const lcad::CircleEntity&>(*e);
+            if (circle.radius() == Approx(5.0)) foundCircle5 = true;
+            if (circle.radius() == Approx(8.0)) foundCircle8 = true;
+        }
+    }
+    REQUIRE(foundLine);
+    REQUIRE(foundCircle5);
+    REQUIRE(foundCircle8);
+
+    // groupOf must also work post-reload: clicking any member resolves
+    // the whole group, the actual UI-facing behavior this persists for.
+    const auto* membersOfCircle5 = loaded.groupOf(
+        *std::find_if(loaded.groups()[0].second.begin(), loaded.groups()[0].second.end(), [&](lcad::EntityId id) {
+            const lcad::Entity* e = loaded.findEntity(id);
+            return e && e->type() == lcad::EntityType::Circle &&
+                  static_cast<const lcad::CircleEntity*>(e)->radius() == Approx(5.0);
+        }));
+    REQUIRE(membersOfCircle5 != nullptr);
+    REQUIRE(membersOfCircle5->size() == 3);
+}
+
+TEST_CASE("DXF round-trips multiple groups and skips a group member deleted before saving",
+         "[dxf][group]") {
+    TempDxfPath temp;
+    lcad::Document doc;
+
+    const lcad::EntityId a = doc.reserveEntityId();
+    doc.addEntity(std::make_unique<lcad::LineEntity>(a, doc.currentLayer(), lcad::Point2D(0, 0), lcad::Point2D(1, 0)));
+    const lcad::EntityId b = doc.reserveEntityId();
+    doc.addEntity(std::make_unique<lcad::LineEntity>(b, doc.currentLayer(), lcad::Point2D(2, 0), lcad::Point2D(3, 0)));
+    const lcad::EntityId c = doc.reserveEntityId();
+    doc.addEntity(std::make_unique<lcad::LineEntity>(c, doc.currentLayer(), lcad::Point2D(4, 0), lcad::Point2D(5, 0)));
+
+    doc.setGroup("GroupA", {a, b});
+    doc.setGroup("GroupB", {b, c, static_cast<lcad::EntityId>(999999)}); // 999999: dead id, never existed
+
+    REQUIRE(lcad::writeDxf(doc, temp.path.string()));
+    lcad::Document loaded;
+    REQUIRE(lcad::readDxf(loaded, temp.path.string()));
+
+    REQUIRE(loaded.groups().size() == 2);
+    bool foundA = false, foundB = false;
+    for (const auto& [name, members] : loaded.groups()) {
+        if (name == "GroupA") {
+            REQUIRE(members.size() == 2);
+            foundA = true;
+        } else if (name == "GroupB") {
+            // The dead id was never written as a valid ordinal in the
+            // first place (see writeDxf's own "member not found, skip"
+            // handling), so only the 2 real members round-trip.
+            REQUIRE(members.size() == 2);
+            foundB = true;
+        }
+    }
+    REQUIRE(foundA);
+    REQUIRE(foundB);
+}

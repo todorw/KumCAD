@@ -121,6 +121,15 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
     std::vector<LayerState> pendingLayerStates;
     std::vector<PlotStyle> pendingPlotStyles;
     std::vector<CtbEntry> pendingCtbEntries;
+    // $KUMCAD_GROUP pseudo-vars (name + member ordinals), applied at the
+    // very end once entityOrdinals below is complete -- see DxfWriter's
+    // own comment on why members are stored by ordinal, not raw id.
+    std::vector<std::pair<std::string, std::vector<int>>> pendingGroups;
+    // The Nth entity actually added to fresh's own model space (NOT a
+    // BLOCK/paper-space body -- see flushEntity's own hookup below)
+    // lands at entityOrdinals[N], the exact same order
+    // document.entities() iterates at write time.
+    std::vector<EntityId> entityOrdinals;
 
     // STYLE table entry being accumulated.
     TextStyle curTextStyle;
@@ -604,6 +613,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             } else {
                 // Model space, or directly into the paper block's layout via
                 // the document's active space.
+                if (!inBlockBody) entityOrdinals.push_back(id); // real model space only, matching document.entities()
                 fresh.addEntity(std::move(made));
             }
         }
@@ -878,6 +888,15 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
                         else if (g.code == 40) en.lineweight = toDouble(g.value, 0.25);
                     }
                 }
+            } else if (curHeaderVar == "$KUMCAD_GROUP") {
+                if (g.code == 1) {
+                    pendingGroups.push_back({g.value, {}});
+                } else if (g.code == 90 && !pendingGroups.empty()) {
+                    pendingGroups.back().second.push_back(toInt(g.value));
+                }
+                // g.code == 70 (member count) is purely informational --
+                // the actual member list is however many 90s follow, so
+                // it doesn't need to be tracked separately here.
             } else if (curHeaderVar == "$KUMCAD_PLOTSTYLE") {
                 if (g.code == 1) {
                     pendingPlotStyles.push_back(PlotStyle{});
@@ -1238,6 +1257,18 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
     for (LayerState& state : pendingLayerStates) fresh.saveLayerState(std::move(state));
     for (PlotStyle& style : pendingPlotStyles) fresh.savePlotStyle(std::move(style));
     for (const CtbEntry& entry : pendingCtbEntries) fresh.saveCtbEntry(entry);
+    for (const auto& [name, ordinals] : pendingGroups) {
+        std::vector<EntityId> members;
+        for (int ordinal : ordinals) {
+            // Out-of-range (e.g. hand-edited/truncated file) is skipped,
+            // not an error -- same "dead members tolerated" policy
+            // Document::groupOf itself documents.
+            if (ordinal >= 0 && static_cast<std::size_t>(ordinal) < entityOrdinals.size()) {
+                members.push_back(entityOrdinals[static_cast<std::size_t>(ordinal)]);
+            }
+        }
+        if (!members.empty()) fresh.setGroup(name, std::move(members));
+    }
 
     document = std::move(fresh);
     return true;
