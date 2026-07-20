@@ -4,10 +4,12 @@
 #include "core/geometry/Insert.h"
 #include "core/geometry/Track.h"
 #include "core/geometry/Via.h"
+#include "core/pcb/BoardOutline.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <map>
 #include <numeric>
 #include <tuple>
@@ -57,6 +59,12 @@ struct Capsule {
     std::size_t ufRoot;
     int layerTag = -1;
     std::string netName; // resolved net class lookup key -- see runDrc's own comment
+    // > 0 for a via or a through-hole pad (its own drilled-hole radius,
+    // NOT the copper radius above); 0 for everything else (track
+    // segments, SMD pads) -- what the hole-to-hole clearance check below
+    // filters on, reusing this same capsule list rather than a separate
+    // walk over vias/footprints.
+    double drillRadius = 0.0;
 };
 
 // The larger of the two sides' own net-class clearance, or rules'
@@ -126,6 +134,27 @@ std::vector<DrcViolation> runDrc(const Document& doc, const DrcRules& rules, con
         }
         if (via->drillDiameter() >= via->diameter()) {
             violations.push_back({"Via drill is not smaller than its own pad diameter", via->id()});
+        }
+        const double annularRing = (via->diameter() - via->drillDiameter()) / 2.0;
+        if (annularRing < rules.minAnnularRing) {
+            violations.push_back({"Via annular ring " + std::to_string(annularRing < 0 ? 0.0 : annularRing) +
+                                      " is under the minimum " + std::to_string(rules.minAnnularRing),
+                                  via->id()});
+        }
+    }
+
+    // Same annular-ring check for through-hole footprint pads -- a real
+    // fab constraint on any drilled hole, not just vias.
+    for (const auto* fp : footprints) {
+        for (const auto& padWorld : fp->padWorldPositions()) {
+            if (padWorld.pad->drillDiameter <= 1e-9) continue; // SMD pad, no hole to check
+            const double padDiameter = std::max(padWorld.pad->width, padWorld.pad->height);
+            const double annularRing = (padDiameter - padWorld.pad->drillDiameter) / 2.0;
+            if (annularRing < rules.minAnnularRing) {
+                violations.push_back({"Pad annular ring " + std::to_string(annularRing < 0 ? 0.0 : annularRing) +
+                                          " is under the minimum " + std::to_string(rules.minAnnularRing),
+                                      fp->id()});
+            }
         }
     }
 
@@ -202,12 +231,12 @@ std::vector<DrcViolation> runDrc(const Document& doc, const DrcRules& rules, con
         const auto& verts = tracks[ti]->vertices();
         for (std::size_t vi = 0; vi + 1 < verts.size(); ++vi) {
             capsules.push_back({tracks[ti]->id(), verts[vi], verts[vi + 1], tracks[ti]->width() / 2.0,
-                                trackVertexUf[ti][vi], trackTag[ti], {}});
+                                trackVertexUf[ti][vi], trackTag[ti], {}, 0.0});
         }
     }
     for (std::size_t i = 0; i < vias.size(); ++i) {
         capsules.push_back({vias[i]->id(), vias[i]->position(), vias[i]->position(), vias[i]->diameter() / 2.0,
-                            viaUf[i], -1, {}});
+                            viaUf[i], -1, {}, vias[i]->drillDiameter() / 2.0});
     }
     for (const auto* fp : footprints) {
         const std::string* refDes = fp->attributeValue("REFDES");
@@ -229,7 +258,7 @@ std::vector<DrcViolation> runDrc(const Document& doc, const DrcRules& rules, con
             }
             capsules.push_back(
                 {fp->id(), padWorld.position, padWorld.position, std::max(padWorld.pad->width, padWorld.pad->height) / 2.0,
-                 ufIndex, padCapsuleTag, netName});
+                 ufIndex, padCapsuleTag, netName, throughHole ? padWorld.pad->drillDiameter / 2.0 : 0.0});
         }
     }
 
@@ -280,6 +309,51 @@ std::vector<DrcViolation> runDrc(const Document& doc, const DrcRules& rules, con
                 violations.push_back({"Clearance violation: " + std::to_string(gap < 0 ? 0.0 : gap) +
                                           " between unconnected copper (minimum " + std::to_string(clearance) + ")",
                                       c1.ownerId});
+            }
+        }
+    }
+
+    // Hole-to-hole clearance: every pair of drilled holes (vias and
+    // through-hole pads alike, identified by capsule.drillRadius > 0)
+    // not already electrically joined -- a mechanical constraint
+    // (drill-bit collision risk), so it's checked independently of the
+    // copper clearance loop above rather than folded into it.
+    for (std::size_t i = 0; i < capsules.size(); ++i) {
+        if (capsules[i].drillRadius <= 1e-9) continue;
+        for (std::size_t j = i + 1; j < capsules.size(); ++j) {
+            if (capsules[j].drillRadius <= 1e-9) continue;
+            if (capsules[i].ownerId == capsules[j].ownerId || capsules[i].ufRoot == capsules[j].ufRoot) continue;
+            const double gap =
+                capsules[i].a.distanceTo(capsules[j].a) - capsules[i].drillRadius - capsules[j].drillRadius;
+            if (gap < rules.minHoleToHoleClearance) {
+                violations.push_back({"Hole-to-hole clearance " + std::to_string(gap < 0 ? 0.0 : gap) +
+                                          " is under the minimum " + std::to_string(rules.minHoleToHoleClearance),
+                                      capsules[i].ownerId});
+            }
+        }
+    }
+
+    if (rules.checkBoardEdgeClearance) {
+        const std::vector<Point2D> outline = deriveBoardOutline(doc);
+        if (!outline.empty()) {
+            auto distanceToOutlineEdge = [&](const Point2D& p) {
+                double best = std::numeric_limits<double>::max();
+                for (std::size_t i = 0, j = outline.size() - 1; i < outline.size(); j = i++) {
+                    best = std::min(best, pointSegmentDistance(p, outline[i], outline[j]));
+                }
+                return best;
+            };
+            for (const Capsule& c : capsules) {
+                for (const Point2D& p : {c.a, c.b}) {
+                    if (!pointInPolygon(p, outline)) {
+                        violations.push_back({"Copper outside the board outline", c.ownerId});
+                    } else if (distanceToOutlineEdge(p) - c.radius < rules.boardEdgeClearance) {
+                        violations.push_back(
+                            {"Copper within " + std::to_string(rules.boardEdgeClearance) + " of the board edge",
+                             c.ownerId});
+                    }
+                    if (c.a.distanceTo(c.b) < 1e-9) break; // point capsule: a == b, don't double-report
+                }
             }
         }
     }

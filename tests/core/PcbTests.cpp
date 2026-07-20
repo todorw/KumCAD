@@ -1,6 +1,7 @@
 #include "core/document/Document.h"
 #include "core/geometry/Hatch.h"
 #include "core/geometry/Insert.h"
+#include "core/geometry/Polyline.h"
 #include "core/geometry/Track.h"
 #include "core/geometry/Via.h"
 #include "core/pcb/Drc.h"
@@ -127,6 +128,114 @@ TEST_CASE("runDrc flags a via whose drill isn't smaller than its own pad", "[pcb
     const bool hasDrillIssue = std::any_of(violations.begin(), violations.end(),
                                            [](const DrcViolation& v) { return v.message.find("drill") != std::string::npos; });
     REQUIRE(hasDrillIssue);
+}
+
+TEST_CASE("runDrc flags a via with too little annular ring", "[pcb][drc][annularring]") {
+    Document doc;
+    // diameter 0.5, drill 0.3 -> annular ring 0.1, under the default 0.15 minimum.
+    doc.addEntity(std::make_unique<ViaEntity>(doc.reserveEntityId(), doc.currentLayer(), Point2D(0, 0), 0.5, 0.3));
+    const std::vector<DrcViolation> violations = runDrc(doc);
+    const bool hasRingIssue = std::any_of(violations.begin(), violations.end(), [](const DrcViolation& v) {
+        return v.message.find("annular ring") != std::string::npos;
+    });
+    REQUIRE(hasRingIssue);
+}
+
+TEST_CASE("runDrc does not flag a via with adequate annular ring", "[pcb][drc][annularring]") {
+    Document doc;
+    // diameter 1.0, drill 0.3 -> annular ring 0.35, comfortably over 0.15.
+    doc.addEntity(std::make_unique<ViaEntity>(doc.reserveEntityId(), doc.currentLayer(), Point2D(0, 0), 1.0, 0.3));
+    const std::vector<DrcViolation> violations = runDrc(doc);
+    REQUIRE(std::none_of(violations.begin(), violations.end(), [](const DrcViolation& v) {
+        return v.message.find("annular ring") != std::string::npos;
+    }));
+}
+
+TEST_CASE("runDrc flags a through-hole footprint pad with too little annular ring", "[pcb][drc][annularring]") {
+    Document doc;
+    registerBuiltinSymbols(doc);
+    // CONN2_FP's own pads are 1.7 diameter, 1.0 drill -> ring 0.35, fine
+    // by default -- so this constructs a custom, deliberately thin one.
+    doc.addBlock("THIN_FP", {});
+    BlockDefinition* block = doc.findBlock("THIN_FP");
+    block->pads.push_back(Pad{"1", PadShape::Round, Point2D(0, 0), 0.5, 0.5, 0.4}); // ring 0.05, under 0.15
+    auto insert = std::make_unique<InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), block, Point2D(0, 0));
+    const EntityId insertId = insert->id();
+    doc.addEntity(std::move(insert));
+
+    const std::vector<DrcViolation> violations = runDrc(doc);
+    const bool flagged = std::any_of(violations.begin(), violations.end(), [&](const DrcViolation& v) {
+        return v.entityId == insertId && v.message.find("Pad annular ring") != std::string::npos;
+    });
+    REQUIRE(flagged);
+}
+
+TEST_CASE("runDrc flags two unconnected vias drilled too close together", "[pcb][drc][holetohole]") {
+    Document doc;
+    // Centers 0.3 apart, drill 0.2 each -> gap 0.1, under the default 0.25 minimum.
+    doc.addEntity(std::make_unique<ViaEntity>(doc.reserveEntityId(), doc.currentLayer(), Point2D(0, 0), 0.6, 0.2));
+    doc.addEntity(std::make_unique<ViaEntity>(doc.reserveEntityId(), doc.currentLayer(), Point2D(0.3, 0), 0.6, 0.2));
+
+    const std::vector<DrcViolation> violations = runDrc(doc);
+    const bool hasHoleIssue = std::any_of(violations.begin(), violations.end(), [](const DrcViolation& v) {
+        return v.message.find("Hole-to-hole") != std::string::npos;
+    });
+    REQUIRE(hasHoleIssue);
+}
+
+TEST_CASE("runDrc does not flag well-separated vias for hole-to-hole clearance", "[pcb][drc][holetohole]") {
+    Document doc;
+    doc.addEntity(std::make_unique<ViaEntity>(doc.reserveEntityId(), doc.currentLayer(), Point2D(0, 0), 0.6, 0.2));
+    doc.addEntity(std::make_unique<ViaEntity>(doc.reserveEntityId(), doc.currentLayer(), Point2D(5, 0), 0.6, 0.2));
+    const std::vector<DrcViolation> violations = runDrc(doc);
+    REQUIRE(std::none_of(violations.begin(), violations.end(), [](const DrcViolation& v) {
+        return v.message.find("Hole-to-hole") != std::string::npos;
+    }));
+}
+
+TEST_CASE("runDrc board-edge clearance is opt-in and only fires with real Edge.Cuts geometry", "[pcb][drc][boardedge]") {
+    Document doc;
+    doc.addEntity(std::make_unique<ViaEntity>(doc.reserveEntityId(), doc.currentLayer(), Point2D(100, 100), 0.6, 0.3));
+
+    // Off by default, even with no board outline drawn at all.
+    const std::vector<DrcViolation> defaultRun = runDrc(doc);
+    REQUIRE(std::none_of(defaultRun.begin(), defaultRun.end(),
+                        [](const DrcViolation& v) { return v.message.find("board") != std::string::npos; }));
+
+    // On, but still nothing to check against (no Edge.Cuts layer) -- no violation, not an error.
+    DrcRules rules;
+    rules.checkBoardEdgeClearance = true;
+    const std::vector<DrcViolation> noOutline = runDrc(doc, rules);
+    REQUIRE(std::none_of(noOutline.begin(), noOutline.end(),
+                        [](const DrcViolation& v) { return v.message.find("board") != std::string::npos; }));
+
+    const LayerId edgeCuts = doc.addLayer("Edge.Cuts", Color{0, 255, 0});
+    doc.addEntity(std::make_unique<PolylineEntity>(
+        doc.reserveEntityId(), edgeCuts, std::vector<Point2D>{{0, 0}, {20, 0}, {20, 20}, {0, 20}}, true));
+
+    const std::vector<DrcViolation> withOutline = runDrc(doc, rules);
+    const bool flaggedOutside = std::any_of(withOutline.begin(), withOutline.end(), [](const DrcViolation& v) {
+        return v.message.find("outside the board outline") != std::string::npos;
+    });
+    REQUIRE(flaggedOutside);
+}
+
+TEST_CASE("runDrc flags copper too close to the board edge even when still inside it", "[pcb][drc][boardedge]") {
+    Document doc;
+    const LayerId edgeCuts = doc.addLayer("Edge.Cuts", Color{0, 255, 0});
+    doc.addEntity(std::make_unique<PolylineEntity>(
+        doc.reserveEntityId(), edgeCuts, std::vector<Point2D>{{0, 0}, {20, 0}, {20, 20}, {0, 20}}, true));
+    // 0.1 from the left edge, well under the default 0.3 clearance, but
+    // still comfortably inside the board.
+    doc.addEntity(std::make_unique<ViaEntity>(doc.reserveEntityId(), doc.currentLayer(), Point2D(0.1, 10), 0.4, 0.2));
+
+    DrcRules rules;
+    rules.checkBoardEdgeClearance = true;
+    const std::vector<DrcViolation> violations = runDrc(doc, rules);
+    const bool flagged = std::any_of(violations.begin(), violations.end(), [](const DrcViolation& v) {
+        return v.message.find("within") != std::string::npos && v.message.find("board edge") != std::string::npos;
+    });
+    REQUIRE(flagged);
 }
 
 TEST_CASE("runDrc flags overlapping footprint courtyards only when checkCourtyards is enabled", "[pcb][drc]") {

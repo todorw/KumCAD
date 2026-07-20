@@ -91,3 +91,35 @@ TEST_CASE("routeDiffPair rejects a degenerate centerline", "[diffpair]") {
                                 Point2D(10, 1))
                      .ok);
 }
+
+TEST_CASE("routeDiffPair's NetClass overload uses the class's own diffPairGap", "[diffpair][netclass]") {
+    const std::vector<Point2D> centerline = {Point2D(0, 0), Point2D(50, 0)};
+    const Point2D pStart(0, 0.5), pEnd(50, 0.5);
+    const Point2D nStart(0, -0.5), nEnd(50, -0.5);
+
+    NetClass usbClass;
+    usbClass.name = "USB";
+    usbClass.diffPairGap = 0.15;
+
+    const DiffPairResult viaClass = routeDiffPair(centerline, usbClass, pStart, pEnd, nStart, nEnd);
+    const DiffPairResult viaRawGap = routeDiffPair(centerline, 0.15, pStart, pEnd, nStart, nEnd);
+    REQUIRE(viaClass.ok);
+    REQUIRE(viaClass.pPath.size() == viaRawGap.pPath.size());
+    for (std::size_t i = 0; i < viaClass.pPath.size(); ++i) {
+        REQUIRE(viaClass.pPath[i].x == Approx(viaRawGap.pPath[i].x));
+        REQUIRE(viaClass.pPath[i].y == Approx(viaRawGap.pPath[i].y));
+    }
+
+    // A different class's own gap really does produce different geometry
+    // -- proof the overload isn't just ignoring netClass and falling
+    // back to some hardcoded default.
+    NetClass wideClass;
+    wideClass.diffPairGap = 0.5;
+    const DiffPairResult viaWideClass = routeDiffPair(centerline, wideClass, pStart, pEnd, nStart, nEnd);
+    REQUIRE(viaWideClass.ok);
+    bool anyDifferent = false;
+    for (std::size_t i = 0; i < viaWideClass.pPath.size() && i < viaClass.pPath.size(); ++i) {
+        if (std::abs(viaWideClass.pPath[i].y - viaClass.pPath[i].y) > 1e-6) anyDifferent = true;
+    }
+    REQUIRE(anyDifferent);
+}

@@ -20,9 +20,26 @@ struct DrcRules {
     double minTrackWidth = 0.15;
     double minViaDiameter = 0.3;
     double minViaDrillDiameter = 0.2;
+    // Copper (diameter/width) left around a drilled hole -- via or
+    // through-hole pad, checked the same way for both. A real fab-house
+    // rule (too little annular ring risks the hole breaking out of the
+    // copper if drilling drifts even slightly), always on like the
+    // checks above since it's derived purely from fields every via/pad
+    // already has.
+    double minAnnularRing = 0.15;
+    // Minimum center-to-center distance, minus both drill radii, between
+    // any two UNCONNECTED drilled holes (via-via, via-pad, pad-pad) --
+    // a real mechanical constraint (drill bits colliding), not an
+    // electrical one, so it applies even where copper clearance
+    // wouldn't. Skips hole pairs already electrically joined (same
+    // connectivity component as the main clearance check), the same
+    // real, disclosed simplification: a via deliberately stacked
+    // directly in a through-hole pad is intentional design, not a
+    // manufacturing defect, and would otherwise always false-positive.
+    double minHoleToHoleClearance = 0.25;
 
-    // Both default OFF: unlike the checks above (always on), these two
-    // have no natural "already disabled" input the way an empty
+    // All three below default OFF: unlike the checks above (always on),
+    // they have no natural "already disabled" input the way an empty
     // nets/netClasses list does, so they're opt-in flags instead --
     // turning them on can't silently change behavior for any existing
     // caller that never asked for them.
@@ -30,6 +47,18 @@ struct DrcRules {
     double courtyardMargin = 0.25;
     bool checkSilkscreenOverPad = false; // flag any footprint's own silkscreen graphics coming within silkscreenClearance of ANY pad (its own or another's)
     double silkscreenClearance = 0.0;
+    // Flags copper (track/via/pad) that's outside the board outline
+    // entirely, or inside it but within boardEdgeClearance of its own
+    // edge -- derived from the Edge.Cuts layer via BoardOutline.h's own
+    // deriveBoardOutline, same as every other board-boundary-consuming
+    // function here. Off by default since not every document/test has
+    // Edge.Cuts geometry drawn at all; silently skipped (not an error)
+    // when deriveBoardOutline finds nothing even when this IS on, the
+    // same "nothing to check against" reasoning courtyard/silkscreen
+    // checks don't need since footprints/pads always exist by the time
+    // those run.
+    bool checkBoardEdgeClearance = false;
+    double boardEdgeClearance = 0.3;
 };
 
 struct DrcViolation {
@@ -73,18 +102,25 @@ struct DrcViolation {
 // conventions. Passing nets without netClasses (or vice versa) has no
 // effect; both are needed together for per-class rules to apply.
 //
-// Two more checks, both opt-in via rules.checkCourtyards/
-// checkSilkscreenOverPad (default off -- see DrcRules's own comment on
-// why these can't just default from an empty list the way stackup/net
-// classes do): courtyard overlap (no dedicated courtyard layer/shape
-// exists in this codebase, so each footprint's own INSERT bounding box,
-// expanded by courtyardMargin, stands in for one -- a real, disclosed
-// approximation) between any two footprints; and silkscreen-over-pad
-// (a footprint's own body/silkscreen graphics, via InsertEntity's
-// instantiate(), coming within silkscreenClearance of ANY pad, its own
-// included -- reuses each entity's own distanceTo() against every pad
-// approximated as a circle, the same convention the clearance check
-// above already uses for pads).
+// Two more always-on checks: minimum annular ring on every via AND
+// through-hole pad (rules.minAnnularRing); and hole-to-hole clearance
+// between every pair of unconnected drilled holes -- vias and
+// through-hole pads alike (rules.minHoleToHoleClearance).
+//
+// Three more checks, opt-in via rules.checkCourtyards/
+// checkSilkscreenOverPad/checkBoardEdgeClearance (default off -- see
+// DrcRules's own comment on why these can't just default from an empty
+// list the way stackup/net classes do): courtyard overlap (no dedicated
+// courtyard layer/shape exists in this codebase, so each footprint's own
+// INSERT bounding box, expanded by courtyardMargin, stands in for one --
+// a real, disclosed approximation) between any two footprints;
+// silkscreen-over-pad (a footprint's own body/silkscreen graphics, via
+// InsertEntity's instantiate(), coming within silkscreenClearance of ANY
+// pad, its own included -- reuses each entity's own distanceTo() against
+// every pad approximated as a circle, the same convention the clearance
+// check above already uses for pads); and board-edge clearance (any
+// copper outside the Edge.Cuts-derived board outline, or too close to
+// its own edge -- see DrcRules::checkBoardEdgeClearance's own comment).
 std::vector<DrcViolation> runDrc(const Document& doc, const DrcRules& rules = {}, const CopperStackup& stackup = {},
                                  const std::vector<ImportedNet>& nets = {}, const std::vector<NetClass>& netClasses = {});
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/geometry/Point2D.h"
+#include "core/pcb/NetClass.h"
 
 #include <vector>
 
@@ -34,6 +35,20 @@ struct DiffPairResult {
 // OTHER track in the pair by construction, not independently tunable in
 // this pass.
 DiffPairResult routeDiffPair(const std::vector<Point2D>& centerline, double gap, const Point2D& pStart,
+                             const Point2D& pEnd, const Point2D& nStart, const Point2D& nEnd,
+                             bool autoMatchLength = true);
+
+// Same as above, but gap comes from netClass.diffPairGap (see NetClass.h)
+// instead of a directly-passed value -- real per-net-class diff-pair
+// rules (a "USB" class routing a tighter/looser gap than "Default"),
+// mirroring the findNetClass-then-override pattern autoroute() and
+// runDrc() already use for trackWidth/clearance. netClass.diffPairWidth
+// is NOT applied here (this function only computes the pair's own
+// geometry, not track width -- see routeDiffPair's own header comment);
+// callers building the actual TrackEntity pair should read
+// netClass.diffPairWidth themselves the same way they already choose
+// pPath/nPath's width today.
+DiffPairResult routeDiffPair(const std::vector<Point2D>& centerline, const NetClass& netClass, const Point2D& pStart,
                              const Point2D& pEnd, const Point2D& nStart, const Point2D& nEnd,
                              bool autoMatchLength = true);
 

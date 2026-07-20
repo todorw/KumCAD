@@ -16,6 +16,17 @@ struct NetClass {
     std::string name = "Default";
     double clearance = 0.2;
     double trackWidth = 0.25;
+    // Real KiCad net classes also carry via size and diff-pair geometry
+    // on top of clearance/trackWidth -- wired into autoroute() (a
+    // connection needing a layer-switch via on this class uses these
+    // instead of AutorouteParams' own single global via size, the same
+    // per-class-overrides-global pattern trackWidth/clearance already
+    // follow there) and into DiffPair.h's own NetClass-aware
+    // routeDiffPair overload.
+    double viaDiameter = 0.6;
+    double viaDrillDiameter = 0.3;
+    double diffPairGap = 0.2;
+    double diffPairWidth = 0.25;
     std::vector<std::string> netNames; // which net names belong to this class
 };
 

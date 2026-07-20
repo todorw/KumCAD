@@ -29,7 +29,8 @@ InsertEntity* placeRFp(Document& doc, const std::string& refdes, Point2D at) {
 } // namespace
 
 TEST_CASE("findNetClass resolves a net to its own class, or nullptr if none match", "[pcb][netclass]") {
-    std::vector<NetClass> classes = {{"Power", 0.3, 0.5, {"VCC", "GND"}}, {"Signal", 0.15, 0.2, {"DATA"}}};
+    std::vector<NetClass> classes = {{.name = "Power", .clearance = 0.3, .trackWidth = 0.5, .netNames = {"VCC", "GND"}},
+                                     {.name = "Signal", .clearance = 0.15, .trackWidth = 0.2, .netNames = {"DATA"}}};
     REQUIRE(findNetClass(classes, "VCC") != nullptr);
     REQUIRE(findNetClass(classes, "VCC")->name == "Power");
     REQUIRE(findNetClass(classes, "DATA")->name == "Signal");
@@ -170,3 +171,16 @@ TEST_CASE("autoroute routes each net at its own net class's track width", "[pcb]
     const std::vector<DrcViolation> violations = runDrc(doc, {}, {}, {powerNet, signalNet}, {powerClass, signalClass});
     REQUIRE(violations.empty());
 }
+
+// Real, disclosed testing gap, same one AutorouterTests.cpp's own
+// multilayer section already documents: reliably forcing autoroute()
+// itself to place a MID-PATH via (not just recover a connection via
+// multi-layer mode in general) proved impractical after several
+// constructions -- the cost model never prefers a via over continuing
+// on a layer that's still open end-to-end, so there's no test here
+// asserting a specific via's own diameter/drillDiameter. The
+// per-connection resolution itself (findNetClass, then
+// connClass ? connClass->viaDiameter : params.viaDiameter) is the exact
+// same pattern connTrackWidth/connClearance already use just above,
+// and those ARE verified end-to-end by the track-width test above this
+// comment -- reviewed by inspection rather than a flaky forced-via test.

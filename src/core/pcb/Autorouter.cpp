@@ -262,6 +262,11 @@ RoutingPass runRoutingPass(Document& doc, const std::vector<PendingConnection>& 
         const NetClass* connClass = findNetClass(netClasses, conn.netName);
         const double connTrackWidth = connClass ? connClass->trackWidth : params.trackWidth;
         const double connClearance = connClass ? connClass->clearance : params.clearance;
+        // Same per-class-overrides-global pattern for a layer-switch
+        // via's own size, e.g. a "Power" class routing wider tracks
+        // through bigger vias than "Default".
+        const double connViaDiameter = connClass ? connClass->viaDiameter : params.viaDiameter;
+        const double connViaDrillDiameter = connClass ? connClass->viaDrillDiameter : params.viaDrillDiameter;
 
         std::vector<std::vector<bool>> obstacle = keepoutGrid;
         for (const PlacedPad& pad : allPads) {
@@ -345,13 +350,13 @@ RoutingPass runRoutingPass(Document& doc, const std::vector<PendingConnection>& 
                 // cellPath[i] share the same (x,y) (a via-switch move) --
                 // place the via at that shared position.
                 const Point2D viaPos = toWorld(cellPath[i - 1], minX, minY, params.gridSize);
-                auto via = std::make_unique<ViaEntity>(doc.reserveEntityId(), layers.front(), viaPos, params.viaDiameter,
-                                                       params.viaDrillDiameter);
+                auto via = std::make_unique<ViaEntity>(doc.reserveEntityId(), layers.front(), viaPos, connViaDiameter,
+                                                       connViaDrillDiameter);
                 via->throughHole = true;
                 const EntityId viaId = via->id();
                 doc.addEntity(std::move(via));
                 pass.addedEntityIds.push_back(viaId);
-                routedVias.push_back({viaPos, conn.netName, params.viaDiameter, connClearance});
+                routedVias.push_back({viaPos, conn.netName, connViaDiameter, connClearance});
             }
 
             runStart = i;

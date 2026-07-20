@@ -90,4 +90,9 @@ DiffPairResult routeDiffPair(const std::vector<Point2D>& centerline, double gap,
     return result;
 }
 
+DiffPairResult routeDiffPair(const std::vector<Point2D>& centerline, const NetClass& netClass, const Point2D& pStart,
+                             const Point2D& pEnd, const Point2D& nStart, const Point2D& nEnd, bool autoMatchLength) {
+    return routeDiffPair(centerline, netClass.diffPairGap, pStart, pEnd, nStart, nEnd, autoMatchLength);
+}
+
 } // namespace lcad
