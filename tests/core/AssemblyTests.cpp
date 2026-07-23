@@ -372,3 +372,97 @@ TEST_CASE("analyzeAssemblyDof flags a component mated more than once (later mate
     REQUIRE(report.multiplyMatedComponentIndices[0] == idxTarget);
     REQUIRE(report.unplacedComponentIndices.empty());
 }
+
+TEST_CASE("Assembly Tangent mate rotates componentB's axis parallel to componentA's plane and offsets it "
+         "by the cylinder radius",
+         "[core3d][assembly][tangent]") {
+    Assembly asm_;
+    AssemblyComponent a;
+    a.shape = makeBox(10.0);
+    a.fixed = true;
+    const int idxA = asm_.addComponent(a);
+
+    AssemblyComponent b;
+    b.shape = makeBox(2.0);
+    const int idxB = asm_.addComponent(b);
+    asm_.components()[static_cast<std::size_t>(idxB)].placement.SetTranslationPart(gp_Vec(5.0, 5.0, 5.0));
+
+    Mate mate;
+    mate.type = MateType::Tangent;
+    mate.componentA = idxA;
+    mate.componentB = idxB;
+    mate.adx = 0.0; mate.ady = 0.0; mate.adz = 1.0; // A's plane: the world XY plane (normal +Z) at Z=0
+    mate.bx = 0.0; mate.by = 0.0; mate.bz = 0.0;
+    // B's own cylinder axis starts tilted 45 degrees off the plane's normal.
+    mate.bdx = 1.0; mate.bdy = 0.0; mate.bdz = 1.0;
+    mate.value = 2.5; // cylinder radius
+    asm_.addMate(mate);
+
+    asm_.solve();
+
+    const gp_Trsf& placement = asm_.components()[static_cast<std::size_t>(idxB)].placement;
+    const gp_Pnt axisPoint = gp_Pnt(0, 0, 0).Transformed(placement);
+    const gp_Pnt axisTip = gp_Pnt(1, 0, 1).Transformed(placement);
+    const gp_Vec axisDir = (gp_Vec(axisPoint, axisTip)) / axisPoint.Distance(axisTip);
+
+    // The axis is now parallel to the plane (perpendicular to +Z)...
+    REQUIRE(std::abs(axisDir.Z()) < 1e-6);
+    // ...and its reference point sits exactly `value` above the plane.
+    REQUIRE(axisPoint.Z() == Approx(2.5).margin(1e-6));
+}
+
+TEST_CASE("Assembly Tangent mate is idempotent: solving twice doesn't drift the offset", "[core3d][assembly][tangent]") {
+    Assembly asm_;
+    AssemblyComponent a;
+    a.shape = makeBox(10.0);
+    a.fixed = true;
+    const int idxA = asm_.addComponent(a);
+    AssemblyComponent b;
+    b.shape = makeBox(2.0);
+    const int idxB = asm_.addComponent(b);
+
+    Mate mate;
+    mate.type = MateType::Tangent;
+    mate.componentA = idxA;
+    mate.componentB = idxB;
+    mate.adz = 1.0;
+    mate.bdx = 1.0;
+    mate.value = 3.0;
+    asm_.addMate(mate);
+
+    asm_.solve();
+    const double firstZ = gp_Pnt(0, 0, 0).Transformed(asm_.components()[static_cast<std::size_t>(idxB)].placement).Z();
+    asm_.solve();
+    const double secondZ = gp_Pnt(0, 0, 0).Transformed(asm_.components()[static_cast<std::size_t>(idxB)].placement).Z();
+    REQUIRE(firstZ == Approx(3.0).margin(1e-6));
+    REQUIRE(secondZ == Approx(3.0).margin(1e-6));
+}
+
+TEST_CASE("detectInterferences reports overlapping placed components and skips non-overlapping ones",
+         "[core3d][assembly][interference]") {
+    Assembly asm_;
+    AssemblyComponent a;
+    a.shape = makeBox(10.0); // [0,10]^3
+    a.fixed = true;
+    const int idxA = asm_.addComponent(a);
+
+    AssemblyComponent overlapping;
+    overlapping.shape = makeBox(4.0); // [0,4]^3 locally
+    overlapping.placement.SetTranslationPart(gp_Vec(5.0, 5.0, 5.0)); // world [5,9]^3 -- overlaps A's [0,10]^3
+    const int idxOverlap = asm_.addComponent(overlapping);
+
+    AssemblyComponent disjoint;
+    disjoint.shape = makeBox(4.0);
+    disjoint.placement.SetTranslationPart(gp_Vec(100.0, 100.0, 100.0)); // far away, no overlap
+    const int idxDisjoint = asm_.addComponent(disjoint);
+
+    const std::vector<InterferencePair> pairs = detectInterferences(asm_);
+    REQUIRE(pairs.size() == 1);
+    REQUIRE(((pairs[0].componentA == idxA && pairs[0].componentB == idxOverlap) ||
+            (pairs[0].componentA == idxOverlap && pairs[0].componentB == idxA)));
+    // The overlap region is [5,9]x[5,9]x[5,9] -- since A spans [0,10] and
+    // the box at (5,5,5) spans [5,9] on every axis, the intersection is
+    // the whole smaller box: 4*4*4 = 64.
+    REQUIRE(pairs[0].interferenceVolume == Approx(64.0).epsilon(0.01));
+    (void)idxDisjoint;
+}

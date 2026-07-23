@@ -1,5 +1,9 @@
 #include "core/core3d/Assembly.h"
 
+#include <BRepAlgoAPI_Common.hxx>
+#include <BRepBuilderAPI_Transform.hxx>
+#include <BRepGProp.hxx>
+#include <GProp_GProps.hxx>
 #include <gp_Ax1.hxx>
 #include <gp_Dir.hxx>
 #include <gp_Pnt.hxx>
@@ -35,11 +39,11 @@ void Assembly::solve() {
         const gp_Pnt worldPointA = localPointA.Transformed(compA.placement);
         const gp_Dir worldDirA = localDirA.Transformed(compA.placement);
 
-        if (m.type == MateType::Parallel || m.type == MateType::Perpendicular) {
+        if (m.type == MateType::Parallel || m.type == MateType::Perpendicular || m.type == MateType::Tangent) {
             const gp_Dir currentDirB = localDirB.Transformed(compB.placement);
             gp_Dir target = worldDirA;
 
-            if (m.type == MateType::Perpendicular) {
+            if (m.type == MateType::Perpendicular || m.type == MateType::Tangent) {
                 // Project currentDirB onto the plane perpendicular to
                 // worldDirA -- the closest perpendicular direction to
                 // componentB's own current one, for a minimal rotation.
@@ -68,6 +72,18 @@ void Assembly::solve() {
                 gp_Trsf pivotRotation;
                 pivotRotation.SetRotation(gp_Ax1(worldPointB, gp_Dir(axis)), angle);
                 compB.placement = pivotRotation.Multiplied(compB.placement);
+            }
+
+            if (m.type == MateType::Tangent) {
+                // Slide componentB along worldDirA only (never within the
+                // plane, which the rotation above already left untouched)
+                // so its reference axis point ends up exactly `value`
+                // (the cylinder radius) from componentA's plane.
+                const gp_Pnt worldPointB = localPointB.Transformed(compB.placement);
+                const double currentDist = gp_Vec(worldPointA, worldPointB).Dot(gp_Vec(worldDirA));
+                gp_Trsf slide;
+                slide.SetTranslation(gp_Vec(worldDirA) * (m.value - currentDist));
+                compB.placement = slide.Multiplied(compB.placement);
             }
             continue;
         }
@@ -122,6 +138,34 @@ AssemblyDofReport analyzeAssemblyDof(const Assembly& assembly) {
         if (matedCount[i] > 1) report.multiplyMatedComponentIndices.push_back(static_cast<int>(i));
     }
     return report;
+}
+
+std::vector<InterferencePair> detectInterferences(const Assembly& assembly) {
+    std::vector<InterferencePair> result;
+    const auto& components = assembly.components();
+    constexpr double kVolumeEpsilon = 1e-6;
+
+    std::vector<TopoDS_Shape> placed(components.size());
+    for (std::size_t i = 0; i < components.size(); ++i) {
+        if (components[i].shape.IsNull()) continue;
+        placed[i] = BRepBuilderAPI_Transform(components[i].shape, components[i].placement, true).Shape();
+    }
+
+    for (std::size_t i = 0; i < placed.size(); ++i) {
+        if (placed[i].IsNull()) continue;
+        for (std::size_t j = i + 1; j < placed.size(); ++j) {
+            if (placed[j].IsNull()) continue;
+            BRepAlgoAPI_Common common(placed[i], placed[j]);
+            if (!common.IsDone()) continue;
+            GProp_GProps props;
+            BRepGProp::VolumeProperties(common.Shape(), props);
+            const double volume = props.Mass();
+            if (volume > kVolumeEpsilon) {
+                result.push_back({static_cast<int>(i), static_cast<int>(j), volume});
+            }
+        }
+    }
+    return result;
 }
 
 } // namespace lcad

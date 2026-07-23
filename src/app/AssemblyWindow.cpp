@@ -36,6 +36,7 @@ QString mateTypeName(MateType type) {
     case MateType::Angle: return QStringLiteral("Angle");
     case MateType::Parallel: return QStringLiteral("Parallel");
     case MateType::Perpendicular: return QStringLiteral("Perpendicular");
+    case MateType::Tangent: return QStringLiteral("Tangent");
     }
     return QStringLiteral("Mate");
 }
@@ -105,7 +106,7 @@ public:
 
         m_typeCombo = new QComboBox(this);
         for (MateType type : {MateType::Coincident, MateType::Concentric, MateType::Distance, MateType::Angle,
-                             MateType::Parallel, MateType::Perpendicular}) {
+                             MateType::Parallel, MateType::Perpendicular, MateType::Tangent}) {
             m_typeCombo->addItem(mateTypeName(type), static_cast<int>(type));
         }
         form->addRow(QStringLiteral("Type:"), m_typeCombo);

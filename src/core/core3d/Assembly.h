@@ -67,6 +67,18 @@ enum class MateType {
                    // perpendicular when componentB's current direction is already exactly
                    // parallel to componentA's, since then any perpendicular direction is equally
                    // valid and there's no "closest" one to prefer)
+    // A cylindrical face (componentB's reference axis, radius `value`)
+    // resting tangent to a planar face (componentA's reference point +
+    // normal) -- the common "pin/shaft against a flat face" real case.
+    // General face-face or cylinder-cylinder tangency is out of scope
+    // (see Assembly.cpp's solve() for the exact construction). Rotates
+    // componentB's reference axis to the closest-to-current direction
+    // perpendicular to componentA's plane (identical minimal-rotation rule
+    // as Perpendicular), the same "closed-form, only touch what the mate
+    // actually constrains" philosophy: componentB's position within the
+    // plane is left wherever it already was, only the perpendicular
+    // distance from the plane is corrected to exactly `value`.
+    Tangent,
 };
 
 struct Mate {
@@ -82,7 +94,7 @@ struct Mate {
     double bx = 0.0, by = 0.0, bz = 0.0;
     double bdx = 0.0, bdy = 0.0, bdz = 1.0;
 
-    double value = 0.0; // Distance offset, or Angle degrees
+    double value = 0.0; // Distance offset, Angle degrees, or Tangent's cylinder radius
 };
 
 class Assembly {
@@ -120,5 +132,23 @@ struct AssemblyDofReport {
 };
 
 AssemblyDofReport analyzeAssemblyDof(const Assembly& assembly);
+
+// One pair of components whose placed (world-transformed) shapes overlap
+// by a non-trivial volume.
+struct InterferencePair {
+    int componentA = -1;
+    int componentB = -1;
+    double interferenceVolume = 0.0;
+};
+
+// Pairwise solid-solid intersection check across every placed component,
+// at its CURRENT world placement (call Assembly::solve() first if mates
+// haven't been solved yet) -- an O(n^2) real boolean common + volume
+// check per pair (BRepAlgoAPI_Common + BRepGProp), fine for the small
+// (tens-of-parts) assemblies this codebase's own Assembly window targets,
+// not attempted at real large-assembly scale. A pair whose common volume
+// is below a small epsilon (touching but not overlapping, or numerically
+// negligible) is not reported.
+std::vector<InterferencePair> detectInterferences(const Assembly& assembly);
 
 } // namespace lcad
