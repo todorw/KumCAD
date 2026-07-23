@@ -8,14 +8,55 @@
 
 namespace lcad {
 
-// The hatch patterns KumCAD ships with (acad.pat subset). Solid is a filled
-// polygon; the others are line-family patterns clipped to the boundary.
+// The hatch patterns KumCAD ships with. Solid is a filled polygon; the rest
+// are line-family patterns clipped to the boundary. These are geometric
+// reconstructions of the standard drafting conventions the acad.pat names
+// denote (ANSI/ISO section-lining symbols, and common material/texture
+// symbols) -- angles, spacing ratios and dash cadence are real and true to
+// the drafting standard each name refers to, but the exact byte-for-byte
+// offsets of Autodesk's own acad.pat are proprietary and not reproduced here.
 enum class HatchPattern {
     Solid,
     Ansi31,
     Ansi32,
     Ansi33,
+    Ansi34,
+    Ansi35,
+    Ansi36,
     Ansi37,
+    Ansi38,
+    Iso02W100,
+    Iso03W100,
+    Iso04W100,
+    Iso05W100,
+    Iso06W100,
+    Iso07W100,
+    Iso08W100,
+    Iso09W100,
+    Iso10W100,
+    Iso11W100,
+    Iso12W100,
+    Iso13W100,
+    Iso14W100,
+    Iso15W100,
+    Line,
+    Dash,
+    Dots,
+    Cross,
+    Net,
+    Net3,
+    Square,
+    Hex,
+    Honey,
+    Triang,
+    Zigzag,
+    Angle,
+    Brick,
+    Grass,
+    Gravel,
+    Steel,
+    Swamp,
+    Earth,
 };
 
 // One family of parallel lines from a .pat definition, at pattern scale 1:

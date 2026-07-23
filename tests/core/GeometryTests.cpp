@@ -783,6 +783,68 @@ TEST_CASE("Hatch pattern lines are clipped to the boundary", "[geometry][hatch]"
     REQUIRE(std::abs(d0.x) == Approx(0.0).margin(1e-6)); // 45 + 45 = vertical
 }
 
+TEST_CASE("Expanded hatch pattern library is complete and geometrically sane", "[geometry][hatch]") {
+    const auto& all = lcad::allHatchPatterns();
+    REQUIRE(all.size() >= 40); // grew from the original 5 (Solid + ANSI31/32/33/37)
+
+    // Every pattern name round-trips through the lookup table.
+    for (lcad::HatchPattern p : all) {
+        const std::string name = lcad::hatchPatternName(p);
+        const auto found = lcad::hatchPatternFromName(name);
+        REQUIRE(found.has_value());
+        REQUIRE(*found == p);
+    }
+
+    // Every non-solid pattern has at least one line family with finite,
+    // non-zero perpendicular spacing (else patternSegments() silently skips
+    // it and the pattern would render as nothing).
+    for (lcad::HatchPattern p : all) {
+        if (p == lcad::HatchPattern::Solid) continue;
+        const auto& lines = lcad::hatchPatternLines(p);
+        REQUIRE_FALSE(lines.empty());
+        bool anyFinite = false;
+        for (const auto& fam : lines) {
+            if (std::abs(fam.offset.y) > 1e-9) anyFinite = true;
+        }
+        REQUIRE(anyFinite);
+    }
+
+    // Spot-check named grid patterns cross at the angles their names imply.
+    const auto& cross = lcad::hatchPatternLines(lcad::HatchPattern::Cross);
+    REQUIRE(cross.size() == 2);
+    REQUIRE(cross[0].angleDeg == Approx(0.0));
+    REQUIRE(cross[1].angleDeg == Approx(90.0));
+
+    const auto& net = lcad::hatchPatternLines(lcad::HatchPattern::Net);
+    REQUIRE(net.size() == 2);
+    REQUIRE(net[0].angleDeg == Approx(45.0));
+    REQUIRE(net[1].angleDeg == Approx(135.0));
+
+    const auto& net3 = lcad::hatchPatternLines(lcad::HatchPattern::Net3);
+    REQUIRE(net3.size() == 3);
+
+    // Rendering sanity across a representative sample (ANSI series, an ISO
+    // dotted line-type, and a couple of the named material symbols): every
+    // clipped segment must stay inside the boundary square.
+    const std::vector<lcad::HatchPattern> sample{
+        lcad::HatchPattern::Ansi34,  lcad::HatchPattern::Ansi38,  lcad::HatchPattern::Iso07W100,
+        lcad::HatchPattern::Brick,   lcad::HatchPattern::Steel,   lcad::HatchPattern::Grass,
+        lcad::HatchPattern::Swamp,   lcad::HatchPattern::Zigzag,  lcad::HatchPattern::Hex,
+    };
+    std::vector<lcad::Point2D> square{{0, 0}, {10, 0}, {10, 10}, {0, 10}};
+    for (lcad::HatchPattern p : sample) {
+        lcad::HatchEntity hatch(1, 0, square, p, 1.0, 0.0);
+        const auto segs = hatch.patternSegments();
+        REQUIRE_FALSE(segs.empty());
+        for (const auto& [a, b] : segs) {
+            REQUIRE(a.x >= -1e-6); REQUIRE(a.x <= 10 + 1e-6);
+            REQUIRE(a.y >= -1e-6); REQUIRE(a.y <= 10 + 1e-6);
+            REQUIRE(b.x >= -1e-6); REQUIRE(b.x <= 10 + 1e-6);
+            REQUIRE(b.y >= -1e-6); REQUIRE(b.y <= 10 + 1e-6);
+        }
+    }
+}
+
 TEST_CASE("MText wraps, measures, and decodes content codes", "[geometry][mtext]") {
     // 0.6 * height(2) = 1.2 per char; width 24 -> 20 chars per line.
     lcad::MTextEntity mtext(1, 0, lcad::Point2D(0, 0), "hello world this is a long line", 2.0, 24.0);
