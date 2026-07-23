@@ -293,6 +293,124 @@ TEST_CASE("runErc does not double-report a lone Power pin: only the plain \"unco
     REQUIRE(issues[0].message.find("unconnected") != std::string::npos);
 }
 
+TEST_CASE("runErc flags an Output tied to a PowerOutput as a driver conflict (not just Output-Output)",
+         "[schematic][erc]") {
+    Document doc;
+    doc.addBlock("GATE", {});
+    BlockDefinition* gate = doc.findBlock("GATE");
+    gate->pins.push_back(Pin{"OUT", "1", PinElectricalType::Output, Point2D(0, 0), Point2D(-5, 0)});
+
+    doc.addBlock("REG", {});
+    BlockDefinition* reg = doc.findBlock("REG");
+    reg->pins.push_back(Pin{"VOUT", "1", PinElectricalType::PowerOutput, Point2D(0, 0), Point2D(-5, 0)});
+
+    doc.addEntity(std::make_unique<InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), gate, Point2D(0, 0)));
+    doc.addEntity(std::make_unique<InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), reg, Point2D(0, 20)));
+    doc.addEntity(std::make_unique<WireEntity>(doc.reserveEntityId(), doc.currentLayer(),
+                                               std::vector<Point2D>{Point2D(0, 0), Point2D(0, 20)}));
+
+    const std::vector<Net> nets = computeNets(doc);
+    const std::vector<ErcIssue> issues = runErc(doc, nets);
+    const bool hasConflict = std::any_of(issues.begin(), issues.end(), [](const ErcIssue& issue) {
+        return issue.severity == ErcIssue::Severity::Error && issue.message.find("driving pins") != std::string::npos;
+    });
+    REQUIRE(hasConflict);
+}
+
+TEST_CASE("runErc warns about a Bidirectional pin sharing a net with an Output driver", "[schematic][erc]") {
+    Document doc;
+    doc.addBlock("GATE", {});
+    BlockDefinition* gate = doc.findBlock("GATE");
+    gate->pins.push_back(Pin{"OUT", "1", PinElectricalType::Output, Point2D(0, 0), Point2D(-5, 0)});
+
+    doc.addBlock("BUS_IC", {});
+    BlockDefinition* busIc = doc.findBlock("BUS_IC");
+    busIc->pins.push_back(Pin{"IO", "1", PinElectricalType::Bidirectional, Point2D(0, 0), Point2D(-5, 0)});
+
+    doc.addEntity(std::make_unique<InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), gate, Point2D(0, 0)));
+    doc.addEntity(std::make_unique<InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), busIc, Point2D(0, 20)));
+    doc.addEntity(std::make_unique<WireEntity>(doc.reserveEntityId(), doc.currentLayer(),
+                                               std::vector<Point2D>{Point2D(0, 0), Point2D(0, 20)}));
+
+    const std::vector<Net> nets = computeNets(doc);
+    const std::vector<ErcIssue> issues = runErc(doc, nets);
+    const bool hasContention = std::any_of(issues.begin(), issues.end(), [](const ErcIssue& issue) {
+        return issue.severity == ErcIssue::Severity::Warning && issue.message.find("contention") != std::string::npos;
+    });
+    REQUIRE(hasContention);
+}
+
+TEST_CASE("runErc does NOT warn about two OpenCollector pins wired together (real wired-OR pattern)",
+         "[schematic][erc]") {
+    Document doc;
+    doc.addBlock("OC", {});
+    BlockDefinition* oc = doc.findBlock("OC");
+    oc->pins.push_back(Pin{"Y", "1", PinElectricalType::OpenCollector, Point2D(0, 0), Point2D(-5, 0)});
+
+    doc.addEntity(std::make_unique<InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), oc, Point2D(0, 0)));
+    doc.addEntity(std::make_unique<InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), oc, Point2D(0, 20)));
+    doc.addEntity(std::make_unique<WireEntity>(doc.reserveEntityId(), doc.currentLayer(),
+                                               std::vector<Point2D>{Point2D(0, 0), Point2D(0, 20)}));
+
+    const std::vector<Net> nets = computeNets(doc);
+    const std::vector<ErcIssue> issues = runErc(doc, nets);
+    const bool hasWarning = std::any_of(issues.begin(), issues.end(), [](const ErcIssue& issue) {
+        return issue.message.find("OpenCollector") != std::string::npos;
+    });
+    REQUIRE_FALSE(hasWarning);
+}
+
+TEST_CASE("runErc flags two symbol instances sharing the same reference designator", "[schematic][erc]") {
+    Document doc;
+    const BlockDefinition* r = addTwoPinSymbol(doc, "R");
+
+    auto insertA = std::make_unique<InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), r, Point2D(0, 0));
+    insertA->setAttribute("REFDES", "R1");
+    doc.addEntity(std::move(insertA));
+    auto insertB = std::make_unique<InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), r, Point2D(0, 20));
+    insertB->setAttribute("REFDES", "R1");
+    doc.addEntity(std::move(insertB));
+
+    const std::vector<Net> nets = computeNets(doc);
+    const std::vector<ErcIssue> issues = runErc(doc, nets);
+    const bool hasDuplicate = std::any_of(issues.begin(), issues.end(), [](const ErcIssue& issue) {
+        return issue.severity == ErcIssue::Severity::Error && issue.message.find("Duplicate reference designator") != std::string::npos;
+    });
+    REQUIRE(hasDuplicate);
+}
+
+TEST_CASE("runErc warns about a component with a reference designator but no footprint assigned",
+         "[schematic][erc]") {
+    Document doc;
+    const BlockDefinition* r = addTwoPinSymbol(doc, "R");
+    auto insert = std::make_unique<InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), r, Point2D(0, 0));
+    insert->setAttribute("REFDES", "R1");
+    doc.addEntity(std::move(insert));
+
+    const std::vector<Net> nets = computeNets(doc);
+    const std::vector<ErcIssue> issues = runErc(doc, nets);
+    const bool hasMissingFootprint = std::any_of(issues.begin(), issues.end(), [](const ErcIssue& issue) {
+        return issue.message.find("no footprint assigned") != std::string::npos;
+    });
+    REQUIRE(hasMissingFootprint);
+}
+
+TEST_CASE("runErc does not warn about missing footprint once one is assigned", "[schematic][erc]") {
+    Document doc;
+    const BlockDefinition* r = addTwoPinSymbol(doc, "R");
+    auto insert = std::make_unique<InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), r, Point2D(0, 0));
+    insert->setAttribute("REFDES", "R1");
+    insert->setAttribute("FOOTPRINT", "R_0603");
+    doc.addEntity(std::move(insert));
+
+    const std::vector<Net> nets = computeNets(doc);
+    const std::vector<ErcIssue> issues = runErc(doc, nets);
+    const bool hasMissingFootprint = std::any_of(issues.begin(), issues.end(), [](const ErcIssue& issue) {
+        return issue.message.find("no footprint assigned") != std::string::npos;
+    });
+    REQUIRE_FALSE(hasMissingFootprint);
+}
+
 TEST_CASE("formatNetlist lists nets with resolved reference designators", "[schematic][netlist]") {
     Document doc;
     const BlockDefinition* r = addTwoPinSymbol(doc, "R");

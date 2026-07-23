@@ -10,10 +10,7 @@ namespace lcad {
 
 class Document;
 
-// One ERC finding. Scoped to the two headline checks real schematic tools
-// lead with -- a full configurable pin-conflict matrix (KiCad's ERC rules
-// file) is out of scope; see runErc's own comment for exactly what's
-// checked.
+// One ERC finding.
 struct ErcIssue {
     enum class Severity { Warning, Error };
     Severity severity;
@@ -21,7 +18,8 @@ struct ErcIssue {
     EntityId insertId = 0; // the symbol instance the issue is about, 0 if net-wide
 };
 
-// Runs ERC over nets (as returned by computeNets(doc)):
+// Runs ERC over nets (as returned by computeNets(doc)), plus document-wide
+// (not net-scoped) checks. Net-scoped checks:
 //  - a pin with no NoConnect marker sitting alone in its own net (nothing
 //    wired to it) -- Warning, unless its electrical type is NotConnected.
 //  - a pin whose electrical type is NotConnected but whose net has more
@@ -34,6 +32,25 @@ struct ErcIssue {
 //    most common real findings (a supply pin left dangling). PowerOutput
 //    is the distinct pin type a real power source (a battery/regulator
 //    terminal) uses -- see PinElectricalType in Block.h.
+//  - a pin-electrical-type conflict matrix approximating KiCad's own
+//    default ERC severity table (not a byte-identical copy -- KiCad's own
+//    matrix is user-configurable and has shifted across versions):
+//      * more than one "hard driver" (Output/PowerOutput) tied together
+//        that isn't already the plain Output-Output case above (e.g. an
+//        Output tied to a PowerOutput, or two PowerOutputs shorted) --
+//        Error.
+//      * a Bidirectional or TriState pin sharing a net with a hard driver
+//        -- Warning (potential bus contention; legitimate in a real
+//        tri-stated bus, but worth a human's attention).
+//      * an OpenCollector pin sharing a net with an Output pin -- Warning
+//        (an OpenCollector wired *only* with other OpenCollector pins,
+//        the real wired-OR/wired-AND pattern, is NOT flagged).
+// Document-wide checks (independent of net topology):
+//  - two or more symbol instances sharing the same non-empty REFDES
+//    attribute -- Error, "duplicate reference designator".
+//  - a symbol instance with a REFDES but no (or empty) FOOTPRINT
+//    attribute -- Warning, "no footprint assigned" (mirrors KiCad's own
+//    "unannotated footprint" ERC check).
 std::vector<ErcIssue> runErc(const Document& doc, const std::vector<Net>& nets);
 
 } // namespace lcad
