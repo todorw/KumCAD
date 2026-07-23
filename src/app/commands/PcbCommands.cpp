@@ -4,6 +4,8 @@
 #include "core/geometry/Polyline.h"
 #include "core/geometry/Track.h"
 #include "core/geometry/Via.h"
+#include "core/io/KiCadPcb.h"
+#include "core/io/KiCadSch.h"
 #include "core/pcb/Autorouter.h"
 #include "core/pcb/CopperPour.h"
 #include "core/pcb/FootprintGenerator.h"
@@ -603,4 +605,65 @@ std::optional<QString> FootprintGenCommand::onText(const QString& text) {
             .arg(params.pinCount * params.rowCount);
     }
     return QStringLiteral("*Unknown family \"%1\" -- expected QFP, SOIC, or HEADER*").arg(family);
+}
+
+std::optional<QString> KiCadSchExportCommand::onText(const QString& text) {
+    m_finished = true;
+    std::string error;
+    if (!lcad::writeKiCadSch(m_document, text.trimmed().toStdString(), &error)) {
+        return QStringLiteral("*%1*").arg(QString::fromStdString(error));
+    }
+    return QStringLiteral("*Schematic written to %1*").arg(text.trimmed());
+}
+
+std::optional<QString> KiCadSchImportCommand::onText(const QString& text) {
+    m_finished = true;
+    const std::size_t before = m_document.entities().size();
+    std::string error;
+    if (!lcad::readKiCadSch(m_document, text.trimmed().toStdString(), &error)) {
+        return QStringLiteral("*%1*").arg(QString::fromStdString(error));
+    }
+    const std::size_t added = m_document.entities().size() - before;
+    return QStringLiteral("*Schematic imported from %1 (%2 entit%3 added)*")
+        .arg(text.trimmed())
+        .arg(added)
+        .arg(added == 1 ? QStringLiteral("y") : QStringLiteral("ies"));
+}
+
+std::optional<QString> KiCadPcbExportCommand::onText(const QString& text) {
+    if (m_stage == Stage::Path) {
+        m_outputPath = text.trimmed().toStdString();
+        m_stage = Stage::NetlistPath;
+        return QStringLiteral("Netlist file path for real net names (Enter to skip):");
+    }
+
+    m_finished = true;
+    std::vector<lcad::ImportedNet> nets;
+    const std::string netlistPath = text.trimmed().toStdString();
+    if (!netlistPath.empty()) {
+        std::ifstream in(netlistPath, std::ios::binary);
+        if (!in) return QStringLiteral("*Could not open %1*").arg(text.trimmed());
+        std::ostringstream buffer;
+        buffer << in.rdbuf();
+        nets = lcad::parseNetlist(buffer.str());
+    }
+    std::string error;
+    if (!lcad::writeKiCadPcb(m_document, nets, m_outputPath, &error)) {
+        return QStringLiteral("*%1*").arg(QString::fromStdString(error));
+    }
+    return QStringLiteral("*Board written to %1*").arg(QString::fromStdString(m_outputPath));
+}
+
+std::optional<QString> KiCadPcbImportCommand::onText(const QString& text) {
+    m_finished = true;
+    const std::size_t before = m_document.entities().size();
+    std::string error;
+    if (!lcad::readKiCadPcb(m_document, text.trimmed().toStdString(), &error)) {
+        return QStringLiteral("*%1*").arg(QString::fromStdString(error));
+    }
+    const std::size_t added = m_document.entities().size() - before;
+    return QStringLiteral("*Board imported from %1 (%2 entit%3 added)*")
+        .arg(text.trimmed())
+        .arg(added)
+        .arg(added == 1 ? QStringLiteral("y") : QStringLiteral("ies"));
 }

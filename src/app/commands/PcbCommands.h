@@ -316,3 +316,92 @@ private:
     std::string m_name;
     bool m_finished = false;
 };
+
+// KICADSCHEXPORT: output file path -- writes a real .kicad_sch schematic
+// file (see core/io/KiCadSch.h) from the current document.
+class KiCadSchExportCommand : public DrawCommand {
+public:
+    explicit KiCadSchExportCommand(lcad::Document& document) : m_document(document) {}
+
+    QString start() override { return QStringLiteral("KICADSCHEXPORT  Enter output file path:"); }
+    std::optional<QString> onPoint(const lcad::Point2D& pt) override {
+        (void)pt;
+        return std::nullopt;
+    }
+    bool wantsTextInput() const override { return true; }
+    std::optional<QString> onText(const QString& text) override;
+    bool isFinished() const override { return m_finished; }
+    void cancel() override { m_finished = true; }
+
+private:
+    lcad::Document& m_document;
+    bool m_finished = false;
+};
+
+// KICADSCHIMPORT: input file path -- reads a real .kicad_sch schematic
+// file into the current document (see core/io/KiCadSch.h).
+class KiCadSchImportCommand : public DrawCommand {
+public:
+    explicit KiCadSchImportCommand(lcad::Document& document) : m_document(document) {}
+
+    QString start() override { return QStringLiteral("KICADSCHIMPORT  Enter input file path:"); }
+    std::optional<QString> onPoint(const lcad::Point2D& pt) override {
+        (void)pt;
+        return std::nullopt;
+    }
+    bool wantsTextInput() const override { return true; }
+    std::optional<QString> onText(const QString& text) override;
+    bool isFinished() const override { return m_finished; }
+    void cancel() override { m_finished = true; }
+
+private:
+    lcad::Document& m_document;
+    bool m_finished = false;
+};
+
+// KICADPCBEXPORT: output file path, then an optional netlist file path
+// (Enter to skip) -- writes a real .kicad_pcb board file (see
+// core/io/KiCadPcb.h), the same "optional netlist for real net names"
+// convention GERBER already uses.
+class KiCadPcbExportCommand : public DrawCommand {
+public:
+    explicit KiCadPcbExportCommand(lcad::Document& document) : m_document(document) {}
+
+    QString start() override { return QStringLiteral("KICADPCBEXPORT  Enter output file path:"); }
+    std::optional<QString> onPoint(const lcad::Point2D& pt) override {
+        (void)pt;
+        return std::nullopt;
+    }
+    bool wantsTextInput() const override { return true; }
+    std::optional<QString> onText(const QString& text) override;
+    bool isFinished() const override { return m_finished; }
+    void cancel() override { m_finished = true; }
+
+private:
+    enum class Stage { Path, NetlistPath };
+    lcad::Document& m_document;
+    Stage m_stage = Stage::Path;
+    std::string m_outputPath;
+    bool m_finished = false;
+};
+
+// KICADPCBIMPORT: input file path -- reads a real .kicad_pcb board file
+// into the current document (see core/io/KiCadPcb.h).
+class KiCadPcbImportCommand : public DrawCommand {
+public:
+    explicit KiCadPcbImportCommand(lcad::Document& document) : m_document(document) {}
+
+    QString start() override { return QStringLiteral("KICADPCBIMPORT  Enter input file path:"); }
+    std::optional<QString> onPoint(const lcad::Point2D& pt) override {
+        (void)pt;
+        return std::nullopt;
+    }
+    bool wantsTextInput() const override { return true; }
+    std::optional<QString> onText(const QString& text) override;
+    bool isFinished() const override { return m_finished; }
+    void cancel() override { m_finished = true; }
+
+private:
+    lcad::Document& m_document;
+    bool m_finished = false;
+};

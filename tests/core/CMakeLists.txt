@@ -52,6 +52,7 @@ add_executable(lcad_core_tests
     SheetSetTests.cpp
     KiCadIoTests.cpp
     KiCadPcbTests.cpp
+    KiCadSchTests.cpp
     RegionTests.cpp
     MLineTests.cpp
     ToleranceTests.cpp

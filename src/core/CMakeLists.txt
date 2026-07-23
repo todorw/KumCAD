@@ -168,6 +168,8 @@ add_library(lcad_core STATIC
     io/KiCadMod.cpp
     io/KiCadPcb.h
     io/KiCadPcb.cpp
+    io/KiCadSch.h
+    io/KiCadSch.cpp
     io/DxfColors.h
     io/DxfColors.cpp
     io/DxfWriter.h

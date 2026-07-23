@@ -845,6 +845,14 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         startCommand(std::make_unique<AutorouteCommand>(m_document), QStringLiteral("AUTOROUTE"));
     } else if (cmd == QLatin1String("FOOTPRINTGEN")) {
         startCommand(std::make_unique<FootprintGenCommand>(m_document), QStringLiteral("FOOTPRINTGEN"));
+    } else if (cmd == QLatin1String("KICADSCHEXPORT")) {
+        startCommand(std::make_unique<KiCadSchExportCommand>(m_document), QStringLiteral("KICADSCHEXPORT"));
+    } else if (cmd == QLatin1String("KICADSCHIMPORT")) {
+        startCommand(std::make_unique<KiCadSchImportCommand>(m_document), QStringLiteral("KICADSCHIMPORT"));
+    } else if (cmd == QLatin1String("KICADPCBEXPORT")) {
+        startCommand(std::make_unique<KiCadPcbExportCommand>(m_document), QStringLiteral("KICADPCBEXPORT"));
+    } else if (cmd == QLatin1String("KICADPCBIMPORT")) {
+        startCommand(std::make_unique<KiCadPcbImportCommand>(m_document), QStringLiteral("KICADPCBIMPORT"));
     } else if (cmd == QLatin1String("PCB3D")) {
 #ifdef LCAD_HAS_OCCT
         auto* window = new Board3DWindow(m_document, lcad::CopperStackup{}, nullptr);
