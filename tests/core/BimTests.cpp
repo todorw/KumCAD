@@ -476,3 +476,143 @@ TEST_CASE("buildOpeningScheduleTable produces one row per opening plus a header"
     REQUIRE(table->cellText(1, 0) == "Door");
     REQUIRE(table->cellText(2, 0) == "Window");
 }
+
+TEST_CASE("buildBimShapes builds a gable roof with the expected triangular-prism volume", "[core3d][bim][roof]") {
+    BimModel model;
+    Roof roof;
+    roof.footprint = {{0, 0}, {10000, 0}, {10000, 4000}, {0, 4000}}; // 10m x 4m, mm like the rest of this file
+    roof.baseElevation = 3000.0;
+    roof.pitchRadians = M_PI / 4.0; // 45 deg: tan == 1
+    roof.hip = false;
+    roof.ridgeAlongX = true; // ridge along the long (10m) axis
+    model.roofs.push_back(roof);
+
+    BimShapes shapes = buildBimShapes(model);
+    REQUIRE(shapes.roofShapes.size() == 1);
+    REQUIRE_FALSE(shapes.roofShapes[0].IsNull());
+
+    const double h = (4000.0 / 2.0) * std::tan(roof.pitchRadians); // ridge height
+    const double expectedVolume = 0.5 * 4000.0 * h * 10000.0;      // triangular cross-section * length
+    REQUIRE(volumeOf(shapes.roofShapes[0]) == Approx(expectedVolume).epsilon(0.01));
+
+    Bnd_Box box;
+    BRepBndLib::Add(shapes.roofShapes[0], box);
+    double xmin, ymin, zmin, xmax, ymax, zmax;
+    box.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+    // A gable's ends stay flat/vertical -- the solid's own bounding box
+    // spans the full footprint length exactly (a hip roof's tapered ends
+    // would not, since the ridge is shorter than the footprint).
+    REQUIRE(xmin == Approx(0.0).margin(1.0));
+    REQUIRE(xmax == Approx(10000.0).margin(1.0));
+}
+
+TEST_CASE("buildBimShapes builds a hip roof with the expected pyramid-capped volume", "[core3d][bim][roof]") {
+    BimModel model;
+    Roof roof;
+    roof.footprint = {{0, 0}, {10000, 0}, {10000, 4000}, {0, 4000}};
+    roof.baseElevation = 3000.0;
+    roof.pitchRadians = M_PI / 4.0;
+    roof.hip = true;
+    model.roofs.push_back(roof);
+
+    BimShapes shapes = buildBimShapes(model);
+    REQUIRE(shapes.roofShapes.size() == 1);
+    REQUIRE_FALSE(shapes.roofShapes[0].IsNull());
+
+    // A rectangular hip roof's volume is a triangular-prism midsection
+    // plus two pyramidal end caps: h*W*(3L-W)/6 (derived from first
+    // principles by integrating the cross-sectional area along the
+    // length, not copied from memory without checking).
+    const double L = 10000.0, W = 4000.0;
+    const double h = (W / 2.0) * std::tan(roof.pitchRadians);
+    const double expectedVolume = h * W * (3.0 * L - W) / 6.0;
+    REQUIRE(volumeOf(shapes.roofShapes[0]) == Approx(expectedVolume).epsilon(0.01));
+}
+
+TEST_CASE("buildBimShapes rejects a non-rectangular roof footprint", "[core3d][bim][roof]") {
+    BimModel model;
+    Roof roof;
+    roof.footprint = {{0, 0}, {10000, 0}, {5000, 4000}}; // triangle: out of scope, see Bim.h
+    model.roofs.push_back(roof);
+    BimShapes shapes = buildBimShapes(model);
+    REQUIRE(shapes.roofShapes.size() == 1);
+    REQUIRE(shapes.roofShapes[0].IsNull());
+}
+
+TEST_CASE("writeIfcLite/readIfcLite round-trips a roof", "[core3d][bim][roof]") {
+    TempPath temp;
+    BimModel model;
+    Roof roof;
+    roof.footprint = {{0, 0}, {10000, 0}, {10000, 4000}, {0, 4000}};
+    roof.baseElevation = 3200.0;
+    roof.pitchRadians = 0.35;
+    roof.hip = true;
+    roof.ridgeAlongX = false;
+    model.roofs.push_back(roof);
+
+    REQUIRE(writeIfcLite(model, temp.path.string()));
+    BimModel loaded;
+    REQUIRE(readIfcLite(loaded, temp.path.string()));
+    REQUIRE(loaded.roofs.size() == 1);
+    REQUIRE(loaded.roofs[0].baseElevation == Approx(3200.0));
+    REQUIRE(loaded.roofs[0].pitchRadians == Approx(0.35));
+    REQUIRE(loaded.roofs[0].hip);
+    REQUIRE_FALSE(loaded.roofs[0].ridgeAlongX);
+    REQUIRE(loaded.roofs[0].footprint.size() == 4);
+    REQUIRE(loaded.roofs[0].footprint[2].first == Approx(10000.0));
+}
+
+TEST_CASE("buildBimShapes builds a straight stair as a compound of real stepped-box volumes",
+         "[core3d][bim][stair]") {
+    BimModel model;
+    Stair stair;
+    stair.x = 0.0;
+    stair.y = 0.0;
+    stair.dirX = 1.0;
+    stair.dirY = 0.0;
+    stair.width = 1000.0;
+    stair.totalRise = 800.0;
+    stair.stepCount = 4;
+    stair.treadDepth = 250.0;
+    model.stairs.push_back(stair);
+
+    BimShapes shapes = buildBimShapes(model);
+    REQUIRE(shapes.stairShapes.size() == 1);
+    REQUIRE_FALSE(shapes.stairShapes[0].IsNull());
+
+    const double riser = stair.totalRise / stair.stepCount;
+    double expectedVolume = 0.0;
+    for (int i = 0; i < stair.stepCount; ++i) expectedVolume += stair.treadDepth * stair.width * (i + 1) * riser;
+    REQUIRE(volumeOf(shapes.stairShapes[0]) == Approx(expectedVolume).epsilon(0.001));
+
+    Bnd_Box box;
+    BRepBndLib::Add(shapes.stairShapes[0], box);
+    double xmin, ymin, zmin, xmax, ymax, zmax;
+    box.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+    REQUIRE(zmax == Approx(stair.totalRise).margin(1.0));
+    REQUIRE(xmax == Approx(stair.stepCount * stair.treadDepth).margin(1.0));
+}
+
+TEST_CASE("writeIfcLite/readIfcLite round-trips a stair", "[core3d][bim][stair]") {
+    TempPath temp;
+    BimModel model;
+    Stair stair;
+    stair.x = 100.0;
+    stair.y = 200.0;
+    stair.dirX = 0.0;
+    stair.dirY = 1.0;
+    stair.width = 1200.0;
+    stair.totalRise = 3000.0;
+    stair.stepCount = 18;
+    stair.treadDepth = 260.0;
+    model.stairs.push_back(stair);
+
+    REQUIRE(writeIfcLite(model, temp.path.string()));
+    BimModel loaded;
+    REQUIRE(readIfcLite(loaded, temp.path.string()));
+    REQUIRE(loaded.stairs.size() == 1);
+    REQUIRE(loaded.stairs[0].x == Approx(100.0));
+    REQUIRE(loaded.stairs[0].dirY == Approx(1.0));
+    REQUIRE(loaded.stairs[0].stepCount == 18);
+    REQUIRE(loaded.stairs[0].treadDepth == Approx(260.0));
+}

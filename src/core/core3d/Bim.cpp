@@ -4,6 +4,7 @@
 #include "core/geometry/Polyline.h"
 #include "core/geometry/Table.h"
 
+#include <BRepAlgoAPI_Common.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
@@ -13,6 +14,7 @@
 #include <BRepOffsetAPI_MakePipeShell.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
+#include <BRepPrimAPI_MakeHalfSpace.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRep_Builder.hxx>
 #include <Geom_Circle.hxx>
@@ -255,6 +257,120 @@ TopoDS_Shape buildSlabShape(const Slab& slab) {
     return prism;
 }
 
+// A large bounded planar quad usable as BRepPrimAPI_MakeHalfSpace's
+// surface face: centered at origin, spanning +-margin along both u and v
+// (each assumed already unit length and mutually perpendicular, i.e. the
+// two in-plane axes of the plane being represented).
+TopoDS_Face makeLargeBoundedPlaneFace(const gp_Pnt& origin, const gp_Vec& u, const gp_Vec& v, double margin) {
+    const gp_Pnt p0 = origin.Translated(u * -margin + v * -margin);
+    const gp_Pnt p1 = origin.Translated(u * margin + v * -margin);
+    const gp_Pnt p2 = origin.Translated(u * margin + v * margin);
+    const gp_Pnt p3 = origin.Translated(u * -margin + v * margin);
+    BRepBuilderAPI_MakePolygon polygon;
+    polygon.Add(p0);
+    polygon.Add(p1);
+    polygon.Add(p2);
+    polygon.Add(p3);
+    polygon.Close();
+    return BRepBuilderAPI_MakeFace(polygon.Wire()).Face();
+}
+
+// A roof plane's sloped half-space, cutting away everything ABOVE the
+// plane through footprint edge (a,b) tilted upward-and-inward at
+// pitchRadians from horizontal, keeping the side containing keepPoint.
+TopoDS_Shape makeSlopedHalfSpace(const std::pair<double, double>& a, const std::pair<double, double>& b,
+                                double baseElevation, double pitchRadians, const gp_Pnt& keepPoint, double margin) {
+    const double dx = b.first - a.first, dy = b.second - a.second;
+    const double len = std::sqrt(dx * dx + dy * dy);
+    if (len <= 1e-9) return TopoDS_Shape();
+    const gp_Vec edgeDir(dx / len, dy / len, 0.0);
+    // Left-hand normal of a CCW polygon edge points into the interior
+    // (same convention Region.cpp's ensureCCW/loop classification relies
+    // on) -- this is the horizontal "uphill" direction before tilting.
+    gp_Vec uphill(-edgeDir.Y(), edgeDir.X(), 0.0);
+    uphill.Rotate(gp_Ax1(gp_Pnt(0, 0, 0), gp_Dir(edgeDir)), pitchRadians);
+    const gp_Pnt mid((a.first + b.first) / 2.0, (a.second + b.second) / 2.0, baseElevation);
+    const TopoDS_Face face = makeLargeBoundedPlaneFace(mid, edgeDir, uphill, margin);
+    if (face.IsNull()) return TopoDS_Shape();
+    return BRepPrimAPI_MakeHalfSpace(face, keepPoint).Solid();
+}
+
+TopoDS_Shape buildRoofShape(const Roof& roof) {
+    if (roof.footprint.size() != 4) return TopoDS_Shape(); // general polygon roofs: out of scope, see Bim.h
+    double minX = roof.footprint[0].first, maxX = minX, minY = roof.footprint[0].second, maxY = minY;
+    for (const auto& [x, y] : roof.footprint) {
+        minX = std::min(minX, x);
+        maxX = std::max(maxX, x);
+        minY = std::min(minY, y);
+        maxY = std::max(maxY, y);
+    }
+    const double spanX = maxX - minX, spanY = maxY - minY;
+    if (spanX <= 1e-9 || spanY <= 1e-9) return TopoDS_Shape();
+
+    // Ridge height is set by the SHORTER span (the longer span's excess
+    // becomes the ridge's own length for a hip roof, or is simply the
+    // gable's ridge run length) -- the standard real convention for both
+    // roof types.
+    const double shortSpan = std::min(spanX, spanY);
+    const double maxHeight = (shortSpan / 2.0) * std::tan(roof.pitchRadians);
+    if (maxHeight <= 1e-9) return TopoDS_Shape();
+
+    const double margin = std::max(spanX, spanY) * 2.0 + 1000.0;
+    TopoDS_Shape shape =
+        BRepPrimAPI_MakeBox(gp_Pnt(minX, minY, roof.baseElevation), spanX, spanY, maxHeight + shortSpan).Shape();
+
+    const gp_Pnt keepPoint((minX + maxX) / 2.0, (minY + maxY) / 2.0, roof.baseElevation + 1e-3);
+    for (std::size_t i = 0; i < roof.footprint.size(); ++i) {
+        const auto& a = roof.footprint[i];
+        const auto& b = roof.footprint[(i + 1) % roof.footprint.size()];
+        const bool edgeRunsAlongX = std::abs(b.first - a.first) > std::abs(b.second - a.second);
+        // Hip: every eave slopes. Gable: only the eaves parallel to the
+        // ridge slope -- the two perpendicular ends stay vertical gable
+        // walls (the box's own original end faces, left uncut).
+        const bool cutThisEdge = roof.hip || (edgeRunsAlongX == roof.ridgeAlongX);
+        if (!cutThisEdge) continue;
+        const TopoDS_Shape halfSpace =
+            makeSlopedHalfSpace(a, b, roof.baseElevation, roof.pitchRadians, keepPoint, margin);
+        if (halfSpace.IsNull()) return TopoDS_Shape();
+        BRepAlgoAPI_Common common(shape, halfSpace);
+        if (!common.IsDone()) return TopoDS_Shape();
+        shape = common.Shape();
+    }
+    return shape;
+}
+
+TopoDS_Shape buildStairShape(const Stair& stair) {
+    if (stair.stepCount <= 0 || stair.width <= 1e-9 || stair.totalRise <= 1e-9 || stair.treadDepth <= 1e-9)
+        return TopoDS_Shape();
+    const double dirLen = std::sqrt(stair.dirX * stair.dirX + stair.dirY * stair.dirY);
+    if (dirLen <= 1e-9) return TopoDS_Shape();
+    const double dirX = stair.dirX / dirLen, dirY = stair.dirY / dirLen;
+    const double riserHeight = stair.totalRise / stair.stepCount;
+    const gp_Trsf toWorld = segmentLocalToWorld(stair.x, stair.y, stair.x + dirX, stair.y + dirY);
+
+    TopoDS_Compound compound;
+    BRep_Builder builder;
+    builder.MakeCompound(compound);
+    bool any = false;
+    for (int i = 0; i < stair.stepCount; ++i) {
+        // Step i's own box: rises to its own tread height and extends
+        // along the run only as far as its own tread -- successive boxes
+        // don't overlap, so no fuse is needed, just a compound (the same
+        // "assemble independent solids" pattern combinedBimShape already
+        // uses for the whole model).
+        const TopoDS_Shape box =
+            BRepPrimAPI_MakeBox(gp_Pnt(i * stair.treadDepth, -stair.width / 2.0, 0.0), stair.treadDepth,
+                               stair.width, (i + 1) * riserHeight)
+                .Shape();
+        const TopoDS_Shape placed = BRepBuilderAPI_Transform(box, toWorld, true).Shape();
+        if (placed.IsNull()) continue;
+        builder.Add(compound, placed);
+        any = true;
+    }
+    if (!any) return TopoDS_Shape();
+    return compound;
+}
+
 std::vector<double> splitArgs(const std::string& args) {
     std::vector<double> values;
     std::stringstream ss(args);
@@ -341,6 +457,12 @@ BimShapes buildBimShapes(const BimModel& model) {
     result.beamShapes.resize(model.beams.size());
     for (std::size_t i = 0; i < model.beams.size(); ++i) result.beamShapes[i] = buildBeamShape(model.beams[i]);
 
+    result.roofShapes.resize(model.roofs.size());
+    for (std::size_t i = 0; i < model.roofs.size(); ++i) result.roofShapes[i] = buildRoofShape(model.roofs[i]);
+
+    result.stairShapes.resize(model.stairs.size());
+    for (std::size_t i = 0; i < model.stairs.size(); ++i) result.stairShapes[i] = buildStairShape(model.stairs[i]);
+
     return result;
 }
 
@@ -368,6 +490,18 @@ TopoDS_Shape combinedBimShape(const BimShapes& shapes) {
         }
     }
     for (const auto& shape : shapes.beamShapes) {
+        if (!shape.IsNull()) {
+            builder.Add(compound, shape);
+            any = true;
+        }
+    }
+    for (const auto& shape : shapes.roofShapes) {
+        if (!shape.IsNull()) {
+            builder.Add(compound, shape);
+            any = true;
+        }
+    }
+    for (const auto& shape : shapes.stairShapes) {
         if (!shape.IsNull()) {
             builder.Add(compound, shape);
             any = true;
@@ -431,6 +565,17 @@ bool writeIfcLite(const BimModel& model, const std::string& path) {
         out << '#' << id++ << "=IFCSPACE('" << escapeStepString(space.name) << "'," << space.boundary.size();
         for (const auto& [x, y] : space.boundary) out << ',' << x << ',' << y;
         out << ");\n";
+    }
+    for (const Roof& roof : model.roofs) {
+        out << '#' << id++ << "=IFCROOF(" << roof.baseElevation << ',' << roof.pitchRadians << ','
+            << (roof.hip ? 1 : 0) << ',' << (roof.ridgeAlongX ? 1 : 0) << ',' << roof.footprint.size();
+        for (const auto& [x, y] : roof.footprint) out << ',' << x << ',' << y;
+        out << ");\n";
+    }
+    for (const Stair& stair : model.stairs) {
+        out << '#' << id++ << "=IFCSTAIR(" << stair.x << ',' << stair.y << ',' << stair.dirX << ',' << stair.dirY
+            << ',' << stair.width << ',' << stair.totalRise << ',' << stair.stepCount << ',' << stair.treadDepth
+            << ");\n";
     }
 
     out << "ENDSEC;\n";
@@ -538,6 +683,27 @@ bool readIfcLite(BimModel& model, const std::string& path) {
             space.name = unescapeStepString(args.substr(q1 + 1, q2 - q1 - 1));
             for (std::size_t i = 0; i < n; ++i) space.boundary.emplace_back(spaceValues[1 + 2 * i], spaceValues[1 + 2 * i + 1]);
             model.spaces.push_back(space);
+        } else if (name == "IFCROOF" && values.size() >= 5) {
+            Roof roof;
+            roof.baseElevation = values[0];
+            roof.pitchRadians = values[1];
+            roof.hip = values[2] != 0.0;
+            roof.ridgeAlongX = values[3] != 0.0;
+            const auto n = static_cast<std::size_t>(values[4]);
+            if (values.size() != 5 + 2 * n) continue; // malformed point count -- skip this entity
+            for (std::size_t i = 0; i < n; ++i) roof.footprint.emplace_back(values[5 + 2 * i], values[5 + 2 * i + 1]);
+            model.roofs.push_back(roof);
+        } else if (name == "IFCSTAIR" && values.size() == 8) {
+            Stair stair;
+            stair.x = values[0];
+            stair.y = values[1];
+            stair.dirX = values[2];
+            stair.dirY = values[3];
+            stair.width = values[4];
+            stair.totalRise = values[5];
+            stair.stepCount = static_cast<int>(values[6]);
+            stair.treadDepth = values[7];
+            model.stairs.push_back(stair);
         }
     }
     return true;

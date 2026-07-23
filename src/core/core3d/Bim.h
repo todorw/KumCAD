@@ -93,6 +93,38 @@ struct Space {
     std::vector<std::pair<double, double>> boundary;
 };
 
+// A roof over a rectangular (4-vertex) footprint -- general polygon roofs
+// are out of scope, the same "simple prismatic case only" call this file
+// already makes for Column/Beam. hip selects a hip roof (all four eaves
+// slope up to a central ridge, collapsing to a point/pyramid if the
+// footprint is square) vs. a gable (only the two eaves running parallel
+// to the ridge slope; the two perpendicular ends stay vertical gable
+// walls). ridgeAlongX picks which footprint axis the ridge runs along
+// (gable only -- a hip roof's ridge direction is implied by the
+// footprint's own longer axis).
+struct Roof {
+    std::vector<std::pair<double, double>> footprint; // expected: an axis-aligned rectangle, CCW
+    double baseElevation = 3000.0;
+    double pitchRadians = 0.4636; // ~26.57 deg, a common real default (a 2:1 slope)
+    bool hip = false;
+    bool ridgeAlongX = true;
+};
+
+// A straight-run stair: rise/run/width parameters generate stepCount real
+// stepped solids (each tread+riser as one box), positioned starting at
+// (x,y) and running along direction (dirX,dirY) (normalized internally).
+// Landings, winders, and curved runs are out of scope -- the single
+// straight run is the common case this file's other elements (Wall,
+// Beam) already scope themselves to.
+struct Stair {
+    double x = 0.0, y = 0.0;
+    double dirX = 1.0, dirY = 0.0;
+    double width = 1000.0;
+    double totalRise = 3000.0;
+    int stepCount = 16;
+    double treadDepth = 280.0;
+};
+
 struct BimModel {
     std::vector<Wall> walls;
     std::vector<Opening> openings;
@@ -100,6 +132,8 @@ struct BimModel {
     std::vector<Column> columns;
     std::vector<Beam> beams;
     std::vector<Space> spaces;
+    std::vector<Roof> roofs;
+    std::vector<Stair> stairs;
 };
 
 struct BimShapes {
@@ -107,6 +141,8 @@ struct BimShapes {
     std::vector<TopoDS_Shape> slabShapes;   // parallel to model.slabs
     std::vector<TopoDS_Shape> columnShapes; // parallel to model.columns
     std::vector<TopoDS_Shape> beamShapes;   // parallel to model.beams
+    std::vector<TopoDS_Shape> roofShapes;   // parallel to model.roofs
+    std::vector<TopoDS_Shape> stairShapes;  // parallel to model.stairs, each a compound of stepCount step solids
 };
 
 // Builds every wall (openings assigned to it cut out), slab, column, and
