@@ -109,6 +109,8 @@ add_executable(kumcad WIN32
     commands/GradientCommand.cpp
     commands/HatchBoundary.h
     commands/HatchBoundary.cpp
+    commands/BoundaryCommand.h
+    commands/BoundaryCommand.cpp
     commands/GroupCommand.h
     commands/MatchPropCommand.h
     commands/LweightCommand.h

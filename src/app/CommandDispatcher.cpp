@@ -45,6 +45,7 @@
 #include "commands/GroupCommand.h"
 #include "commands/IdCommand.h"
 #include "commands/ImageAttachCommand.h"
+#include "commands/BoundaryCommand.h"
 #include "commands/HatchCommand.h"
 #include "commands/InsertCommand.h"
 #include "commands/LayoutCommand.h"
@@ -599,6 +600,8 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         const std::vector<lcad::EntityId> ids =
             m_view && m_view->hasSelection() ? m_view->selectedIds() : std::vector<lcad::EntityId>{};
         startCommand(std::make_unique<HatchCommand>(m_document, ids), QStringLiteral("HATCH"));
+    } else if (cmd == QLatin1String("BOUNDARY") || cmd == QLatin1String("BPOLY") || cmd == QLatin1String("BO")) {
+        startCommand(std::make_unique<BoundaryCommand>(m_document), QStringLiteral("BOUNDARY"));
     } else if (cmd == QLatin1String("GRADIENT") || cmd == QLatin1String("GD")) {
         const std::vector<lcad::EntityId> ids =
             m_view && m_view->hasSelection() ? m_view->selectedIds() : std::vector<lcad::EntityId>{};
