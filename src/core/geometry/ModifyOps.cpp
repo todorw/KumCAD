@@ -139,6 +139,9 @@ std::unique_ptr<Entity> stretchedClone(const Entity& e, const BoundingBox& windo
     case EntityType::Wire:
     case EntityType::Track:
     case EntityType::Wipeout:
+    case EntityType::Region:
+    case EntityType::MLine:
+    case EntityType::Tolerance:
         return stretchByGrips(e, window, delta);
     }
     return nullptr;

@@ -240,6 +240,9 @@ const char* dxfTypeName(EntityType type) {
     case EntityType::Track: return "TRACK";
     case EntityType::Via: return "VIA";
     case EntityType::Wipeout: return "WIPEOUT";
+    case EntityType::Region: return "REGION";
+    case EntityType::MLine: return "MLINE";
+    case EntityType::Tolerance: return "TOLERANCE";
     }
     return "UNKNOWN";
 }
