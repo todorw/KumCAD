@@ -4,7 +4,11 @@
 #include "core/geometry/Line.h"
 
 #include <BRepAdaptor_Curve.hxx>
+#include <BRepAlgoAPI_Cut.hxx>
+#include <BRepBndLib.hxx>
+#include <BRepPrimAPI_MakeBox.hxx>
 #include <BRep_Tool.hxx>
+#include <Bnd_Box.hxx>
 #include <GeomAbs_CurveType.hxx>
 #include <HLRAlgo_Projector.hxx>
 #include <HLRBRep_Algo.hxx>
@@ -17,6 +21,7 @@
 #include <gp_Ax2.hxx>
 #include <gp_Dir.hxx>
 #include <gp_Pnt.hxx>
+#include <gp_Vec.hxx>
 
 #include <algorithm>
 #include <cmath>
@@ -105,13 +110,9 @@ void collectEdges(const TopoDS_Shape& compound, bool hidden, std::vector<Project
     }
 }
 
-} // namespace
-
-TechDrawView projectView(const TopoDS_Shape& shape, ViewDirection direction) {
+TechDrawView projectFromAxis(const TopoDS_Shape& shape, const gp_Ax2& axis) {
     TechDrawView view;
     if (shape.IsNull()) return view;
-
-    const gp_Ax2 axis = axisFor(direction);
 
     Handle(HLRBRep_Algo) hlr = new HLRBRep_Algo();
     hlr->Add(shape);
@@ -128,6 +129,71 @@ TechDrawView projectView(const TopoDS_Shape& shape, ViewDirection direction) {
     collectEdges(extractor.VCompound(), false, view.edges);
     collectEdges(extractor.HCompound(), true, view.edges);
     return view;
+}
+
+// A generously-sized axis-aligned-to-the-cut-plane box covering the whole
+// positive-normal half-space near origin: corner offset -half along both
+// in-plane axes (so it's centered on origin across the plane), extending
+// 2*half laterally and half along +normal -- exactly the "material to
+// remove" half-space BRepAlgoAPI_Cut needs, without relying on
+// BRepPrimAPI_MakeHalfSpace's own reference-point convention.
+TopoDS_Shape buildCuttingHalfSpaceBox(const gp_Pnt& origin, const gp_Dir& normal, double half) {
+    const gp_Dir arbitrary = (std::abs(normal.Z()) < 0.9) ? gp_Dir(0, 0, 1) : gp_Dir(1, 0, 0);
+    const gp_Vec xVec = gp_Vec(arbitrary) - gp_Vec(normal) * gp_Vec(arbitrary).Dot(gp_Vec(normal));
+    const gp_Dir xDir(xVec);
+    const gp_Ax2 originAxis(origin, normal, xDir); // Z=normal, X=xDir, Y=normal^xDir (right-handed, auto)
+    const gp_Pnt corner = origin.Translated(gp_Vec(xDir) * (-half)).Translated(gp_Vec(originAxis.YDirection()) * (-half));
+    const gp_Ax2 boxAxis(corner, normal, xDir);
+    return BRepPrimAPI_MakeBox(boxAxis, 2.0 * half, 2.0 * half, half).Shape();
+}
+
+} // namespace
+
+TechDrawView projectView(const TopoDS_Shape& shape, ViewDirection direction) {
+    if (shape.IsNull()) return TechDrawView{};
+    return projectFromAxis(shape, axisFor(direction));
+}
+
+TechDrawView projectViewAux(const TopoDS_Shape& shape, double eyeX, double eyeY, double eyeZ, double upX, double upY,
+                            double upZ) {
+    if (shape.IsNull()) return TechDrawView{};
+    const double eyeMag = std::sqrt(eyeX * eyeX + eyeY * eyeY + eyeZ * eyeZ);
+    if (eyeMag < 1e-9) return TechDrawView{};
+    const gp_Dir eye(eyeX, eyeY, eyeZ);
+
+    // Project up perpendicular to eye (camera "up vector" convention) so
+    // up need not be exactly perpendicular itself -- only not parallel.
+    const gp_Vec upVec(upX, upY, upZ);
+    if (upVec.Magnitude() < 1e-9) return TechDrawView{};
+    const gp_Vec eyeVec(eye);
+    const gp_Vec xVec = upVec - eyeVec * upVec.Dot(eyeVec);
+    if (xVec.Magnitude() < 1e-9) return TechDrawView{}; // up was parallel to eye -- no well-defined view
+
+    const gp_Ax2 axis(gp_Pnt(0, 0, 0), eye, gp_Dir(xVec));
+    return projectFromAxis(shape, axis);
+}
+
+TechDrawView projectSectionView(const TopoDS_Shape& shape, ViewDirection direction, double originX, double originY,
+                                double originZ, double normalX, double normalY, double normalZ) {
+    if (shape.IsNull()) return TechDrawView{};
+    const double normalMag = std::sqrt(normalX * normalX + normalY * normalY + normalZ * normalZ);
+    if (normalMag < 1e-9) return TechDrawView{};
+
+    Bnd_Box bbox;
+    BRepBndLib::Add(shape, bbox);
+    if (bbox.IsVoid()) return TechDrawView{};
+    double xmin, ymin, zmin, xmax, ymax, zmax;
+    bbox.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+    const double half = std::max({xmax - xmin, ymax - ymin, zmax - zmin}) * 4.0 + 1.0;
+
+    const gp_Pnt origin(originX, originY, originZ);
+    const gp_Dir normal(normalX / normalMag, normalY / normalMag, normalZ / normalMag);
+    const TopoDS_Shape halfSpace = buildCuttingHalfSpaceBox(origin, normal, half);
+
+    BRepAlgoAPI_Cut cutOp(shape, halfSpace);
+    if (!cutOp.IsDone()) return TechDrawView{};
+
+    return projectFromAxis(cutOp.Shape(), axisFor(direction));
 }
 
 void insertViewIntoDocument(Document& doc2d, const TechDrawView& view, double offsetX, double offsetY) {

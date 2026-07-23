@@ -263,4 +263,14 @@ Point2D evaluateSketchSpline(const std::vector<Point2D>& controlPoints, double t
     return result;
 }
 
+SketchConstraint makeFixConstraint(const Sketch& sketch, int pointIndex) {
+    SketchConstraint c;
+    c.type = SketchConstraintType::Fix;
+    c.pointA = pointIndex;
+    const Point2D& p = sketch.points()[static_cast<std::size_t>(pointIndex)];
+    c.value = p.x;
+    c.value2 = p.y;
+    return c;
+}
+
 } // namespace lcad

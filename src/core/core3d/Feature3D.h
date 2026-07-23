@@ -123,6 +123,19 @@ enum class FeatureType {
                    // uses p3=countersink diameter, p4=full included
                    // angle in degrees (e.g. 82 or 90, standard drill
                    // countersink angles).
+    ScaledPattern, // replicates inputA count times, each copy i (1-based)
+                   // uniformly scaled about the center point (posX,posY,posZ)
+                   // by a factor linearly interpolated from 1.0 (the
+                   // original, i=0) to p1 (the final copy, i=count-1), fused
+                   // into one shape -- real FreeCAD PartDesign's
+                   // ScaledPattern feature, restricted here to isotropic
+                   // (uniform) scaling rather than its full per-axis
+                   // anisotropic mode; dirX/Y/Z are unused. Appended at the
+                   // end of the enum, not alongside Linear/PolarPattern
+                   // above, because Persistence3D.cpp stores FeatureType as
+                   // a raw int -- inserting a value earlier would shift
+                   // every later type's on-disk number and corrupt existing
+                   // saved files.
 };
 
 struct Feature3D {

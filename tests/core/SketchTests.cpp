@@ -642,3 +642,44 @@ TEST_CASE("evaluateSketchSpline degenerates to the single point for fewer than 2
     REQUIRE(evaluateSketchSpline({Point2D(4, 7)}, 0.9).x == Approx(4.0));
     REQUIRE(evaluateSketchSpline({Point2D(4, 7)}, 0.9).y == Approx(7.0));
 }
+
+TEST_CASE("Fix constraint pins an otherwise-free point to an absolute position", "[sketch][constraint][fix]") {
+    Sketch sketch;
+    const int p0 = sketch.addPoint(Point2D(5.0, 5.0)); // free, deliberately off-target
+    sketch.addConstraint(SketchConstraint{SketchConstraintType::Fix, -1, -1, p0, -1, 12.0, -3.0});
+
+    const SolveResult result = solveSketch(sketch);
+    REQUIRE(result.converged);
+    REQUIRE(sketch.points()[static_cast<std::size_t>(p0)].x == Approx(12.0).margin(1e-6));
+    REQUIRE(sketch.points()[static_cast<std::size_t>(p0)].y == Approx(-3.0).margin(1e-6));
+}
+
+TEST_CASE("makeFixConstraint pins a point to its own current position", "[sketch][constraint][fix]") {
+    Sketch sketch;
+    const int p0 = sketch.addPoint(Point2D(7.0, -2.5));
+    const int p1 = sketch.addPoint(Point2D(1.0, 1.0)); // free, no constraint touches it directly
+    const int l0 = sketch.addLine(p0, p1);
+    sketch.addConstraint(makeFixConstraint(sketch, p0));
+    sketch.addConstraint({SketchConstraintType::Distance, -1, -1, p0, p1, 15.0});
+    sketch.addConstraint({SketchConstraintType::Horizontal, l0});
+
+    const SolveResult result = solveSketch(sketch);
+    REQUIRE(result.converged);
+    // p0 stayed exactly where it was fixed.
+    REQUIRE(sketch.points()[static_cast<std::size_t>(p0)].x == Approx(7.0).margin(1e-6));
+    REQUIRE(sketch.points()[static_cast<std::size_t>(p0)].y == Approx(-2.5).margin(1e-6));
+    // p1 moved to satisfy Distance + Horizontal relative to the fixed p0.
+    REQUIRE(sketch.points()[static_cast<std::size_t>(p1)].y == Approx(-2.5).margin(1e-6));
+    REQUIRE(std::abs(sketch.points()[static_cast<std::size_t>(p1)].x - 7.0) == Approx(15.0).margin(1e-6));
+}
+
+TEST_CASE("Fix constraint counts as 2 equations in analyzeDof", "[sketch][constraint][fix]") {
+    Sketch sketch;
+    const int p0 = sketch.addPoint(Point2D(3.0, 4.0));
+    sketch.addConstraint(makeFixConstraint(sketch, p0));
+    const DofReport report = analyzeDof(sketch);
+    REQUIRE(report.totalDof == 2);
+    REQUIRE(report.constraintEquations == 2);
+    REQUIRE(report.remainingDof == 0);
+    REQUIRE_FALSE(report.likelyOverConstrained);
+}

@@ -113,7 +113,10 @@ double pointToLineDistance(const Point2D& p1, const Point2D& p2, const Point2D& 
 // or on-axis and perpendicular) and so need 2 -- computeResidual, the m
 // count in solveSketch, and analyzeDof must all agree with this.
 int equationCount(SketchConstraintType type) {
-    return (type == SketchConstraintType::Midpoint || type == SketchConstraintType::Symmetric) ? 2 : 1;
+    return (type == SketchConstraintType::Midpoint || type == SketchConstraintType::Symmetric ||
+            type == SketchConstraintType::Fix)
+               ? 2
+               : 1;
 }
 
 int totalEquationCount(const Sketch& sketch) {
@@ -262,6 +265,12 @@ std::vector<double> computeResidual(const Sketch& sketch, const VariableMap& var
             const Point2D p = pointAt(sketch, vars, c.pointA, x);
             r.push_back(p.x - (p1.x + p2.x) / 2.0);
             r.push_back(p.y - (p1.y + p2.y) / 2.0);
+            break;
+        }
+        case SketchConstraintType::Fix: {
+            const Point2D p = pointAt(sketch, vars, c.pointA, x);
+            r.push_back(p.x - c.value);
+            r.push_back(p.y - c.value2);
             break;
         }
         case SketchConstraintType::Symmetric: {

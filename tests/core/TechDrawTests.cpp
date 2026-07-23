@@ -3,8 +3,12 @@
 #include "core/geometry/Dimension.h"
 #include "core/geometry/Line.h"
 
+#include <BRepAlgoAPI_Cut.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
+#include <gp_Ax2.hxx>
+#include <gp_Dir.hxx>
+#include <gp_Pnt.hxx>
 #include <cmath>
 
 #include <catch2/catch_approx.hpp>
@@ -217,4 +221,73 @@ TEST_CASE("projectView tessellates a cylinder's curved silhouette into multiple 
     // And there should be noticeably more than just a handful of edges
     // (a single untessellated circle would project to very few chords).
     REQUIRE(view.edges.size() > 10);
+}
+
+TEST_CASE("projectViewAux normal to a box's own top face matches the fixed Top view's extents",
+          "[core3d][techdraw][auxiliary]") {
+    const TopoDS_Shape box = BRepPrimAPI_MakeBox(10.0, 5.0, 4.0).Shape();
+    const TechDrawView topView = projectView(box, ViewDirection::Top);
+    const TechDrawView auxView = projectViewAux(box, 0.0, 0.0, -1.0, 1.0, 0.0, 0.0);
+    REQUIRE_FALSE(auxView.edges.empty());
+
+    const Extent topExtent = extentOf(topView);
+    const Extent auxExtent = extentOf(auxView);
+    REQUIRE((auxExtent.maxU - auxExtent.minU) == Approx(topExtent.maxU - topExtent.minU).margin(1e-6));
+    REQUIRE((auxExtent.maxV - auxExtent.minV) == Approx(topExtent.maxV - topExtent.minV).margin(1e-6));
+}
+
+TEST_CASE("projectViewAux at an arbitrary oblique angle still yields visible edges", "[core3d][techdraw][auxiliary]") {
+    const TopoDS_Shape box = BRepPrimAPI_MakeBox(10.0, 5.0, 4.0).Shape();
+    const TechDrawView view = projectViewAux(box, 0.3, -0.7, -0.4, 0.0, 0.0, 1.0);
+    REQUIRE_FALSE(view.edges.empty());
+}
+
+TEST_CASE("projectViewAux returns no edges for a null shape or a degenerate up vector",
+          "[core3d][techdraw][auxiliary]") {
+    const TopoDS_Shape box = BRepPrimAPI_MakeBox(10.0, 5.0, 4.0).Shape();
+    REQUIRE(projectViewAux(TopoDS_Shape(), 0.0, 0.0, -1.0, 1.0, 0.0, 0.0).edges.empty());
+    // up parallel to eye: no well-defined view.
+    REQUIRE(projectViewAux(box, 0.0, 0.0, -1.0, 0.0, 0.0, 1.0).edges.empty());
+}
+
+TEST_CASE("projectSectionView through the middle of a box-with-a-through-hole reveals the hole's boundary",
+          "[core3d][techdraw][section]") {
+    const TopoDS_Shape box = BRepPrimAPI_MakeBox(gp_Pnt(-10, -10, 0), 20.0, 20.0, 10.0).Shape();
+    const TopoDS_Shape hole =
+        BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(0, 0, -1), gp_Dir(0, 0, 1)), 3.0, 12.0).Shape();
+    const TopoDS_Shape boxWithHole = BRepAlgoAPI_Cut(box, hole).Shape();
+
+    // Cut with a plane through the box's own mid-height (z=5), normal +Z:
+    // material above z=5 is removed, and the remaining bottom half's cut
+    // face is a solid 20x20 square with a radius-3 hole through it -- the
+    // Top view of THAT should show the hole's circular boundary appearing
+    // as its own set of (short, tessellated) edges near radius 3 from the
+    // origin, something the un-sectioned Top view (which just sees the
+    // hole from directly above, same circle) also shows -- so the real
+    // assertion is that section + Top still yields a nonempty circular
+    // boundary at the expected radius, proving the cut didn't wipe out
+    // the hole or the surrounding material.
+    const TechDrawView sectioned = projectSectionView(boxWithHole, ViewDirection::Top, 0, 0, 5, 0, 0, 1);
+    REQUIRE_FALSE(sectioned.edges.empty());
+
+    bool anyNearHoleRadius = false;
+    for (const ProjectedEdge& e : sectioned.edges) {
+        const double r1 = std::hypot(e.x1, e.y1);
+        const double r2 = std::hypot(e.x2, e.y2);
+        if (std::abs(r1 - 3.0) < 0.5 && std::abs(r2 - 3.0) < 0.5) anyNearHoleRadius = true;
+    }
+    REQUIRE(anyNearHoleRadius);
+
+    // Sectioning removed the top half: the Front view of the sectioned
+    // shape should now span only half the original height (5, not 10).
+    const TechDrawView frontSectioned = projectSectionView(boxWithHole, ViewDirection::Front, 0, 0, 5, 0, 0, 1);
+    const Extent e = extentOf(frontSectioned);
+    REQUIRE((e.maxV - e.minV) == Approx(5.0).margin(1e-6));
+}
+
+TEST_CASE("projectSectionView returns no edges for a null shape or a degenerate normal",
+          "[core3d][techdraw][section]") {
+    const TopoDS_Shape box = BRepPrimAPI_MakeBox(10.0, 5.0, 4.0).Shape();
+    REQUIRE(projectSectionView(TopoDS_Shape(), ViewDirection::Top, 0, 0, 0, 0, 0, 1).edges.empty());
+    REQUIRE(projectSectionView(box, ViewDirection::Top, 0, 0, 0, 0, 0, 0).edges.empty());
 }

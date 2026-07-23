@@ -40,6 +40,7 @@ SketchFeatureDialog::SketchFeatureDialog(const lcad::Document3D& document, QWidg
     m_typeCombo->addItem(QStringLiteral("Chamfer"), static_cast<int>(FeatureType::Chamfer));
     m_typeCombo->addItem(QStringLiteral("Linear Pattern"), static_cast<int>(FeatureType::LinearPattern));
     m_typeCombo->addItem(QStringLiteral("Polar Pattern"), static_cast<int>(FeatureType::PolarPattern));
+    m_typeCombo->addItem(QStringLiteral("Scaled Pattern"), static_cast<int>(FeatureType::ScaledPattern));
     m_typeCombo->addItem(QStringLiteral("Mirror"), static_cast<int>(FeatureType::Mirror));
     m_typeCombo->addItem(QStringLiteral("Shell"), static_cast<int>(FeatureType::Shell));
     m_typeCombo->addItem(QStringLiteral("Loft"), static_cast<int>(FeatureType::Loft));
@@ -156,6 +157,11 @@ void SketchFeatureDialog::updateHint() {
     case FeatureType::PolarPattern:
         m_hintLabel->setText(QStringLiteral("Polar Pattern: replicates Target Count times around the axis through "
                                             "Position with direction Axis, spread over Angle° total."));
+        break;
+    case FeatureType::ScaledPattern:
+        m_hintLabel->setText(QStringLiteral("Scaled Pattern: replicates Target Count times, each copy uniformly "
+                                            "scaled about Position from 1.0 up to the Height/Angle/Radius field's "
+                                            "value at the last copy, fused into one shape."));
         break;
     case FeatureType::Mirror:
         m_hintLabel->setText(QStringLiteral("Mirror: reflects Target across the plane through Position with normal "

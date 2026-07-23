@@ -33,6 +33,30 @@ struct TechDrawView {
 // not a full drafting-quality curve projector emitting real arcs/splines.
 TechDrawView projectView(const TopoDS_Shape& shape, ViewDirection direction);
 
+// Auxiliary view: an arbitrary projection direction, not restricted to the
+// 4 fixed ViewDirection cases -- e.g. a view normal to an angled/chamfered
+// face that no combination of Front/Top/Right/Iso shows true-shape. eye is
+// the direction looking INTO the page (same convention as ViewDirection's
+// own fixed eye directions); up is a reference direction (must not be
+// parallel to eye) used to build the view's own local "up" axis -- it's
+// projected perpendicular to eye first, exactly like a camera's up vector,
+// so it doesn't need to be exactly perpendicular itself.
+TechDrawView projectViewAux(const TopoDS_Shape& shape, double eyeX, double eyeY, double eyeZ, double upX, double upY,
+                            double upZ);
+
+// Section view: cuts shape with the plane through (originX,originY,originZ)
+// with normal (normalX,normalY,normalZ) before projecting along direction --
+// a real OCCT boolean cut against a generously-sized half-space box (see
+// TechDraw.cpp), not a fake pass-through. The material on the POSITIVE
+// side of the normal is removed; what's projected is what remains (the
+// negative side) -- the usual "cutting plane looks toward the removed
+// half" section convention. Disclosed simplification: the half-space box
+// is sized from shape's own bounding box, so a cutting plane origin far
+// outside that box isn't guaranteed to fully section it. Returns an empty
+// view (no crash) if the cut fails or shape/normal is degenerate.
+TechDrawView projectSectionView(const TopoDS_Shape& shape, ViewDirection direction, double originX, double originY,
+                                double originZ, double normalX, double normalY, double normalZ);
+
 // Bakes view into doc2d as LineEntity objects on a dedicated "TECHDRAW"
 // layer (created if missing) -- visible edges stay Continuous (ByLayer),
 // hidden edges get a per-entity LineType::Hidden override (reusing this

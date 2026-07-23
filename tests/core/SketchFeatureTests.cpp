@@ -618,6 +618,68 @@ TEST_CASE("Document3D LinearPattern fuses count non-overlapping copies", "[core3
     REQUIRE(volumeOf(doc.shapeAt(patternIdx)) == Approx(4 * 5.0 * 5.0 * 5.0).margin(1e-3));
 }
 
+TEST_CASE("Document3D ScaledPattern fuses the original with a uniformly-scaled, non-overlapping copy",
+          "[core3d][pattern][scaledpattern]") {
+    Document3D doc;
+    Feature3D box;
+    box.type = FeatureType::Box;
+    box.p1 = box.p2 = box.p3 = 5.0; // occupies [0,5]^3
+    const int boxIdx = doc.addFeature(box);
+
+    Feature3D pattern;
+    pattern.type = FeatureType::ScaledPattern;
+    pattern.inputA = boxIdx;
+    pattern.count = 2;                       // original + 1 scaled copy
+    pattern.p1 = 2.0;                         // final copy scaled 2x
+    pattern.posX = pattern.posY = pattern.posZ = 100.0; // scaling center far from the box: no overlap
+    const int patternIdx = doc.addFeature(pattern);
+
+    REQUIRE(doc.isValid(patternIdx));
+    // Original: 5^3 = 125. Scaled copy: side doubles to 10, volume 10^3 = 1000.
+    // Scaling about a distant center moves the copy far from the original
+    // (see this test's own math in the review comment), so the fused
+    // volume is exactly additive, not partially overlapping.
+    REQUIRE(volumeOf(doc.shapeAt(patternIdx)) == Approx(125.0 + 1000.0).margin(1e-3));
+}
+
+TEST_CASE("Document3D ScaledPattern with count 1 leaves the source shape unchanged", "[core3d][pattern][scaledpattern]") {
+    Document3D doc;
+    Feature3D box;
+    box.type = FeatureType::Box;
+    box.p1 = box.p2 = box.p3 = 5.0;
+    const int boxIdx = doc.addFeature(box);
+
+    Feature3D pattern;
+    pattern.type = FeatureType::ScaledPattern;
+    pattern.inputA = boxIdx;
+    pattern.count = 1; // no extra copies
+    pattern.p1 = 3.0;  // would matter if there were a second copy, but there isn't
+    const int patternIdx = doc.addFeature(pattern);
+
+    REQUIRE(doc.isValid(patternIdx));
+    REQUIRE(volumeOf(doc.shapeAt(patternIdx)) == Approx(125.0).margin(1e-3));
+}
+
+TEST_CASE("Document3D ScaledPattern rejects a missing target or a zero count", "[core3d][pattern][scaledpattern]") {
+    Document3D doc;
+    Feature3D box;
+    box.type = FeatureType::Box;
+    box.p1 = box.p2 = box.p3 = 5.0;
+    const int boxIdx = doc.addFeature(box);
+
+    Feature3D badTarget;
+    badTarget.type = FeatureType::ScaledPattern;
+    badTarget.inputA = -1;
+    badTarget.count = 2;
+    REQUIRE_FALSE(doc.isValid(doc.addFeature(badTarget)));
+
+    Feature3D zeroCount;
+    zeroCount.type = FeatureType::ScaledPattern;
+    zeroCount.inputA = boxIdx;
+    zeroCount.count = 0;
+    REQUIRE_FALSE(doc.isValid(doc.addFeature(zeroCount)));
+}
+
 TEST_CASE("Document3D Mirror fuses a solid with its reflection across a plane", "[core3d][mirror]") {
     Document3D doc;
     Feature3D box;

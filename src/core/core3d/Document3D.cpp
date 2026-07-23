@@ -779,6 +779,30 @@ void Document3D::recomputeOne(int index) {
         }
         break;
     }
+    case FeatureType::ScaledPattern: {
+        if (f.inputA < 0 || f.inputA >= index || !isValid(f.inputA) || f.count < 1) {
+            ok = false;
+            break;
+        }
+        const TopoDS_Shape& source = m_shapes[static_cast<std::size_t>(f.inputA)];
+        shape = source;
+        const gp_Pnt center(f.posX, f.posY, f.posZ);
+        const int steps = f.count - 1;
+        for (int i = 1; i < f.count; ++i) {
+            const double t = static_cast<double>(i) / static_cast<double>(steps > 0 ? steps : 1);
+            const double factor = 1.0 + (f.p1 - 1.0) * t;
+            gp_Trsf trsf;
+            trsf.SetScale(center, factor);
+            const TopoDS_Shape copy = BRepBuilderAPI_Transform(source, trsf, true).Shape();
+            BRepAlgoAPI_Fuse op(shape, copy);
+            if (!op.IsDone()) {
+                ok = false;
+                break;
+            }
+            shape = op.Shape();
+        }
+        break;
+    }
     case FeatureType::Imported: {
         if (f.importIndex < 0 || f.importIndex >= static_cast<int>(m_importedShapes.size())) {
             ok = false;

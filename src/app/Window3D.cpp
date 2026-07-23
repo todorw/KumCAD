@@ -87,6 +87,7 @@ QString typeName(FeatureType type) {
     case FeatureType::Chamfer: return QStringLiteral("Chamfer");
     case FeatureType::LinearPattern: return QStringLiteral("Linear Pattern");
     case FeatureType::PolarPattern: return QStringLiteral("Polar Pattern");
+    case FeatureType::ScaledPattern: return QStringLiteral("Scaled Pattern");
     case FeatureType::Mirror: return QStringLiteral("Mirror");
     case FeatureType::Shell: return QStringLiteral("Shell");
     case FeatureType::Loft: return QStringLiteral("Loft");

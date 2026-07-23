@@ -129,6 +129,14 @@ enum class SketchConstraintType {
     Symmetric,    // pointA, pointB are mirror images of each other across geomA (a line, the symmetry
                   // axis) -- 2 scalar equations: their midpoint lies on the axis, and the segment
                   // between them is perpendicular to it
+    Fix,          // pointA is pinned to the absolute position (value, value2) -- real Sketcher's
+                  // "Block"/"Fix" constraint. Unlike the structural `fixed` flag Sketch::addPoint can
+                  // set at creation time (which removes the point from the solver's variable map
+                  // entirely, so it never even has residuals written against it), this is an ordinary
+                  // removable/addable entry in the constraint list, expressed as 2 residual equations
+                  // like Midpoint/Symmetric -- so it shows up in analyzeDof's equation count and can be
+                  // deleted later to free the point back up, the way toggling a real Fix constraint off
+                  // does. See makeFixConstraint below for the usual way to build one.
 };
 
 struct SketchConstraint {
@@ -138,6 +146,7 @@ struct SketchConstraint {
     int pointA = -1;
     int pointB = -1;
     double value = 0.0;
+    double value2 = 0.0; // second scalar value; only Fix uses this (target y, alongside value's target x)
 };
 
 class Sketch {
@@ -211,5 +220,10 @@ Point2D evaluateSketchSpline(const std::vector<Point2D>& controlPoints, double t
 // corner and either line's far endpoint -- the same failure cases
 // FILLET's own 2D command reports.
 bool sketchFillet(Sketch& sketch, int lineAIndex, int lineBIndex, double radius);
+
+// Builds a Fix constraint pinning pointIndex to its own current position --
+// the usual way to create one (drag the point where you want it, then fix
+// it there), rather than typing in coordinates by hand.
+SketchConstraint makeFixConstraint(const Sketch& sketch, int pointIndex);
 
 } // namespace lcad
