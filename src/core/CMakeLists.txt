@@ -156,6 +156,10 @@ add_library(lcad_core STATIC
     document/SheetSet.cpp
     document/DocumentConstraints.h
     document/DocumentConstraints.cpp
+    io/SExpr.h
+    io/SExpr.cpp
+    io/KiCadMod.h
+    io/KiCadMod.cpp
     io/DxfColors.h
     io/DxfColors.cpp
     io/DxfWriter.h

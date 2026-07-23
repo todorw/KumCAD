@@ -50,6 +50,7 @@ add_executable(lcad_core_tests
     FieldsTests.cpp
     DataExtractionTests.cpp
     SheetSetTests.cpp
+    KiCadIoTests.cpp
 )
 target_link_libraries(lcad_core_tests PRIVATE lcad_core Catch2::Catch2WithMain)
 
