@@ -268,6 +268,70 @@ bool writeKiCadMod(const Document& doc, const BlockDefinition& block, const std:
     return true;
 }
 
+SExpr buildPlacedFootprintExpr(const Document& doc, const BlockDefinition& block, Point2D at, double rotationDeg,
+                               bool backSide, const std::vector<int>& padNetNumbers,
+                               const std::vector<std::string>& padNetNames) {
+    std::vector<SExpr> items;
+    items.push_back(SExpr::str(block.name));
+    items.push_back(SExpr::list("layer", {SExpr::str(backSide ? "B.Cu" : "F.Cu")}));
+    items.push_back(atExpr(at, rotationDeg));
+    bool anyThru = false;
+    for (const Pad& p : block.pads) {
+        if (p.drillDiameter > 1e-9) {
+            anyThru = true;
+            break;
+        }
+    }
+    items.push_back(SExpr::list("attr", {SExpr::sym(anyThru ? "through_hole" : "smd")}));
+    writeGraphics(doc, block, items);
+    for (std::size_t i = 0; i < block.pads.size(); ++i) {
+        SExpr padExpr = makePadExpr(block.pads[i]);
+        const int netNum = i < padNetNumbers.size() ? padNetNumbers[i] : 0;
+        if (netNum > 0) {
+            const std::string name = i < padNetNames.size() ? padNetNames[i] : std::string();
+            padExpr.items.push_back(SExpr::list("net", {SExpr::num(netNum), SExpr::str(name)}));
+        }
+        items.push_back(std::move(padExpr));
+    }
+
+    SExpr root;
+    root.kind = SExpr::Kind::List;
+    root.items.push_back(SExpr::sym("footprint"));
+    for (SExpr& it : items) root.items.push_back(std::move(it));
+    return root;
+}
+
+std::optional<ParsedPlacedFootprint> readPlacedFootprintExpr(Document& doc, const SExpr& footprintExpr) {
+    if (footprintExpr.tag() != "footprint" && footprintExpr.tag() != "module") return std::nullopt;
+
+    const std::string name = uniqueBlockName(doc, footprintExpr.textAt(0, "Footprint"));
+    std::vector<std::unique_ptr<Entity>> body;
+    readGraphics(doc, footprintExpr, body);
+    std::vector<Pad> pads;
+    std::vector<int> netNumbers;
+    for (const SExpr* padExpr : footprintExpr.children("pad")) {
+        pads.push_back(readPad(*padExpr));
+        int netNum = 0;
+        if (const SExpr* net = padExpr->child("net")) netNum = static_cast<int>(net->numberAt(0, 0.0));
+        netNumbers.push_back(netNum);
+    }
+
+    doc.addBlock(name, std::move(body));
+    BlockDefinition* mutableBlock = doc.findBlock(name);
+    if (!mutableBlock) return std::nullopt;
+    mutableBlock->pads = std::move(pads);
+
+    ParsedPlacedFootprint result;
+    result.block = mutableBlock;
+    if (const SExpr* layer = footprintExpr.child("layer")) result.backSide = layer->textAt(0) == "B.Cu";
+    if (const SExpr* at = footprintExpr.child("at")) {
+        result.position = readXY(*at);
+        result.rotationDeg = at->numberAt(2, 0.0);
+    }
+    result.padNetNumbers = std::move(netNumbers);
+    return result;
+}
+
 const BlockDefinition* readKiCadMod(Document& doc, const std::string& path, std::string* errorOut) {
     std::ifstream in(path, std::ios::binary);
     if (!in) {
