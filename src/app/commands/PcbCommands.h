@@ -405,3 +405,50 @@ private:
     lcad::Document& m_document;
     bool m_finished = false;
 };
+
+// KICADMODEXPORT: footprint (block) name, then output file path -- writes
+// a real standalone .kicad_mod file (see core/io/KiCadMod.h) for an
+// existing footprint block, e.g. one FOOTPRINTGEN just generated or one
+// KICADPCBIMPORT just read back.
+class KiCadModExportCommand : public DrawCommand {
+public:
+    explicit KiCadModExportCommand(lcad::Document& document) : m_document(document) {}
+
+    QString start() override { return QStringLiteral("KICADMODEXPORT  Enter footprint (block) name:"); }
+    std::optional<QString> onPoint(const lcad::Point2D& pt) override {
+        (void)pt;
+        return std::nullopt;
+    }
+    bool wantsTextInput() const override { return true; }
+    std::optional<QString> onText(const QString& text) override;
+    bool isFinished() const override { return m_finished; }
+    void cancel() override { m_finished = true; }
+
+private:
+    enum class Stage { Name, Path };
+    lcad::Document& m_document;
+    Stage m_stage = Stage::Name;
+    std::string m_blockName;
+    bool m_finished = false;
+};
+
+// KICADMODIMPORT: input file path -- reads a real .kicad_mod footprint
+// file into the current document as a new block (see core/io/KiCadMod.h).
+class KiCadModImportCommand : public DrawCommand {
+public:
+    explicit KiCadModImportCommand(lcad::Document& document) : m_document(document) {}
+
+    QString start() override { return QStringLiteral("KICADMODIMPORT  Enter input file path:"); }
+    std::optional<QString> onPoint(const lcad::Point2D& pt) override {
+        (void)pt;
+        return std::nullopt;
+    }
+    bool wantsTextInput() const override { return true; }
+    std::optional<QString> onText(const QString& text) override;
+    bool isFinished() const override { return m_finished; }
+    void cancel() override { m_finished = true; }
+
+private:
+    lcad::Document& m_document;
+    bool m_finished = false;
+};

@@ -853,6 +853,10 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         startCommand(std::make_unique<KiCadPcbExportCommand>(m_document), QStringLiteral("KICADPCBEXPORT"));
     } else if (cmd == QLatin1String("KICADPCBIMPORT")) {
         startCommand(std::make_unique<KiCadPcbImportCommand>(m_document), QStringLiteral("KICADPCBIMPORT"));
+    } else if (cmd == QLatin1String("KICADMODEXPORT")) {
+        startCommand(std::make_unique<KiCadModExportCommand>(m_document), QStringLiteral("KICADMODEXPORT"));
+    } else if (cmd == QLatin1String("KICADMODIMPORT")) {
+        startCommand(std::make_unique<KiCadModImportCommand>(m_document), QStringLiteral("KICADMODIMPORT"));
     } else if (cmd == QLatin1String("PCB3D")) {
 #ifdef LCAD_HAS_OCCT
         auto* window = new Board3DWindow(m_document, lcad::CopperStackup{}, nullptr);

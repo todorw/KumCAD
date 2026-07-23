@@ -4,6 +4,7 @@
 #include "core/geometry/Polyline.h"
 #include "core/geometry/Track.h"
 #include "core/geometry/Via.h"
+#include "core/io/KiCadMod.h"
 #include "core/io/KiCadPcb.h"
 #include "core/io/KiCadSch.h"
 #include "core/pcb/Autorouter.h"
@@ -666,4 +667,39 @@ std::optional<QString> KiCadPcbImportCommand::onText(const QString& text) {
         .arg(text.trimmed())
         .arg(added)
         .arg(added == 1 ? QStringLiteral("y") : QStringLiteral("ies"));
+}
+
+std::optional<QString> KiCadModExportCommand::onText(const QString& text) {
+    if (m_stage == Stage::Name) {
+        m_blockName = text.trimmed().toStdString();
+        const lcad::BlockDefinition* block = m_document.findBlock(m_blockName);
+        if (!block) {
+            return QStringLiteral("*No block named \"%1\"*\nEnter footprint (block) name:").arg(text.trimmed());
+        }
+        if (!block->isFootprint()) {
+            return QStringLiteral("*\"%1\" isn't a footprint (no pads)*\nEnter footprint (block) name:")
+                .arg(text.trimmed());
+        }
+        m_stage = Stage::Path;
+        return QStringLiteral("Enter output file path:");
+    }
+
+    m_finished = true;
+    const lcad::BlockDefinition* block = m_document.findBlock(m_blockName);
+    if (!block) return QStringLiteral("*Block \"%1\" no longer exists*").arg(QString::fromStdString(m_blockName));
+    std::string error;
+    if (!lcad::writeKiCadMod(m_document, *block, text.trimmed().toStdString(), &error)) {
+        return QStringLiteral("*%1*").arg(QString::fromStdString(error));
+    }
+    return QStringLiteral("*Footprint written to %1*").arg(text.trimmed());
+}
+
+std::optional<QString> KiCadModImportCommand::onText(const QString& text) {
+    m_finished = true;
+    std::string error;
+    const lcad::BlockDefinition* block = lcad::readKiCadMod(m_document, text.trimmed().toStdString(), &error);
+    if (!block) return QStringLiteral("*%1*").arg(QString::fromStdString(error));
+    return QStringLiteral("*Footprint \"%1\" imported (%2 pad(s))*")
+        .arg(QString::fromStdString(block->name))
+        .arg(block->pads.size());
 }
