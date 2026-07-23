@@ -58,4 +58,20 @@ int resolveFaceIndex(const TopoDS_Shape& shape, const FaceFingerprint& target);
 // the same restriction FreeCAD's own simple face attachment has.
 std::optional<SketchPlane> planeFromFace(const TopoDS_Shape& shape, int index);
 
+// A point + unit direction derived from a STRAIGHT edge of shape at index
+// (same numbering as pickEdge/fingerprintEdge) -- point is the edge's own
+// first vertex, direction runs from it toward the edge's other vertex.
+// Lets Mirror/LinearPattern/PolarPattern/Revolve's own posX/Y/Z+dirX/Y/Z
+// fields be set by picking a real edge (an existing feature's own side,
+// say) instead of typing raw numbers, the same "real geometry drives the
+// parameter" idea planeFromFace already gives sketch attachment. Returns
+// nullopt if index is out of range or the edge isn't a straight line
+// (BRepAdaptor_Curve's GeomAbs_Line check) -- a real, disclosed
+// limitation: an arc/spline edge has no single direction to derive.
+struct EdgeAxis {
+    double pointX = 0.0, pointY = 0.0, pointZ = 0.0;
+    double dirX = 0.0, dirY = 0.0, dirZ = 1.0;
+};
+std::optional<EdgeAxis> axisFromEdge(const TopoDS_Shape& shape, int index);
+
 } // namespace lcad

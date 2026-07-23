@@ -12,6 +12,7 @@
 #include <gp_Ax3.hxx>
 #include <gp_Pln.hxx>
 #include <gp_Pnt.hxx>
+#include <gp_Vec.hxx>
 
 #include <cmath>
 #include <limits>
@@ -113,6 +114,31 @@ std::optional<SketchPlane> planeFromFace(const TopoDS_Shape& shape, int index) {
     plane.normal = {normal.X(), normal.Y(), normal.Z()};
     plane.xAxis = {xdir.X(), xdir.Y(), xdir.Z()};
     return plane;
+}
+
+std::optional<EdgeAxis> axisFromEdge(const TopoDS_Shape& shape, int index) {
+    TopTools_IndexedMapOfShape edgeMap;
+    TopExp::MapShapes(shape, TopAbs_EDGE, edgeMap);
+    if (index < 0 || index >= edgeMap.Extent()) return std::nullopt;
+
+    const TopoDS_Edge edge = TopoDS::Edge(edgeMap(index + 1));
+    BRepAdaptor_Curve curve(edge);
+    if (curve.GetType() != GeomAbs_Line) return std::nullopt;
+
+    const gp_Pnt p0 = curve.Value(curve.FirstParameter());
+    const gp_Pnt p1 = curve.Value(curve.LastParameter());
+    gp_Vec dir(p0, p1);
+    if (dir.Magnitude() < 1e-12) return std::nullopt;
+    dir.Normalize();
+
+    EdgeAxis axis;
+    axis.pointX = p0.X();
+    axis.pointY = p0.Y();
+    axis.pointZ = p0.Z();
+    axis.dirX = dir.X();
+    axis.dirY = dir.Y();
+    axis.dirZ = dir.Z();
+    return axis;
 }
 
 } // namespace lcad

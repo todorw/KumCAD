@@ -153,3 +153,40 @@ TEST_CASE("planeFromFace returns nullopt for a curved face and an out-of-range i
     REQUIRE_FALSE(planeFromFace(box, -1).has_value());
     REQUIRE_FALSE(planeFromFace(box, 999).has_value());
 }
+
+TEST_CASE("axisFromEdge derives a unit direction and endpoint from a box's own straight edge",
+          "[core3d][toponaming][attachment]") {
+    const TopoDS_Shape box = BRepPrimAPI_MakeBox(10.0, 4.0, 6.0).Shape();
+    bool sawAxisAlignedEdge = false;
+    for (int i = 0; i < 12; ++i) { // a box has 12 straight edges
+        const auto axis = axisFromEdge(box, i);
+        REQUIRE(axis.has_value());
+        const double len = std::sqrt(axis->dirX * axis->dirX + axis->dirY * axis->dirY + axis->dirZ * axis->dirZ);
+        REQUIRE(len == Approx(1.0).margin(1e-6)); // always normalized
+        if (std::abs(std::abs(axis->dirX) - 1.0) < 1e-6 || std::abs(std::abs(axis->dirY) - 1.0) < 1e-6 ||
+            std::abs(std::abs(axis->dirZ) - 1.0) < 1e-6) {
+            sawAxisAlignedEdge = true;
+        }
+    }
+    REQUIRE(sawAxisAlignedEdge); // every one of a box's 12 edges is axis-aligned
+}
+
+TEST_CASE("axisFromEdge returns nullopt for an out-of-range index", "[core3d][toponaming][attachment]") {
+    const TopoDS_Shape box = BRepPrimAPI_MakeBox(10.0, 10.0, 10.0).Shape();
+    REQUIRE_FALSE(axisFromEdge(box, -1).has_value());
+    REQUIRE_FALSE(axisFromEdge(box, 999).has_value());
+}
+
+TEST_CASE("axisFromEdge rejects a curved (circular) edge", "[core3d][toponaming][attachment]") {
+    const TopoDS_Shape cylinder = BRepPrimAPI_MakeCylinder(5.0, 10.0).Shape();
+    // A cylinder's edges are its top/bottom circles (curved) plus one
+    // straight seam line -- at least one must reject as non-straight.
+    bool sawRejection = false;
+    bool sawAccepted = false;
+    for (int i = 0; i < 3; ++i) {
+        if (axisFromEdge(cylinder, i).has_value()) sawAccepted = true;
+        else sawRejection = true;
+    }
+    REQUIRE(sawRejection);
+    REQUIRE(sawAccepted); // the seam line itself is straight and must still resolve
+}

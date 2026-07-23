@@ -7,8 +7,11 @@
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
+#include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMessageBox>
+#include <QPushButton>
 #include <QSpinBox>
 #include <QVBoxLayout>
 
@@ -107,6 +110,35 @@ SketchFeatureDialog::SketchFeatureDialog(const lcad::Document3D& document, QWidg
     form->addRow(QStringLiteral("Direction/Axis/Normal X:"), m_dirX);
     form->addRow(QStringLiteral("Direction/Axis/Normal Y:"), m_dirY);
     form->addRow(QStringLiteral("Direction/Axis/Normal Z:"), m_dirZ);
+
+    auto* axisFromEdgeButton = new QPushButton(QStringLiteral("Set Position/Direction from Target's Edge..."), this);
+    form->addRow(QString(), axisFromEdgeButton);
+    connect(axisFromEdgeButton, &QPushButton::clicked, this, [this] {
+        const int targetIndex = m_targetCombo->currentData().toInt();
+        if (targetIndex < 0 || !m_document.isValid(targetIndex)) {
+            QMessageBox::warning(this, QStringLiteral("Set Axis from Edge"),
+                                  QStringLiteral("Pick a valid Target feature first."));
+            return;
+        }
+        bool ok = false;
+        const int edgeIndex = QInputDialog::getInt(
+            this, QStringLiteral("Set Axis from Edge"),
+            QStringLiteral("Edge index on the Target feature (see Window3D's List Edges...):"), 0, 0, 9999, 1, &ok);
+        if (!ok) return;
+
+        const auto axis = lcad::axisFromEdge(m_document.shapeAt(targetIndex), edgeIndex);
+        if (!axis) {
+            QMessageBox::warning(this, QStringLiteral("Set Axis from Edge"),
+                                  QStringLiteral("That edge isn't straight or doesn't exist -- pick a straight edge."));
+            return;
+        }
+        m_posX->setValue(axis->pointX);
+        m_posY->setValue(axis->pointY);
+        m_posZ->setValue(axis->pointZ);
+        m_dirX->setValue(axis->dirX);
+        m_dirY->setValue(axis->dirY);
+        m_dirZ->setValue(axis->dirZ);
+    });
 
     m_edgeIndices = new QLineEdit(this);
     m_edgeIndices->setPlaceholderText(QStringLiteral("blank = every edge"));
