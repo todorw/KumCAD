@@ -170,6 +170,70 @@ TEST_CASE("solveLinearStatic under pure axial tension matches the classical bar 
     }
 }
 
+TEST_CASE("solveLinearStatic handles a mesh resolution the old dense O(n^3) solver never could",
+          "[core3d][fem][sparse]") {
+    // divisions=20 on a beam this size gives roughly a 20x8x8 cell grid --
+    // thousands of DOFs, well past what "keep divisions small (single
+    // digits)" (buildVoxelMesh's own original guidance, written for the
+    // dense O(n^3) solver this file used to have) ever allowed for a test
+    // suite. The sparse Conjugate Gradient solver (see Fem.cpp's own
+    // solveSparseCG) solves a system this size in well under a second.
+    const double length = 100.0, width = 40.0, height = 40.0;
+    const TopoDS_Shape beam = BRepPrimAPI_MakeBox(length, width, height).Shape();
+    const FemMesh mesh = buildVoxelMesh(beam, 20);
+    REQUIRE(mesh.nodes.size() > 1000); // confirms this really is a much finer mesh, not a no-op
+
+    FemMaterial material;
+    material.youngsModulus = 200000.0;
+    material.poissonsRatio = 0.3;
+
+    FemBoundaryCondition bc;
+    bc.fixedXMax = 1e-6;
+
+    const double totalForce = 40000.0;
+    const double area = width * height;
+
+    std::vector<FemLoad> loads;
+    int endNodeCount = 0;
+    for (const auto& node : mesh.nodes) {
+        if (node[0] < length - 1e-6) continue;
+        ++endNodeCount;
+    }
+    REQUIRE(endNodeCount > 4); // a real multi-cell cross-section, unlike the single-cell test above
+    for (const auto& node : mesh.nodes) {
+        if (node[0] < length - 1e-6) continue;
+        FemLoad load;
+        load.point = node;
+        // An equal split per end-face node, same approximation the
+        // single-cell test above uses -- not a true consistent FE nodal
+        // load (which would weight corner/edge/interior nodes
+        // differently), hence the same generous averaged tolerance below.
+        load.forceVector = {totalForce / endNodeCount, 0.0, 0.0};
+        loads.push_back(load);
+    }
+
+    const FemResult result = solveLinearStatic(mesh, material, bc, loads);
+    REQUIRE(result.solved);
+
+    const double expectedDisplacement = totalForce * length / (area * material.youngsModulus);
+    const double expectedStress = totalForce / area;
+
+    double averageDisplacement = 0.0;
+    double averageStress = 0.0;
+    int endNodeCheck = 0;
+    for (std::size_t i = 0; i < mesh.nodes.size(); ++i) {
+        if (mesh.nodes[i][0] < length - 1e-6) continue;
+        averageDisplacement += result.displacements[i][0];
+        ++endNodeCheck;
+    }
+    averageDisplacement /= endNodeCheck;
+    for (double vm : result.vonMisesStress) averageStress += vm;
+    averageStress /= static_cast<double>(result.vonMisesStress.size());
+
+    REQUIRE(averageDisplacement == Approx(expectedDisplacement).epsilon(0.10));
+    REQUIRE(averageStress == Approx(expectedStress).epsilon(0.10));
+}
+
 TEST_CASE("solveLinearStatic fixes every node at or below fixedXMax to zero displacement", "[core3d][fem]") {
     const TopoDS_Shape box = BRepPrimAPI_MakeBox(40.0, 20.0, 20.0).Shape();
     const FemMesh mesh = buildVoxelMesh(box, 4);

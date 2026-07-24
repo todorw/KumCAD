@@ -140,6 +140,128 @@ std::vector<double> multipliedVec(const std::vector<std::vector<double>>& a, con
     return result;
 }
 
+// A sparse SPD matrix, one row-map per DOF: row i's nonzero entries are
+// SparseMatrix[i] = {col: value}. The global FEM stiffness/conductivity
+// matrix is symmetric positive-(semi)definite and, for a real mesh, each
+// row only has nonzeros at the handful of DOFs sharing a tet with it -- a
+// dense n x n representation (this file's own original approach) wastes
+// O(n^2) memory and forces an O(n^3) dense solve for what's actually an
+// O(n) x O(1)-per-row sparse system. That was the real ceiling on mesh
+// resolution ("keep divisions small" -- see buildVoxelMesh's own comment):
+// a dense solve of even a few thousand DOFs already takes real time, and
+// a real mesh worth trusting needs many more nodes than that to resolve
+// stress concentrations well. See solveSparseCG below for the matching
+// solver.
+using SparseMatrix = std::vector<std::unordered_map<std::size_t, double>>;
+
+std::vector<double> sparseMulVec(const SparseMatrix& a, const std::vector<double>& v) {
+    std::vector<double> result(a.size(), 0.0);
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        double sum = 0.0;
+        for (const auto& [col, value] : a[i]) sum += value * v[col];
+        result[i] = sum;
+    }
+    return result;
+}
+
+// Pins DOF dof to value in the sparse SPD system (matrix, and rhs if
+// given), preserving symmetry: the set of OTHER rows with a nonzero at
+// column dof is exactly row dof's own current entries (matrix hasn't been
+// made asymmetric by an earlier call yet touching row/column dof), so
+// mirroring straight through row dof -- rather than scanning every row --
+// keeps this proportional to dof's own local sparsity, not the whole
+// matrix. When value is nonzero and rhs is given, also moves column dof's
+// coupling into every other row's own right-hand side first (the standard
+// non-homogeneous-Dirichlet FEM technique -- solveThermalSteadyState's own
+// prescribed-temperature case; a no-op for the elasticity solves, whose
+// fixed displacement is always exactly 0). rhs may be null (solveModal's
+// own eigenproblem constrains the matrix only, with no associated
+// right-hand side).
+void applyDirichletDof(SparseMatrix& matrix, std::vector<double>* rhs, std::size_t dof, double value = 0.0) {
+    for (const auto& [otherRow, coeff] : matrix[dof]) {
+        if (otherRow == dof) continue;
+        if (rhs && value != 0.0) (*rhs)[otherRow] -= coeff * value;
+        matrix[otherRow].erase(dof);
+    }
+    matrix[dof].clear();
+    matrix[dof][dof] = 1.0;
+    if (rhs) (*rhs)[dof] = value;
+}
+
+// Conjugate Gradient with Jacobi (diagonal) preconditioning -- the
+// standard iterative solver for a large sparse SPD system, replacing what
+// used to be a dense O(n^3) Gaussian elimination (core/sketch/
+// LinearSolve.h's solveLinearSystem, still used as-is for this file's
+// small fixed-size dense per-element systems, e.g. tetShapeFunctionCoeffs'
+// own 4x4 solve -- those are too small for sparsity to matter). A real
+// mesh's stiffness matrix has O(n) nonzeros total, so each CG iteration
+// costs O(n) instead of O(n^2), and CG is guaranteed to converge for an
+// SPD system in exact arithmetic within n iterations -- in floating point,
+// far fewer in practice for a reasonably well-conditioned system.
+// Disclosed limitation: this factors nothing, so solveModal's repeated
+// solves of the SAME matrix (once per inverse-iteration step, per mode)
+// each re-run CG from scratch rather than reusing a cached factorization
+// the way a real sparse-Cholesky-based solver would -- a real remaining
+// cost, not something this change attempts to fully close. Always returns
+// true (x holds the best iterate found, converged or not) -- unlike
+// solveLinearSystem's singular-matrix failure signal, a CG iterate that
+// hasn't fully converged within maxIterations is still normally a
+// physically reasonable approximate answer, not a meaningless one, so
+// there's nothing a caller would rather see instead.
+bool solveSparseCG(const SparseMatrix& a, const std::vector<double>& b, std::vector<double>& x,
+                   int maxIterations = 20000, double tolerance = 1e-10) {
+    const std::size_t n = a.size();
+    x.assign(n, 0.0);
+
+    std::vector<double> diag(n, 1.0);
+    for (std::size_t i = 0; i < n; ++i) {
+        const auto it = a[i].find(i);
+        if (it != a[i].end() && std::abs(it->second) > 1e-300) diag[i] = it->second;
+    }
+
+    double bNorm = 0.0;
+    for (double v : b) bNorm += v * v;
+    bNorm = std::sqrt(bNorm);
+    if (bNorm < 1e-300) return true; // b == 0 -> x == 0 is exact
+
+    auto applyPreconditioner = [&](const std::vector<double>& v) {
+        std::vector<double> z(n);
+        for (std::size_t i = 0; i < n; ++i) z[i] = v[i] / diag[i];
+        return z;
+    };
+
+    std::vector<double> r = b; // residual b - A*x0, x0 = 0
+    std::vector<double> z = applyPreconditioner(r);
+    std::vector<double> p = z;
+    double rzOld = 0.0;
+    for (std::size_t i = 0; i < n; ++i) rzOld += r[i] * z[i];
+
+    for (int iter = 0; iter < maxIterations; ++iter) {
+        const std::vector<double> ap = sparseMulVec(a, p);
+        double pAp = 0.0;
+        for (std::size_t i = 0; i < n; ++i) pAp += p[i] * ap[i];
+        if (std::abs(pAp) < 1e-300) break; // p is (numerically) in A's null space -- can't progress further
+
+        const double alpha = rzOld / pAp;
+        double rNorm = 0.0;
+        for (std::size_t i = 0; i < n; ++i) {
+            x[i] += alpha * p[i];
+            r[i] -= alpha * ap[i];
+            rNorm += r[i] * r[i];
+        }
+        rNorm = std::sqrt(rNorm);
+        if (rNorm < tolerance * bNorm) return true;
+
+        z = applyPreconditioner(r);
+        double rzNew = 0.0;
+        for (std::size_t i = 0; i < n; ++i) rzNew += r[i] * z[i];
+        const double beta = rzNew / rzOld;
+        for (std::size_t i = 0; i < n; ++i) p[i] = z[i] + beta * p[i];
+        rzOld = rzNew;
+    }
+    return true;
+}
+
 } // namespace
 
 FemMesh buildVoxelMesh(const TopoDS_Shape& shape, int divisions) {
@@ -237,13 +359,12 @@ FemMesh buildVoxelMesh(const TopoDS_Shape& shape, int divisions) {
 // tet's density*volume split evenly across its own 4 nodes, matching
 // distributedBodyForce's own consistent-load idea, just for inertia).
 // Returns an empty matrix if any tet is degenerate (zero volume).
-std::vector<std::vector<double>> assembleStiffness(const FemMesh& mesh, const FemMaterial& material,
-                                                    std::vector<std::array<std::array<double, 4>, 4>>& perTetCoeffs,
-                                                    std::vector<double>& perTetVolume,
-                                                    std::vector<double>* massDiag) {
+SparseMatrix assembleStiffness(const FemMesh& mesh, const FemMaterial& material,
+                               std::vector<std::array<std::array<double, 4>, 4>>& perTetCoeffs,
+                               std::vector<double>& perTetVolume, std::vector<double>* massDiag) {
     const std::size_t numNodes = mesh.nodes.size();
     const std::size_t numDofs = numNodes * 3;
-    std::vector<std::vector<double>> stiffness(numDofs, std::vector<double>(numDofs, 0.0));
+    SparseMatrix stiffness(numDofs);
     if (massDiag) massDiag->assign(numDofs, 0.0);
 
     const std::vector<std::vector<double>> materialD = materialMatrix(material);
@@ -432,7 +553,7 @@ FemResult solveLinearStatic(const FemMesh& mesh, const FemMaterial& material,
 
     std::vector<std::array<std::array<double, 4>, 4>> perTetCoeffs;
     std::vector<double> perTetVolume;
-    std::vector<std::vector<double>> stiffness = assembleStiffness(mesh, material, perTetCoeffs, perTetVolume, nullptr);
+    SparseMatrix stiffness = assembleStiffness(mesh, material, perTetCoeffs, perTetVolume, nullptr);
     if (stiffness.empty()) return result;
 
     std::vector<double> force(numDofs, 0.0);
@@ -459,17 +580,11 @@ FemResult solveLinearStatic(const FemMesh& mesh, const FemMaterial& material,
         fixedNodeMask(numNodes, mesh.nodes, boundaryCondition.fixedXMax, boundaryCondition.fixedNodeIndices);
     for (std::size_t n = 0; n < numNodes; ++n) {
         if (!fixedMask[n]) continue;
-        for (int d = 0; d < 3; ++d) {
-            const std::size_t dof = n * 3 + static_cast<std::size_t>(d);
-            for (std::size_t col = 0; col < numDofs; ++col) stiffness[dof][col] = 0.0;
-            for (std::size_t row = 0; row < numDofs; ++row) stiffness[row][dof] = 0.0;
-            stiffness[dof][dof] = 1.0;
-            force[dof] = 0.0;
-        }
+        for (int d = 0; d < 3; ++d) applyDirichletDof(stiffness, &force, n * 3 + static_cast<std::size_t>(d));
     }
 
     std::vector<double> displacementVec;
-    if (!solveLinearSystem(stiffness, force, displacementVec)) return result;
+    if (!solveSparseCG(stiffness, force, displacementVec)) return result;
 
     result.displacements.resize(numNodes);
     for (std::size_t n = 0; n < numNodes; ++n) {
@@ -511,7 +626,7 @@ FemModalResult solveModal(const FemMesh& mesh, const FemMaterial& material,
     std::vector<std::array<std::array<double, 4>, 4>> perTetCoeffs;
     std::vector<double> perTetVolume;
     std::vector<double> massDiag;
-    std::vector<std::vector<double>> stiffness = assembleStiffness(mesh, material, perTetCoeffs, perTetVolume, &massDiag);
+    SparseMatrix stiffness = assembleStiffness(mesh, material, perTetCoeffs, perTetVolume, &massDiag);
     if (stiffness.empty()) return result;
 
     // Same boundary-condition treatment as solveLinearStatic's -- an
@@ -523,9 +638,7 @@ FemModalResult solveModal(const FemMesh& mesh, const FemMaterial& material,
         if (!fixedMask[n]) continue;
         for (int d = 0; d < 3; ++d) {
             const std::size_t dof = n * 3 + static_cast<std::size_t>(d);
-            for (std::size_t col = 0; col < numDofs; ++col) stiffness[dof][col] = 0.0;
-            for (std::size_t row = 0; row < numDofs; ++row) stiffness[row][dof] = 0.0;
-            stiffness[dof][dof] = 1.0;
+            applyDirichletDof(stiffness, nullptr, dof);
             massDiag[dof] = 0.0;
         }
     }
@@ -589,13 +702,13 @@ FemModalResult solveModal(const FemMesh& mesh, const FemMaterial& material,
             for (std::size_t i = 0; i < numDofs; ++i) rhs[i] = massDiag[i] * x[i];
 
             std::vector<double> y;
-            if (!solveLinearSystem(stiffness, rhs, y)) {
+            if (!solveSparseCG(stiffness, rhs, y)) {
                 hardFailure = true;
                 break;
             }
             deflate(y);
 
-            const double newLambda = rayleighQuotient(y, multipliedVec(stiffness, y));
+            const double newLambda = rayleighQuotient(y, sparseMulVec(stiffness, y));
 
             const double yNorm = massNorm(y);
             if (yNorm < 1e-300) {
@@ -645,7 +758,7 @@ FemThermalResult solveThermalSteadyState(const FemMesh& mesh, const FemThermalMa
     // elasticity stiffness matrix's scalar-field analog: k * volume *
     // grad(N_i).grad(N_j), built from the same per-element shape-
     // function gradients (tetShapeFunctionCoeffs).
-    std::vector<std::vector<double>> conductivity(numNodes, std::vector<double>(numNodes, 0.0));
+    SparseMatrix conductivity(numNodes);
     std::vector<double> heat(numNodes, 0.0);
 
     for (const auto& tet : mesh.tets) {
@@ -688,34 +801,21 @@ FemThermalResult solveThermalSteadyState(const FemMesh& mesh, const FemThermalMa
     // displacement, so simply zeroing a fixed DOF's row/column never
     // drops anything real), a non-zero prescribed temperature's coupling
     // into every OTHER equation has to be moved onto their own
-    // right-hand side first -- using the matrix's still-unmodified
-    // values -- or those equations would silently behave as if every
-    // fixed node were held at 0 instead of fixedTemperature. This is the
-    // standard non-homogeneous-Dirichlet FEM technique, done here rather
-    // than solveLinearStatic ever needing it.
+    // right-hand side -- the standard non-homogeneous-Dirichlet FEM
+    // technique -- or those equations would silently behave as if every
+    // fixed node were held at 0 instead of fixedTemperature.
+    // applyDirichletDof does exactly that (its rhs-adjustment branch is a
+    // no-op whenever value == 0, which is all solveLinearStatic/solveModal
+    // ever need it for).
     const std::vector<bool> isFixed =
         fixedNodeMask(numNodes, mesh.nodes, boundaryCondition.fixedXMax, boundaryCondition.fixedNodeIndices);
-
-    if (boundaryCondition.fixedTemperature != 0.0) {
-        for (std::size_t r = 0; r < numNodes; ++r) {
-            if (isFixed[r]) continue;
-            for (std::size_t n = 0; n < numNodes; ++n) {
-                if (!isFixed[n]) continue;
-                heat[r] -= conductivity[r][n] * boundaryCondition.fixedTemperature;
-            }
-        }
-    }
-
     for (std::size_t n = 0; n < numNodes; ++n) {
         if (!isFixed[n]) continue;
-        for (std::size_t col = 0; col < numNodes; ++col) conductivity[n][col] = 0.0;
-        for (std::size_t row = 0; row < numNodes; ++row) conductivity[row][n] = 0.0;
-        conductivity[n][n] = 1.0;
-        heat[n] = boundaryCondition.fixedTemperature;
+        applyDirichletDof(conductivity, &heat, n, boundaryCondition.fixedTemperature);
     }
 
     std::vector<double> temperatures;
-    if (!solveLinearSystem(conductivity, heat, temperatures)) return result;
+    if (!solveSparseCG(conductivity, heat, temperatures)) return result;
 
     result.temperatures = std::move(temperatures);
     result.solved = true;
