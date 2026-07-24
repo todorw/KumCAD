@@ -79,6 +79,7 @@
 #include "commands/PolarAngCommand.h"
 #include "commands/PointCloudAttachCommand.h"
 #include "commands/PointCommands.h"
+#include "commands/MLineCommand.h"
 #include "commands/MTextCommand.h"
 #include "commands/QSelectCommand.h"
 #include "commands/QuickCalcCommand.h"
@@ -99,6 +100,7 @@
 #include "commands/DataExtractionCommand.h"
 #include "commands/FieldCommand.h"
 #include "commands/TextCommand.h"
+#include "commands/ToleranceCommand.h"
 #include "commands/TrimCommand.h"
 #include "commands/XlineCommand.h"
 #include "commands/XClipCommand.h"
@@ -374,6 +376,10 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         startCommand(std::make_unique<PolylineCommand>(m_document), QStringLiteral("PLINE"));
     } else if (cmd == QLatin1String("SPLINE") || cmd == QLatin1String("SPL")) {
         startCommand(std::make_unique<SplineCommand>(m_document), QStringLiteral("SPLINE"));
+    } else if (cmd == QLatin1String("MLINE") || cmd == QLatin1String("ML")) {
+        startCommand(std::make_unique<MLineCommand>(m_document), QStringLiteral("MLINE"));
+    } else if (cmd == QLatin1String("TOLERANCE") || cmd == QLatin1String("TOL")) {
+        startCommand(std::make_unique<ToleranceCommand>(m_document), QStringLiteral("TOLERANCE"));
     } else if (cmd == QLatin1String("ELLIPSE") || cmd == QLatin1String("EL")) {
         startCommand(std::make_unique<EllipseCommand>(m_document), QStringLiteral("ELLIPSE"));
     } else if (cmd == QLatin1String("RECTANG") || cmd == QLatin1String("RECTANGLE") || cmd == QLatin1String("REC")) {

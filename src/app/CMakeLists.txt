@@ -66,6 +66,8 @@ add_executable(kumcad WIN32
     commands/SplineCommand.cpp
     commands/TextCommand.h
     commands/TextCommand.cpp
+    commands/MLineCommand.h
+    commands/MLineCommand.cpp
     commands/MTextCommand.h
     commands/MTextCommand.cpp
     commands/FieldCommand.h
@@ -219,6 +221,8 @@ add_executable(kumcad WIN32
     commands/CivilCommands.cpp
     commands/CamCommands.h
     commands/CamCommands.cpp
+    commands/ToleranceCommand.h
+    commands/ToleranceCommand.cpp
 )
 
 target_include_directories(kumcad PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
