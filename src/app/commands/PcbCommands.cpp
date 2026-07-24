@@ -32,22 +32,26 @@ namespace {
 // with *errorOut set to a message ready to show the user.
 std::optional<lcad::CopperStackup> parseStackupLayers(const lcad::Document& doc, const QString& text,
                                                       QString* errorOut) {
-    lcad::CopperStackup stackup;
     const QString trimmed = text.trimmed();
-    if (trimmed.isEmpty()) return stackup;
+    if (trimmed.isEmpty()) return lcad::CopperStackup{};
+
+    std::vector<std::string> names;
     for (const QString& name : trimmed.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
-        const std::string layerName = name.trimmed().toStdString();
-        bool found = false;
-        for (const lcad::Layer& layer : doc.layers()) {
-            if (layer.name == layerName) {
-                stackup.layers.push_back(layer.id);
-                found = true;
-                break;
+        names.push_back(name.trimmed().toStdString());
+    }
+    const lcad::CopperStackup stackup = lcad::buildStackup(doc, names);
+    if (stackup.layers.size() != names.size()) {
+        // buildStackup (see core/pcb/Stackup.h) silently skips any name
+        // that isn't an existing Document layer -- a real, deliberate
+        // choice for its own callers, but this interactive prompt wants
+        // to tell the user WHICH name was wrong, so re-check each one.
+        for (const std::string& name : names) {
+            const bool found =
+                std::any_of(doc.layers().begin(), doc.layers().end(), [&](const lcad::Layer& l) { return l.name == name; });
+            if (!found) {
+                if (errorOut) *errorOut = QStringLiteral("*Layer \"%1\" not found*").arg(QString::fromStdString(name));
+                return std::nullopt;
             }
-        }
-        if (!found) {
-            if (errorOut) *errorOut = QStringLiteral("*Layer \"%1\" not found*").arg(name.trimmed());
-            return std::nullopt;
         }
     }
     return stackup;
