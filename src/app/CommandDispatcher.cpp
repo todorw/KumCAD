@@ -17,6 +17,7 @@
 #include "commands/CircleCommand.h"
 #include "commands/PolygonCommand.h"
 #include "commands/DonutCommand.h"
+#include "commands/WBlockCommand.h"
 #include "core/geometry/Region.h"
 #include "core/geometry/RegionBuild.h"
 #include "commands/CopyCommand.h"
@@ -444,6 +445,9 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         } else {
             m_commandLine.appendLine(QStringLiteral("*Select exactly two lines first, then run CHAMFER*"));
         }
+    } else if (cmd == QLatin1String("WBLOCK")) {
+        const std::vector<lcad::EntityId> ids = m_view ? m_view->selectedIds() : std::vector<lcad::EntityId>{};
+        startCommand(std::make_unique<WBlockCommand>(m_document, ids), QStringLiteral("WBLOCK"));
     } else if (cmd == QLatin1String("REGION") || cmd == QLatin1String("REG")) {
         // Consumes each selected closed curve (closed Polyline or Circle --
         // see RegionBuild.h's own disclosed subset) and replaces it in

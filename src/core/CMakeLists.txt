@@ -158,6 +158,8 @@ add_library(lcad_core STATIC
     document/Commands.h
     document/Document.h
     document/Document.cpp
+    document/DocumentExtract.h
+    document/DocumentExtract.cpp
     document/ExpressTools.cpp
     document/PartLibrary.cpp
     document/LayerTranslator.cpp
