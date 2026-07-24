@@ -123,6 +123,7 @@
 #include "core/electrical/WireNumbering.h"
 #include "core/pcb/Teardrop.h"
 #include "core/pid/InstrumentTagging.h"
+#include "core/schematic/Annotate.h"
 #include "core/schematic/Erc.h"
 #include "core/schematic/Netlist.h"
 #include "core/schematic/Sheets.h"
@@ -1248,6 +1249,10 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         lcad::assignInstrumentTags(m_document);
         m_commandLine.appendLine(QStringLiteral("*Instrument tags assigned*"));
         emit documentChanged();
+    } else if (cmd == QLatin1String("ANNOTATE")) {
+        const int labeled = lcad::annotateSchematic(m_document);
+        m_commandLine.appendLine(QStringLiteral("*%1 symbol(s) annotated*").arg(labeled));
+        if (labeled > 0) emit documentChanged();
     } else if (!cmd.isEmpty()) {
         m_commandLine.appendLine(QStringLiteral("*Unknown command \"%1\"*").arg(trimmed));
     }

@@ -90,6 +90,8 @@ add_library(lcad_core STATIC
     schematic/Sheets.cpp
     schematic/Bom.h
     schematic/Bom.cpp
+    schematic/Annotate.h
+    schematic/Annotate.cpp
     pcb/Stackup.h
     pcb/Stackup.cpp
     pcb/NetClass.h

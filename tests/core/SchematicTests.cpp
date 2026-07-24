@@ -4,6 +4,7 @@
 #include "core/geometry/NetLabel.h"
 #include "core/geometry/NoConnect.h"
 #include "core/geometry/Wire.h"
+#include "core/schematic/Annotate.h"
 #include "core/schematic/Erc.h"
 #include "core/schematic/Netlist.h"
 #include "core/schematic/SymbolLibrary.h"
@@ -485,4 +486,78 @@ TEST_CASE("registerBuiltinSymbols adds a usable, idempotent parts library", "[sc
                                   [&](const NetPin& p) { return p.insertId == idB; });
     REQUIRE(hasA);
     REQUIRE(hasB);
+}
+
+TEST_CASE("annotateSchematic assigns sequential per-prefix REFDES and skips power symbols",
+         "[schematic][annotate]") {
+    Document doc;
+    registerBuiltinSymbols(doc);
+
+    auto r1 = std::make_unique<InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), doc.findBlock("R"), Point2D(0, 0));
+    const EntityId r1Id = r1->id();
+    doc.addEntity(std::move(r1));
+    auto r2 = std::make_unique<InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), doc.findBlock("R"), Point2D(20, 0));
+    const EntityId r2Id = r2->id();
+    doc.addEntity(std::move(r2));
+    auto c1 = std::make_unique<InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), doc.findBlock("C"), Point2D(40, 0));
+    const EntityId c1Id = c1->id();
+    doc.addEntity(std::move(c1));
+    auto gnd = std::make_unique<InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), doc.findBlock("GND"), Point2D(60, 0));
+    const EntityId gndId = gnd->id();
+    doc.addEntity(std::move(gnd));
+
+    REQUIRE(annotateSchematic(doc) == 3); // 2 R's + 1 C -- GND excluded
+
+    const auto* r1Ptr = static_cast<const InsertEntity*>(doc.findEntity(r1Id));
+    const auto* r2Ptr = static_cast<const InsertEntity*>(doc.findEntity(r2Id));
+    const auto* c1Ptr = static_cast<const InsertEntity*>(doc.findEntity(c1Id));
+    const auto* gndPtr = static_cast<const InsertEntity*>(doc.findEntity(gndId));
+    REQUIRE(*r1Ptr->attributeValue("REFDES") == "R1");
+    REQUIRE(*r2Ptr->attributeValue("REFDES") == "R2");
+    REQUIRE(*c1Ptr->attributeValue("REFDES") == "C1"); // C has its own independent counter, not R's
+    REQUIRE_FALSE(gndPtr->attributeValue("REFDES"));   // power symbol -- never tagged
+}
+
+TEST_CASE("annotateSchematic continues numbering after an existing REFDES and is idempotent",
+         "[schematic][annotate]") {
+    Document doc;
+    registerBuiltinSymbols(doc);
+
+    auto tagged = std::make_unique<InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), doc.findBlock("R"), Point2D(0, 0));
+    tagged->setAttribute("REFDES", "R5"); // hand-set, as if annotated/renumbered earlier
+    doc.addEntity(std::move(tagged));
+    auto untagged = std::make_unique<InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), doc.findBlock("R"), Point2D(20, 0));
+    const EntityId untaggedId = untagged->id();
+    doc.addEntity(std::move(untagged));
+
+    REQUIRE(annotateSchematic(doc) == 1);
+    const auto* untaggedPtr = static_cast<const InsertEntity*>(doc.findEntity(untaggedId));
+    // Continues from R5, not from R1 -- never collides with the hand-set tag.
+    REQUIRE(*untaggedPtr->attributeValue("REFDES") == "R6");
+
+    const std::string firstTag = *untaggedPtr->attributeValue("REFDES");
+    REQUIRE(annotateSchematic(doc) == 0); // nothing left untagged
+    REQUIRE(*untaggedPtr->attributeValue("REFDES") == firstTag);
+}
+
+TEST_CASE("annotateSchematic collapses differently-pin-counted connector symbols into one shared prefix pool",
+         "[schematic][annotate]") {
+    Document doc;
+    registerBuiltinSymbols(doc);
+
+    auto conn3 = std::make_unique<InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), doc.findBlock("CONN3"), Point2D(0, 0));
+    const EntityId conn3Id = conn3->id();
+    doc.addEntity(std::move(conn3));
+    auto conn4 = std::make_unique<InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), doc.findBlock("CONN4"), Point2D(20, 0));
+    const EntityId conn4Id = conn4->id();
+    doc.addEntity(std::move(conn4));
+
+    REQUIRE(annotateSchematic(doc) == 2);
+    const auto* conn3Ptr = static_cast<const InsertEntity*>(doc.findEntity(conn3Id));
+    const auto* conn4Ptr = static_cast<const InsertEntity*>(doc.findEntity(conn4Id));
+    // Both share one "CONN" prefix pool (trailing digits stripped from
+    // the block name) regardless of pin count -- CONN1, CONN2, matching
+    // how real designs number connectors J1, J2, J3... in one sequence.
+    REQUIRE(*conn3Ptr->attributeValue("REFDES") == "CONN1");
+    REQUIRE(*conn4Ptr->attributeValue("REFDES") == "CONN2");
 }
