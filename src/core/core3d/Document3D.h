@@ -2,6 +2,7 @@
 
 #include "core/core3d/Feature3D.h"
 #include "core/document/Command.h"
+#include "core/document/Spreadsheet.h"
 #include "core/sketch/SketchGeometry.h"
 
 #include <TopoDS_Shape.hxx>
@@ -83,14 +84,28 @@ public:
     const std::vector<TopoDS_Shape>& importedShapes() const { return m_importedShapes; }
 
     // Named document variables (FreeCAD's own expression-engine variables,
-    // simplified: no spreadsheet, just a flat name->number table), which
-    // Feature3D::expressions entries can reference by name. Not undoable
-    // yet (matching addSketch's own "not itself a dependency the recompute
-    // engine understands" disclosure) -- setVariable recomputes every
-    // feature so the change is felt immediately.
+    // simplified: a flat name->number table). Feature3D::expressions
+    // entries can reference one by name. Not undoable yet (matching
+    // addSketch's own "not itself a dependency the recompute engine
+    // understands" disclosure) -- setVariable recomputes every feature
+    // so the change is felt immediately.
     void setVariable(const std::string& name, double value);
     bool removeVariable(const std::string& name);
     const std::unordered_map<std::string, double>& variables() const { return m_variables; }
+
+    // Named spreadsheets (core/document/Spreadsheet.h), FreeCAD's own
+    // Spreadsheet workbench: a Feature3D::expressions formula can
+    // reference a cell as "SheetName.CellName" (e.g. "Sheet1.A1"),
+    // resolved by applyExpressions the same way a plain variable name
+    // is. spreadsheet() creates the named sheet on first reference (a
+    // real, useful default -- an expression author shouldn't need a
+    // separate "create sheet" step before setting its first cell).
+    // setCell is a thin convenience wrapper that also recomputes every
+    // feature, matching setVariable's own "felt immediately" contract.
+    Spreadsheet& spreadsheet(const std::string& name);
+    bool hasSpreadsheet(const std::string& name) const { return m_spreadsheets.count(name) > 0; }
+    const std::unordered_map<std::string, Spreadsheet>& spreadsheets() const { return m_spreadsheets; }
+    void setCell(const std::string& sheetName, const std::string& cell, std::string content);
 
 private:
     std::vector<Feature3D> m_features;
@@ -100,6 +115,7 @@ private:
     std::vector<Sketch> m_sketches;
     std::vector<TopoDS_Shape> m_importedShapes;
     std::unordered_map<std::string, double> m_variables;
+    std::unordered_map<std::string, Spreadsheet> m_spreadsheets;
 
     void recomputeOne(int index);
     // Overwrites f's double fields that have an entry in f.expressions,

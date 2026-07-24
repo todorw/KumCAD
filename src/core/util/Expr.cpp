@@ -154,8 +154,15 @@ private:
 
     double parseIdentifier() {
         const std::size_t start = m_pos;
-        while (m_pos < m_s.size() &&
-              (std::isalnum(static_cast<unsigned char>(m_s[m_pos])) || m_s[m_pos] == '_')) {
+        // '.' is allowed inside an identifier (not just alnum/_) so a
+        // lookup hook can resolve dotted qualified names like a
+        // Spreadsheet cell reference "Sheet1.A1" (see core/document/
+        // Spreadsheet.h) -- unambiguous with number parsing, since an
+        // identifier only starts here when the FIRST character is
+        // alpha/underscore, never a digit or a leading '.' (parseNumber's
+        // own entry condition, a completely separate path).
+        while (m_pos < m_s.size() && (std::isalnum(static_cast<unsigned char>(m_s[m_pos])) || m_s[m_pos] == '_' ||
+                                      m_s[m_pos] == '.')) {
             ++m_pos;
         }
         const std::string original = m_s.substr(start, m_pos - start);

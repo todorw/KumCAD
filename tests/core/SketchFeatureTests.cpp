@@ -831,6 +831,59 @@ TEST_CASE("Document3D removeVariable recomputes dependents back to their raw sto
     REQUIRE(doc.findFeature(boxIdx)->p1 == Approx(12.0));
 }
 
+TEST_CASE("Document3D expression resolves a Spreadsheet cell reference end-to-end", "[core3d][expression][spreadsheet]") {
+    Document3D doc;
+    doc.setCell("Sheet1", "A1", "5");
+    doc.setCell("Sheet1", "B1", "=A1*2"); // a formula cell, not just a literal
+
+    Feature3D box;
+    box.type = FeatureType::Box;
+    box.p1 = 999.0;
+    box.p2 = box.p3 = 4.0;
+    box.expressions["p1"] = "Sheet1.B1";
+    const int boxIdx = doc.addFeature(box);
+
+    REQUIRE(doc.isValid(boxIdx));
+    REQUIRE(doc.findFeature(boxIdx)->p1 == Approx(10.0)); // 5*2
+    REQUIRE(volumeOf(doc.shapeAt(boxIdx)) == Approx(10.0 * 4.0 * 4.0).margin(1e-6));
+
+    // Editing the upstream cell recomputes every dependent feature, same
+    // "felt immediately" contract setVariable already has.
+    doc.setCell("Sheet1", "A1", "8");
+    REQUIRE(doc.findFeature(boxIdx)->p1 == Approx(16.0));
+    REQUIRE(volumeOf(doc.shapeAt(boxIdx)) == Approx(16.0 * 4.0 * 4.0).margin(1e-6));
+}
+
+TEST_CASE("Document3D expression combines a plain variable and a Spreadsheet cell in the same formula",
+          "[core3d][expression][spreadsheet]") {
+    Document3D doc;
+    doc.setVariable("Margin", 1.0);
+    doc.setCell("Sheet1", "A1", "9");
+
+    Feature3D box;
+    box.type = FeatureType::Box;
+    box.p1 = box.p2 = box.p3 = 999.0;
+    box.expressions["p1"] = "Sheet1.A1+Margin";
+    const int boxIdx = doc.addFeature(box);
+
+    REQUIRE(doc.isValid(boxIdx));
+    REQUIRE(doc.findFeature(boxIdx)->p1 == Approx(10.0));
+}
+
+TEST_CASE("Document3D expression referencing an unknown spreadsheet or cell leaves the previous value",
+          "[core3d][expression][spreadsheet]") {
+    Document3D doc;
+    Feature3D box;
+    box.type = FeatureType::Box;
+    box.p1 = 7.0;
+    box.p2 = box.p3 = 3.0;
+    box.expressions["p1"] = "NoSuchSheet.A1";
+    const int boxIdx = doc.addFeature(box);
+
+    REQUIRE(doc.isValid(boxIdx));
+    REQUIRE(doc.findFeature(boxIdx)->p1 == Approx(7.0));
+}
+
 TEST_CASE("Document3D Fillet recovers the intended edge via fingerprint even with a stale wrong raw index",
           "[core3d][fillet][toponaming]") {
     Document3D doc;

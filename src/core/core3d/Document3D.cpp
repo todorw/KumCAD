@@ -237,7 +237,18 @@ void Document3D::applyExpressions(Feature3D& f) const {
             expr,
             [this](const std::string& name) -> std::optional<double> {
                 const auto it = m_variables.find(name);
-                return it != m_variables.end() ? std::optional<double>(it->second) : std::nullopt;
+                if (it != m_variables.end()) return it->second;
+                // "SheetName.CellName" (see Spreadsheet.h) -- the dot is
+                // valid inside an identifier for exactly this reason
+                // (see Expr.cpp's own parseIdentifier comment). Split on
+                // the FIRST dot only, so a cell name containing one of
+                // its own (never happens in practice, but not assumed)
+                // doesn't confuse the split.
+                const auto dot = name.find('.');
+                if (dot == std::string::npos) return std::nullopt;
+                const auto sheetIt = m_spreadsheets.find(name.substr(0, dot));
+                if (sheetIt == m_spreadsheets.end()) return std::nullopt;
+                return sheetIt->second.value(name.substr(dot + 1));
             },
             nullptr);
         // On failure, deliberately leave the field's previous value in
@@ -256,6 +267,13 @@ bool Document3D::removeVariable(const std::string& name) {
     if (m_variables.erase(name) == 0) return false;
     for (std::size_t i = 0; i < m_features.size(); ++i) recomputeOne(static_cast<int>(i));
     return true;
+}
+
+Spreadsheet& Document3D::spreadsheet(const std::string& name) { return m_spreadsheets[name]; }
+
+void Document3D::setCell(const std::string& sheetName, const std::string& cell, std::string content) {
+    m_spreadsheets[sheetName].setCell(cell, std::move(content));
+    for (std::size_t i = 0; i < m_features.size(); ++i) recomputeOne(static_cast<int>(i));
 }
 
 int Document3D::addFeature(Feature3D feature) {

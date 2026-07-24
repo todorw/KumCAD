@@ -76,3 +76,13 @@ TEST_CASE("evaluateExpression fails cleanly when a variable is unknown", "[expr]
     // bare identifier that isn't pi/e, exactly as before.
     REQUIRE_FALSE(lcad::evaluateExpression("Width").has_value());
 }
+
+TEST_CASE("evaluateExpression resolves a dotted identifier, e.g. a Spreadsheet cell reference",
+         "[expr][variables]") {
+    auto lookup = [](const std::string& name) -> std::optional<double> {
+        if (name == "Sheet1.A1") return 42.0;
+        return std::nullopt;
+    };
+    REQUIRE(lcad::evaluateExpression("Sheet1.A1", lookup).value() == Approx(42.0));
+    REQUIRE(lcad::evaluateExpression("Sheet1.A1*2+1", lookup).value() == Approx(85.0));
+}
