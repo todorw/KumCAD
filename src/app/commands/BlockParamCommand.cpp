@@ -174,6 +174,8 @@ QString shortEntityTypeName(lcad::EntityType type) {
     case lcad::EntityType::Region: return QStringLiteral("Region");
     case lcad::EntityType::MLine: return QStringLiteral("MLine");
     case lcad::EntityType::Tolerance: return QStringLiteral("Tolerance");
+    case lcad::EntityType::Bus: return QStringLiteral("Bus");
+    case lcad::EntityType::BusEntry: return QStringLiteral("BusEntry");
     }
     return QStringLiteral("Entity");
 }

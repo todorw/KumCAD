@@ -26,6 +26,8 @@
 #include "core/geometry/Via.h"
 #include "core/geometry/Wipeout.h"
 #include "core/geometry/Wire.h"
+#include "core/geometry/Bus.h"
+#include "core/geometry/BusEntry.h"
 #include "core/io/DxfColors.h"
 #include "core/io/DxfReader.h"
 #include "core/io/DxfWriter.h"
@@ -172,6 +174,8 @@ TEST_CASE("DXF round-trip preserves entities and layers", "[dxf]") {
         case lcad::EntityType::Region:
         case lcad::EntityType::MLine:
         case lcad::EntityType::Tolerance:
+        case lcad::EntityType::Bus:
+        case lcad::EntityType::BusEntry:
             break; // not part of this round-trip; covered by their own tests
         }
     }
@@ -1464,6 +1468,11 @@ TEST_CASE("DXF round-trips schematic symbols, pins, wires, junctions, and net la
     doc.addEntity(std::make_unique<lcad::NoConnectEntity>(doc.reserveEntityId(), doc.currentLayer(), lcad::Point2D(0, 0)));
     doc.addEntity(
         std::make_unique<lcad::NetLabelEntity>(doc.reserveEntityId(), doc.currentLayer(), lcad::Point2D(30, 0), "VCC"));
+    doc.addEntity(std::make_unique<lcad::BusEntity>(
+        doc.reserveEntityId(), doc.currentLayer(),
+        std::vector<lcad::Point2D>{lcad::Point2D(0, 20), lcad::Point2D(50, 20)}, "DATA[0..7]"));
+    doc.addEntity(std::make_unique<lcad::BusEntryEntity>(doc.reserveEntityId(), doc.currentLayer(),
+                                                          lcad::Point2D(10, 10), lcad::Point2D(10, 20)));
 
     REQUIRE(lcad::writeDxf(doc, temp.path.string()));
     lcad::Document loaded;
@@ -1482,6 +1491,7 @@ TEST_CASE("DXF round-trips schematic symbols, pins, wires, junctions, and net la
     REQUIRE(loadedBlock->pins[1].position.x == Approx(10.0));
 
     bool foundWire = false, foundJunction = false, foundNoConnect = false, foundNetLabel = false;
+    bool foundBus = false, foundBusEntry = false;
     for (const lcad::Entity* e : loaded.entities()) {
         switch (e->type()) {
         case lcad::EntityType::Wire: {
@@ -1506,6 +1516,22 @@ TEST_CASE("DXF round-trips schematic symbols, pins, wires, junctions, and net la
             foundNetLabel = true;
             break;
         }
+        case lcad::EntityType::Bus: {
+            const auto* bus = static_cast<const lcad::BusEntity*>(e);
+            REQUIRE(bus->vertices().size() == 2);
+            REQUIRE(bus->vertices()[1].x == Approx(50.0));
+            REQUIRE(bus->name() == "DATA[0..7]");
+            foundBus = true;
+            break;
+        }
+        case lcad::EntityType::BusEntry: {
+            const auto* entry = static_cast<const lcad::BusEntryEntity*>(e);
+            REQUIRE(entry->start().x == Approx(10.0));
+            REQUIRE(entry->start().y == Approx(10.0));
+            REQUIRE(entry->end().y == Approx(20.0));
+            foundBusEntry = true;
+            break;
+        }
         default:
             break;
         }
@@ -1514,6 +1540,8 @@ TEST_CASE("DXF round-trips schematic symbols, pins, wires, junctions, and net la
     REQUIRE(foundJunction);
     REQUIRE(foundNoConnect);
     REQUIRE(foundNetLabel);
+    REQUIRE(foundBus);
+    REQUIRE(foundBusEntry);
 }
 
 TEST_CASE("DXF round-trips PCB footprint pads, tracks, and vias", "[dxf][pcb]") {

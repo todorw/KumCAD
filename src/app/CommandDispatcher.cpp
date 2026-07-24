@@ -1067,6 +1067,10 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         startCommand(std::make_unique<NoConnectCommand>(m_document), QStringLiteral("NOCONNECT"));
     } else if (cmd == QLatin1String("NETLABEL") || cmd == QLatin1String("LABEL")) {
         startCommand(std::make_unique<NetLabelCommand>(m_document), QStringLiteral("NETLABEL"));
+    } else if (cmd == QLatin1String("BUS")) {
+        startCommand(std::make_unique<BusCommand>(m_document), QStringLiteral("BUS"));
+    } else if (cmd == QLatin1String("BUSENTRY") || cmd == QLatin1String("BE")) {
+        startCommand(std::make_unique<BusEntryCommand>(m_document), QStringLiteral("BUSENTRY"));
     } else if (cmd == QLatin1String("PINADD")) {
         startCommand(std::make_unique<PinAddCommand>(m_document), QStringLiteral("PINADD"));
     } else if (cmd == QLatin1String("TRACK")) {

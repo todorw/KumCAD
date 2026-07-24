@@ -31,6 +31,8 @@
 #include "core/geometry/Via.h"
 #include "core/geometry/Wipeout.h"
 #include "core/geometry/Wire.h"
+#include "core/geometry/Bus.h"
+#include "core/geometry/BusEntry.h"
 
 #include <QColorDialog>
 #include <QComboBox>
@@ -482,6 +484,22 @@ void PropertiesPanel::refresh() {
         const auto* wire = static_cast<const lcad::WireEntity*>(e);
         m_summaryLabel->setText(QStringLiteral("Wire"));
         addRow(QStringLiteral("Vertices:"), QString::number(wire->vertices().size()));
+        break;
+    }
+    case lcad::EntityType::Bus: {
+        const auto* bus = static_cast<const lcad::BusEntity*>(e);
+        m_summaryLabel->setText(QStringLiteral("Bus"));
+        addRow(QStringLiteral("Vertices:"), QString::number(bus->vertices().size()));
+        addRow(QStringLiteral("Name:"), QString::fromStdString(bus->name()));
+        break;
+    }
+    case lcad::EntityType::BusEntry: {
+        const auto* entry = static_cast<const lcad::BusEntryEntity*>(e);
+        m_summaryLabel->setText(QStringLiteral("Bus Entry"));
+        addRow(QStringLiteral("Start X:"), formatNumber(entry->start().x));
+        addRow(QStringLiteral("Start Y:"), formatNumber(entry->start().y));
+        addRow(QStringLiteral("End X:"), formatNumber(entry->end().x));
+        addRow(QStringLiteral("End Y:"), formatNumber(entry->end().y));
         break;
     }
     case lcad::EntityType::Junction: {

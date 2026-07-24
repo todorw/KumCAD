@@ -243,6 +243,8 @@ const char* dxfTypeName(EntityType type) {
     case EntityType::Region: return "REGION";
     case EntityType::MLine: return "MLINE";
     case EntityType::Tolerance: return "TOLERANCE";
+    case EntityType::Bus: return "BUS";
+    case EntityType::BusEntry: return "BUSENTRY";
     }
     return "UNKNOWN";
 }

@@ -43,6 +43,8 @@ enum class EntityType {
     Region,           // closed planar region (with holes), boolean-composable
     MLine,            // AutoCAD MLINE: parallel offset line elements
     Tolerance,        // AutoCAD TOLERANCE: GD&T feature-control frame
+    Bus,              // schematic bus (KiCad-style): a bundled group of related signals
+    BusEntry,         // diagonal stub connecting one wire to a bus
 };
 
 // Object-snap candidate kinds, mirroring AutoCAD's OSNAP markers. The first

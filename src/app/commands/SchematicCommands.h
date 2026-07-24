@@ -63,6 +63,72 @@ private:
     bool m_finished = false;
 };
 
+// BUS: collects vertices the same way WIRE does, then prompts for an
+// optional declared name (e.g. "DATA[0..7]") before committing a single
+// BusEntity -- Enter with no name is fine, matching NETLABEL's own
+// optional-name convention. See Bus.h's own comment: the bus line itself
+// carries no electrical connectivity, only its declared name for humans/ERC.
+class BusCommand : public DrawCommand {
+public:
+    explicit BusCommand(lcad::Document& document) : m_document(document) {}
+
+    QString start() override { return QStringLiteral("BUS  Specify first point:"); }
+    std::optional<QString> onPoint(const lcad::Point2D& pt) override;
+    void onPreviewPoint(const lcad::Point2D& pt) override;
+    std::vector<std::pair<lcad::Point2D, lcad::Point2D>> previewSegments() const override;
+    bool wantsTextInput() const override { return m_stage == Stage::AwaitingName; }
+    std::optional<QString> onText(const QString& text) override;
+    bool requestFinish() override;
+    std::optional<QString> resultMessage() const override {
+        return m_stage == Stage::AwaitingName ? std::optional<QString>(QStringLiteral("Enter bus name (optional):"))
+                                              : std::nullopt;
+    }
+    std::optional<lcad::Point2D> anchorPoint() const override {
+        return m_points.empty() ? std::nullopt : std::optional<lcad::Point2D>(m_points.back());
+    }
+    bool isFinished() const override { return m_finished; }
+    void cancel() override { m_finished = true; }
+
+private:
+    enum class Stage { Points, AwaitingName };
+
+    lcad::Document& m_document;
+    std::vector<lcad::Point2D> m_points;
+    Stage m_stage = Stage::Points;
+    lcad::Point2D m_previewPoint;
+    bool m_hasPreview = false;
+    bool m_finished = false;
+};
+
+// BUSENTRY: picks a start and end point (real usage: from a wire's endpoint
+// diagonally onto a bus, conventionally at 45 degrees, but any two points
+// are accepted) and commits a single BusEntryEntity -- electrically a
+// 2-point connection exactly like a wire (see Netlist.h).
+class BusEntryCommand : public DrawCommand {
+public:
+    explicit BusEntryCommand(lcad::Document& document) : m_document(document) {}
+
+    QString start() override { return QStringLiteral("BUSENTRY  Specify start point:"); }
+    std::optional<QString> onPoint(const lcad::Point2D& pt) override;
+    void onPreviewPoint(const lcad::Point2D& pt) override { m_previewPoint = pt; }
+    std::vector<std::pair<lcad::Point2D, lcad::Point2D>> previewSegments() const override {
+        if (!m_haveStart) return {};
+        return {{m_start, m_previewPoint}};
+    }
+    std::optional<lcad::Point2D> anchorPoint() const override {
+        return m_haveStart ? std::optional<lcad::Point2D>(m_start) : std::nullopt;
+    }
+    bool isFinished() const override { return m_finished; }
+    void cancel() override { m_finished = true; }
+
+private:
+    lcad::Document& m_document;
+    lcad::Point2D m_start;
+    lcad::Point2D m_previewPoint;
+    bool m_haveStart = false;
+    bool m_finished = false;
+};
+
 // WIRELIST: specify an insertion point, then builds a wire-list/cross-
 // reference TABLE there (see core/electrical/WireList.h).
 class WireListCommand : public DrawCommand {

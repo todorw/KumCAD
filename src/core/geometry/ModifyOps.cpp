@@ -137,6 +137,8 @@ std::unique_ptr<Entity> stretchedClone(const Entity& e, const BoundingBox& windo
     case EntityType::Dimension:
     case EntityType::Table:
     case EntityType::Wire:
+    case EntityType::Bus:
+    case EntityType::BusEntry:
     case EntityType::Track:
     case EntityType::Wipeout:
     case EntityType::Region:

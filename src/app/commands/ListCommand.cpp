@@ -30,6 +30,8 @@
 #include "core/geometry/Via.h"
 #include "core/geometry/Wipeout.h"
 #include "core/geometry/Wire.h"
+#include "core/geometry/Bus.h"
+#include "core/geometry/BusEntry.h"
 
 #include <cmath>
 
@@ -220,6 +222,20 @@ QStringList formatEntityList(const lcad::Document& document, lcad::EntityId id) 
         const auto& wire = static_cast<const lcad::WireEntity&>(*e);
         lines << QStringLiteral("WIRE  Handle=%1  Layer=%2").arg(id).arg(layerName);
         lines << QStringLiteral("  %1 vertices").arg(wire.vertices().size());
+        break;
+    }
+    case lcad::EntityType::Bus: {
+        const auto& bus = static_cast<const lcad::BusEntity&>(*e);
+        lines << QStringLiteral("BUS  Handle=%1  Layer=%2").arg(id).arg(layerName);
+        lines << QStringLiteral("  %1 vertices  \"%2\"")
+                     .arg(bus.vertices().size())
+                     .arg(QString::fromStdString(bus.name()));
+        break;
+    }
+    case lcad::EntityType::BusEntry: {
+        const auto& entry = static_cast<const lcad::BusEntryEntity&>(*e);
+        lines << QStringLiteral("BUSENTRY  Handle=%1  Layer=%2").arg(id).arg(layerName);
+        lines << QStringLiteral("  from %1 to %2").arg(xy(entry.start()), xy(entry.end()));
         break;
     }
     case lcad::EntityType::Junction: {

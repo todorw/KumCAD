@@ -1,4 +1,6 @@
 #include "core/document/Document.h"
+#include "core/geometry/Bus.h"
+#include "core/geometry/BusEntry.h"
 #include "core/geometry/Insert.h"
 #include "core/geometry/Junction.h"
 #include "core/geometry/NetLabel.h"
@@ -184,6 +186,72 @@ TEST_CASE("computeNets does not connect labels with different names", "[schemati
     REQUIRE(gnd != nets.end());
     REQUIRE(vcc->pins.size() == 1);
     REQUIRE(gnd->pins.size() == 1);
+}
+
+TEST_CASE("computeNets connects two pins through a bus entry stub, exactly like a wire", "[schematic][netlist][bus]") {
+    Document doc;
+    const BlockDefinition* r1 = addTwoPinSymbol(doc, "R");
+    const BlockDefinition* r2 = addTwoPinSymbol(doc, "R2");
+
+    auto insertA = std::make_unique<InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), r1, Point2D(0, 0));
+    const EntityId idA = insertA->id();
+    doc.addEntity(std::move(insertA));
+    // r2's pin "1" lands at world (10,20).
+    auto insertB = std::make_unique<InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), r2, Point2D(10, 20));
+    const EntityId idB = insertB->id();
+    doc.addEntity(std::move(insertB));
+
+    // R1 pin "2" (world (10,0)) connects up to a bus at y=10 via a diagonal
+    // bus entry stub; R2 pin "1" (world (10,20)) is placed right on that
+    // same bus line -- the bus polyline itself carries no connectivity (see
+    // BusEntity's own doc comment), so without the entry these would NOT
+    // be the same net. The purely visual bus line is included too, to
+    // prove it's inert for netlist purposes.
+    doc.addEntity(std::make_unique<BusEntity>(doc.reserveEntityId(), doc.currentLayer(),
+                                               std::vector<Point2D>{Point2D(0, 10), Point2D(50, 10)}, "DATA[0..7]"));
+    doc.addEntity(
+        std::make_unique<BusEntryEntity>(doc.reserveEntityId(), doc.currentLayer(), Point2D(10, 0), Point2D(10, 10)));
+    // A second bus entry drops straight from the bus down to R2's pin.
+    doc.addEntity(
+        std::make_unique<BusEntryEntity>(doc.reserveEntityId(), doc.currentLayer(), Point2D(10, 10), Point2D(10, 20)));
+
+    const std::vector<Net> nets = computeNets(doc);
+    const auto merged = std::find_if(nets.begin(), nets.end(), [&](const Net& n) {
+        const bool hasA2 = std::any_of(n.pins.begin(), n.pins.end(),
+                                        [&](const NetPin& p) { return p.insertId == idA && p.pinNumber == "2"; });
+        const bool hasB1 = std::any_of(n.pins.begin(), n.pins.end(),
+                                        [&](const NetPin& p) { return p.insertId == idB && p.pinNumber == "1"; });
+        return hasA2 && hasB1;
+    });
+    REQUIRE(merged != nets.end());
+}
+
+TEST_CASE("computeNets does NOT connect two wires that merely touch the same bus line without a bus entry",
+          "[schematic][netlist][bus]") {
+    Document doc;
+    const BlockDefinition* r1 = addTwoPinSymbol(doc, "R");
+    const BlockDefinition* r2 = addTwoPinSymbol(doc, "R2");
+    auto insertA = std::make_unique<InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), r1, Point2D(0, 10));
+    const EntityId idA = insertA->id();
+    doc.addEntity(std::move(insertA));
+    auto insertB = std::make_unique<InsertEntity>(doc.reserveEntityId(), doc.currentLayer(), r2, Point2D(30, 10));
+    const EntityId idB = insertB->id();
+    doc.addEntity(std::move(insertB));
+
+    // A bus drawn right through both pins -- the bus line itself must NOT
+    // act as a connectivity edge (a real bus without any wired-in entries
+    // connects nothing).
+    doc.addEntity(std::make_unique<BusEntity>(doc.reserveEntityId(), doc.currentLayer(),
+                                               std::vector<Point2D>{Point2D(0, 10), Point2D(40, 10)}));
+
+    const std::vector<Net> nets = computeNets(doc);
+    for (const Net& net : nets) {
+        const bool hasA = std::any_of(net.pins.begin(), net.pins.end(),
+                                       [&](const NetPin& p) { return p.insertId == idA; });
+        const bool hasB = std::any_of(net.pins.begin(), net.pins.end(),
+                                       [&](const NetPin& p) { return p.insertId == idB; });
+        REQUIRE_FALSE((hasA && hasB));
+    }
 }
 
 TEST_CASE("runErc flags an unconnected pin but not one marked NoConnect", "[schematic][erc]") {

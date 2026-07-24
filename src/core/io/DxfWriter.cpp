@@ -29,6 +29,8 @@
 #include "core/geometry/Via.h"
 #include "core/geometry/Wipeout.h"
 #include "core/geometry/Wire.h"
+#include "core/geometry/Bus.h"
+#include "core/geometry/BusEntry.h"
 #include "core/io/DxfColors.h"
 
 #include <algorithm>
@@ -577,6 +579,28 @@ void writeEntity(std::ofstream& out, const Document& document, const Entity& e) 
             writeGroup(out, 10, v.x);
             writeGroup(out, 20, v.y);
         }
+        break;
+    }
+    case EntityType::Bus: {
+        const auto& bus = static_cast<const BusEntity&>(e);
+        writeGroup(out, 0, "BUS");
+        writeCommon(out, document, e);
+        writeGroup(out, 90, static_cast<int>(bus.vertices().size()));
+        for (const Point2D& v : bus.vertices()) {
+            writeGroup(out, 10, v.x);
+            writeGroup(out, 20, v.y);
+        }
+        writeGroup(out, 1, bus.name());
+        break;
+    }
+    case EntityType::BusEntry: {
+        const auto& entry = static_cast<const BusEntryEntity&>(e);
+        writeGroup(out, 0, "BUSENTRY");
+        writeCommon(out, document, e);
+        writeGroup(out, 10, entry.start().x);
+        writeGroup(out, 20, entry.start().y);
+        writeGroup(out, 11, entry.end().x);
+        writeGroup(out, 21, entry.end().y);
         break;
     }
     case EntityType::Junction: {

@@ -30,6 +30,8 @@
 #include "core/geometry/Via.h"
 #include "core/geometry/Wipeout.h"
 #include "core/geometry/Wire.h"
+#include "core/geometry/Bus.h"
+#include "core/geometry/BusEntry.h"
 #include "core/io/DxfColors.h"
 
 #include <algorithm>
@@ -604,6 +606,10 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             made = std::make_unique<MLeaderEntity>(id, layerId, legs, p10, mleaderArrowSize);
         } else if (curEntityType == "WIRE" && polyVerts.size() >= 2) {
             made = std::make_unique<WireEntity>(id, layerId, polyVerts);
+        } else if (curEntityType == "BUS" && polyVerts.size() >= 2) {
+            made = std::make_unique<BusEntity>(id, layerId, polyVerts, netLabelName);
+        } else if (curEntityType == "BUSENTRY") {
+            made = std::make_unique<BusEntryEntity>(id, layerId, p10, p11);
         } else if (curEntityType == "JUNCTION") {
             made = std::make_unique<JunctionEntity>(id, layerId, p10);
         } else if (curEntityType == "NOCONNECT") {
@@ -1100,8 +1106,8 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             break;
         case 10:
             if (curEntityType == "LWPOLYLINE" || curEntityType == "SPLINE" || curEntityType == "LEADER" ||
-                curEntityType == "WIRE" || curEntityType == "TRACK" || curEntityType == "WIPEOUT" ||
-                curEntityType == "MLINE" || inVertex) {
+                curEntityType == "WIRE" || curEntityType == "BUS" || curEntityType == "TRACK" ||
+                curEntityType == "WIPEOUT" || curEntityType == "MLINE" || inVertex) {
                 pendingVertX = toDouble(g.value);
                 havePendingVertX = true;
             } else if (curEntityType == "HATCH") {
@@ -1120,8 +1126,8 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             break;
         case 20:
             if (curEntityType == "LWPOLYLINE" || curEntityType == "SPLINE" || curEntityType == "LEADER" || inVertex ||
-                curEntityType == "HATCH" || curEntityType == "WIRE" || curEntityType == "TRACK" ||
-                curEntityType == "WIPEOUT" || curEntityType == "MLINE") {
+                curEntityType == "HATCH" || curEntityType == "WIRE" || curEntityType == "BUS" ||
+                curEntityType == "TRACK" || curEntityType == "WIPEOUT" || curEntityType == "MLINE") {
                 if (havePendingVertX) {
                     polyVerts.emplace_back(pendingVertX, toDouble(g.value));
                     polyBulges.push_back(0.0); // a following group 42 may overwrite this
@@ -1351,7 +1357,7 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
             else if (curEntityType == "ACAD_TABLE") tableCells.push_back(g.value);
             else if (curEntityType == "IMAGE") imagePath = g.value;
             else if (curEntityType == "POINTCLOUD") pointCloudPath = g.value;
-            else if (curEntityType == "NETLABEL") netLabelName = g.value;
+            else if (curEntityType == "NETLABEL" || curEntityType == "BUS") netLabelName = g.value;
             else if (curEntityType == "TOLERANCE" && !toleranceRows.empty()) {
                 // Starts a new datum reference on the current row; group
                 // 74 right after fills its material-condition modifier.

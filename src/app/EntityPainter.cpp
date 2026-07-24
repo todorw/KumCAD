@@ -30,6 +30,8 @@
 #include "core/geometry/Via.h"
 #include "core/geometry/Wipeout.h"
 #include "core/geometry/Wire.h"
+#include "core/geometry/Bus.h"
+#include "core/geometry/BusEntry.h"
 #include "core/document/Document.h"
 
 #include <QFont>
@@ -701,6 +703,32 @@ void paint(QPainter& painter, const lcad::Entity& entity, const WorldToScreen& t
         for (std::size_t i = 0; i + 1 < verts.size(); ++i) {
             painter.drawLine(toScreen(verts[i]), toScreen(verts[i + 1]));
         }
+        break;
+    }
+    case lcad::EntityType::Bus: {
+        // Real schematic tools draw a bus noticeably thicker than an
+        // ordinary wire so a bundled multi-signal run reads at a glance --
+        // a fixed multiple of the normal pen width, not a stored property.
+        const auto& bus = static_cast<const lcad::BusEntity&>(entity);
+        const auto& verts = bus.vertices();
+        QPen pen(color, std::max(1.0, penWidth * 3.0));
+        painter.save();
+        painter.setPen(pen);
+        for (std::size_t i = 0; i + 1 < verts.size(); ++i) painter.drawLine(toScreen(verts[i]), toScreen(verts[i + 1]));
+        painter.restore();
+        if (!bus.name().empty() && !verts.empty()) {
+            QFont font = painter.font();
+            font.setPixelSize(std::max(1, static_cast<int>(std::round(2.5 * scale))));
+            painter.save();
+            painter.setFont(font);
+            painter.drawText(toScreen(verts.front()), QString::fromStdString(bus.name()));
+            painter.restore();
+        }
+        break;
+    }
+    case lcad::EntityType::BusEntry: {
+        const auto& entry = static_cast<const lcad::BusEntryEntity&>(entity);
+        painter.drawLine(toScreen(entry.start()), toScreen(entry.end()));
         break;
     }
     case lcad::EntityType::Junction: {

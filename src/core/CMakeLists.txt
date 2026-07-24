@@ -65,6 +65,10 @@ add_library(lcad_core STATIC
     geometry/PointCloud.cpp
     geometry/Wire.h
     geometry/Wire.cpp
+    geometry/Bus.h
+    geometry/Bus.cpp
+    geometry/BusEntry.h
+    geometry/BusEntry.cpp
     geometry/Junction.h
     geometry/NoConnect.h
     geometry/NetLabel.h

@@ -1,6 +1,8 @@
 #include "commands/SchematicCommands.h"
 
 #include "core/document/Commands.h"
+#include "core/geometry/Bus.h"
+#include "core/geometry/BusEntry.h"
 #include "core/geometry/Junction.h"
 #include "core/geometry/NetLabel.h"
 #include "core/geometry/NoConnect.h"
@@ -94,6 +96,60 @@ std::optional<QString> PinAddCommand::onText(const QString& text) {
     default:
         return std::nullopt;
     }
+}
+
+std::optional<QString> BusCommand::onPoint(const lcad::Point2D& pt) {
+    if (m_stage != Stage::Points) return std::nullopt;
+    if (!m_points.empty() && (pt - m_points.back()).length() < 1e-12) {
+        return QStringLiteral("Specify next point or [Enter to finish]:"); // ignore a duplicate pick
+    }
+    m_points.push_back(pt);
+    return QStringLiteral("Specify next point or [Enter to finish]:");
+}
+
+void BusCommand::onPreviewPoint(const lcad::Point2D& pt) {
+    m_previewPoint = pt;
+    m_hasPreview = true;
+}
+
+std::vector<std::pair<lcad::Point2D, lcad::Point2D>> BusCommand::previewSegments() const {
+    std::vector<std::pair<lcad::Point2D, lcad::Point2D>> segs;
+    for (std::size_t i = 0; i + 1 < m_points.size(); ++i) segs.emplace_back(m_points[i], m_points[i + 1]);
+    if (m_stage == Stage::Points && !m_points.empty() && m_hasPreview) segs.emplace_back(m_points.back(), m_previewPoint);
+    return segs;
+}
+
+bool BusCommand::requestFinish() {
+    if (m_stage != Stage::Points) return false;
+    if (m_points.size() < 2) {
+        m_finished = true;
+        return false;
+    }
+    m_stage = Stage::AwaitingName;
+    return true;
+}
+
+std::optional<QString> BusCommand::onText(const QString& text) {
+    m_finished = true;
+    const std::string name = text.trimmed().toStdString();
+    m_document.commandStack().execute(std::make_unique<lcad::AddEntityCommand>(
+        m_document,
+        std::make_unique<lcad::BusEntity>(m_document.reserveEntityId(), m_document.currentLayer(), m_points, name)));
+    return name.empty() ? QStringLiteral("*Bus placed*")
+                        : QStringLiteral("*Bus \"%1\" placed*").arg(QString::fromStdString(name));
+}
+
+std::optional<QString> BusEntryCommand::onPoint(const lcad::Point2D& pt) {
+    if (!m_haveStart) {
+        m_start = pt;
+        m_haveStart = true;
+        return QStringLiteral("Specify end point:");
+    }
+    m_document.commandStack().execute(std::make_unique<lcad::AddEntityCommand>(
+        m_document,
+        std::make_unique<lcad::BusEntryEntity>(m_document.reserveEntityId(), m_document.currentLayer(), m_start, pt)));
+    m_finished = true;
+    return QStringLiteral("*Bus entry placed*");
 }
 
 std::optional<QString> WireListCommand::onPoint(const lcad::Point2D& pt) {

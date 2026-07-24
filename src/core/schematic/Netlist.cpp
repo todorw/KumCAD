@@ -1,6 +1,7 @@
 #include "core/schematic/Netlist.h"
 
 #include "core/document/Document.h"
+#include "core/geometry/BusEntry.h"
 #include "core/geometry/Insert.h"
 #include "core/geometry/Junction.h"
 #include "core/geometry/NetLabel.h"
@@ -61,6 +62,11 @@ std::vector<Net> computeNets(const Document& doc) {
     std::vector<const JunctionEntity*> junctions;
     std::vector<const NetLabelEntity*> labels;
     std::vector<const InsertEntity*> symbolInserts;
+    // BusEntryEntity: the diagonal stub letting a wire legally touch a bus.
+    // A bus line itself (BusEntity) carries no connectivity of its own --
+    // see Bus.h's own comment -- only the entry's two endpoints do, exactly
+    // like a 2-vertex wire.
+    std::vector<const BusEntryEntity*> busEntries;
 
     for (const Entity* e : doc.entities()) {
         switch (e->type()) {
@@ -72,6 +78,9 @@ std::vector<Net> computeNets(const Document& doc) {
             break;
         case EntityType::NetLabel:
             labels.push_back(static_cast<const NetLabelEntity*>(e));
+            break;
+        case EntityType::BusEntry:
+            busEntries.push_back(static_cast<const BusEntryEntity*>(e));
             break;
         case EntityType::Insert: {
             const auto* insert = static_cast<const InsertEntity*>(e);
@@ -93,7 +102,7 @@ std::vector<Net> computeNets(const Document& doc) {
     std::size_t totalWireVertices = 0;
     for (const auto* w : wires) totalWireVertices += w->vertices().size();
 
-    UnionFind uf(totalWireVertices + pinSlots.size());
+    UnionFind uf(totalWireVertices + busEntries.size() * 2 + pinSlots.size());
 
     // Slot each wire's vertices and union them along the wire's own path --
     // a single physical wire is always internally connected end to end.
@@ -106,6 +115,15 @@ std::vector<Net> computeNets(const Document& doc) {
             wireVertexUf[wi][vi] = next++;
             if (vi > 0) uf.unite(wireVertexUf[wi][vi], wireVertexUf[wi][vi - 1]);
         }
+    }
+    // Each bus entry's own start/end are always connected to each other,
+    // same as a wire's own consecutive vertices.
+    std::vector<std::pair<std::size_t, std::size_t>> busEntryUf(busEntries.size());
+    for (std::size_t bi = 0; bi < busEntries.size(); ++bi) {
+        const std::size_t startIdx = next++;
+        const std::size_t endIdx = next++;
+        busEntryUf[bi] = {startIdx, endIdx};
+        uf.unite(busEntryUf[bi].first, busEntryUf[bi].second);
     }
     for (auto& slot : pinSlots) slot.ufIndex = next++;
 
@@ -130,6 +148,10 @@ std::vector<Net> computeNets(const Document& doc) {
                 if (quantize(verts[vi]) == key) buckets[key].push_back(wireVertexUf[wi][vi]);
             }
         }
+    }
+    for (std::size_t bi = 0; bi < busEntries.size(); ++bi) {
+        addToBucket(busEntries[bi]->start(), busEntryUf[bi].first);
+        addToBucket(busEntries[bi]->end(), busEntryUf[bi].second);
     }
     for (const auto& slot : pinSlots) addToBucket(slot.world, slot.ufIndex);
 
