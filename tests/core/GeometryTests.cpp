@@ -474,6 +474,42 @@ TEST_CASE("DimensionEntity geometry", "[geometry][dimension]") {
     }
 }
 
+TEST_CASE("DimensionEntity textOverride/textRotationOverride (AutoCAD DIMEDIT's New/Rotate)",
+         "[geometry][dimension][dimedit]") {
+    lcad::DimensionEntity dim(1, 0, lcad::Point2D(0, 0), lcad::Point2D(3, 4), lcad::Point2D(0, 2), true);
+    REQUIRE(dim.geometry().label == "5.00"); // baseline: plain auto-measured label
+
+    SECTION("empty override (the default) leaves the label untouched") { REQUIRE(dim.textOverride().empty()); }
+
+    SECTION("a full literal override replaces the label outright") {
+        dim.setTextOverride("SEE NOTE 3");
+        REQUIRE(dim.geometry().label == "SEE NOTE 3");
+    }
+
+    SECTION("<> substitutes the real auto-measured value into a prefix/suffix override") {
+        dim.setTextOverride("<> TYP");
+        REQUIRE(dim.geometry().label == "5.00 TYP");
+
+        dim.setTextOverride("APPROX <>");
+        REQUIRE(dim.geometry().label == "APPROX 5.00");
+    }
+
+    SECTION("textRotationOverride replaces the computed text angle") {
+        const double originalAngle = dim.geometry().textAngle;
+        dim.setTextRotationOverride(M_PI / 4.0);
+        REQUIRE(dim.geometry().textAngle == Approx(M_PI / 4.0));
+        REQUIRE(dim.geometry().textAngle != Approx(originalAngle));
+
+        dim.setTextRotationOverride(std::nullopt); // clearing it restores the computed angle
+        REQUIRE(dim.geometry().textAngle == Approx(originalAngle));
+    }
+
+    SECTION("overrides don't affect the measured value itself, only its display") {
+        dim.setTextOverride("whatever");
+        REQUIRE(dim.geometry().value == Approx(5.0));
+    }
+}
+
 TEST_CASE("HatchEntity containment and distance", "[geometry][hatch]") {
     std::vector<lcad::Point2D> square{{0, 0}, {10, 0}, {10, 10}, {0, 10}};
     lcad::HatchEntity hatch(1, 0, square);

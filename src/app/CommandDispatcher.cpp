@@ -19,6 +19,7 @@
 #include "commands/DonutCommand.h"
 #include "commands/WBlockCommand.h"
 #include "commands/ListCommand.h"
+#include "commands/DimEditCommand.h"
 #include "core/geometry/MassProps.h"
 #include "core/geometry/Region.h"
 #include "core/geometry/RegionBuild.h"
@@ -692,6 +693,32 @@ void CommandDispatcher::handleCommandText(const QString& text) {
                      QStringLiteral("DIMDIAMETER"));
     } else if (cmd == QLatin1String("DIMANGULAR") || cmd == QLatin1String("DAN")) {
         startCommand(std::make_unique<DimAngularCommand>(m_document), QStringLiteral("DIMANGULAR"));
+    } else if (cmd == QLatin1String("DIMEDIT") || cmd == QLatin1String("DED")) {
+        std::vector<lcad::EntityId> dimIds;
+        if (m_view) {
+            for (lcad::EntityId id : m_view->selectedIds()) {
+                const lcad::Entity* e = m_document.findEntity(id);
+                if (e && e->type() == lcad::EntityType::Dimension) dimIds.push_back(id);
+            }
+        }
+        if (dimIds.empty()) {
+            m_commandLine.appendLine(QStringLiteral("*Select one or more dimensions first, then run DIMEDIT*"));
+        } else {
+            startCommand(std::make_unique<DimEditCommand>(m_document, dimIds), QStringLiteral("DIMEDIT"));
+        }
+    } else if (cmd == QLatin1String("DIMTEDIT") || cmd == QLatin1String("DIMTED")) {
+        std::vector<lcad::EntityId> dimIds;
+        if (m_view) {
+            for (lcad::EntityId id : m_view->selectedIds()) {
+                const lcad::Entity* e = m_document.findEntity(id);
+                if (e && e->type() == lcad::EntityType::Dimension) dimIds.push_back(id);
+            }
+        }
+        if (dimIds.size() == 1) {
+            startCommand(std::make_unique<DimTeditCommand>(m_document, dimIds.front()), QStringLiteral("DIMTEDIT"));
+        } else {
+            m_commandLine.appendLine(QStringLiteral("*Select exactly one dimension first, then run DIMTEDIT*"));
+        }
     } else if (cmd == QLatin1String("DIMSTYLE") || cmd == QLatin1String("D")) {
         startCommand(std::make_unique<DimStyleCommand>(m_document), QStringLiteral("DIMSTYLE"));
     } else if (cmd == QLatin1String("STYLE") || cmd == QLatin1String("ST")) {

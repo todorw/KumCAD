@@ -38,7 +38,7 @@ double readableAngle(double a) {
 
 } // namespace
 
-DimensionEntity::Geometry DimensionEntity::geometry() const {
+DimensionEntity::Geometry DimensionEntity::rawGeometry() const {
     Geometry geo;
 
     switch (m_kind) {
@@ -231,6 +231,18 @@ DimensionEntity::Geometry DimensionEntity::geometry() const {
     const Point2D dimDir = dimLen > 1e-12 ? dimSpan * (1.0 / dimLen) : Point2D(1, 0);
     const Point2D dimNormal(-dimDir.y, dimDir.x);
     geo.textPos = (geo.dimA + geo.dimB) * 0.5 + dimNormal * (0.7 * m_textHeight);
+    return geo;
+}
+
+DimensionEntity::Geometry DimensionEntity::geometry() const {
+    Geometry geo = rawGeometry();
+    if (!m_textOverride.empty()) {
+        const std::size_t placeholder = m_textOverride.find("<>");
+        geo.label = placeholder == std::string::npos
+                       ? m_textOverride
+                       : m_textOverride.substr(0, placeholder) + geo.label + m_textOverride.substr(placeholder + 2);
+    }
+    if (m_textRotationOverride) geo.textAngle = *m_textRotationOverride;
     return geo;
 }
 

@@ -95,6 +95,19 @@ public:
     void setPoint1(const Point2D& p) { m_p1 = p; }
     void setPoint2(const Point2D& p) { m_p2 = p; }
 
+    // AutoCAD DIMEDIT's own "New"/"Rotate" edits. textOverride empty (the
+    // default) means the plain auto-measured label, exactly as before;
+    // set, it REPLACES geometry()'s own computed label, except any "<>"
+    // inside it is substituted with that computed label first -- real
+    // AutoCAD's own convention for a prefix/suffix on the measured value
+    // (e.g. "<> TYP" or "APPROX <>") rather than only a full literal
+    // override. textRotationOverride, when set, replaces the computed
+    // textAngle outright (DIMEDIT's "Rotate").
+    const std::string& textOverride() const { return m_textOverride; }
+    void setTextOverride(std::string text) { m_textOverride = std::move(text); }
+    const std::optional<double>& textRotationOverride() const { return m_textRotationOverride; }
+    void setTextRotationOverride(std::optional<double> radians) { m_textRotationOverride = radians; }
+
     // Associativity: optional snap references binding each definition point
     // to another entity. Document::reassociateDimensions() re-resolves them
     // after edits so the dimension follows the measured geometry.
@@ -103,6 +116,9 @@ public:
     void setAnchor1(std::optional<SnapRef> ref) { m_anchor1 = ref; }
     void setAnchor2(std::optional<SnapRef> ref) { m_anchor2 = ref; }
 
+    // Applies textOverride/textRotationOverride on top of rawGeometry()'s
+    // own computed label/textAngle -- everything else (rendering,
+    // picking) goes through this, never rawGeometry() directly.
     Geometry geometry() const;
 
     EntityType type() const override { return EntityType::Dimension; }
@@ -118,6 +134,12 @@ public:
     std::unique_ptr<Entity> clone() const override;
 
 private:
+    // The old, single "compute everything from p1/p2/linePoint/vertex"
+    // switch, unchanged -- geometry() layers textOverride/
+    // textRotationOverride on top of its result in ONE place, rather
+    // than touching every per-kind case's own early return.
+    Geometry rawGeometry() const;
+
     DimensionKind m_kind;
     Point2D m_p1;
     Point2D m_p2;
@@ -128,6 +150,8 @@ private:
     int m_decimals = 2;
     std::optional<SnapRef> m_anchor1;
     std::optional<SnapRef> m_anchor2;
+    std::string m_textOverride;
+    std::optional<double> m_textRotationOverride;
 };
 
 } // namespace lcad
