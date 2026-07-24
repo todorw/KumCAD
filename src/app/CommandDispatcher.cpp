@@ -18,6 +18,7 @@
 #include "commands/PolygonCommand.h"
 #include "commands/DonutCommand.h"
 #include "commands/WBlockCommand.h"
+#include "commands/ListCommand.h"
 #include "core/geometry/Region.h"
 #include "core/geometry/RegionBuild.h"
 #include "commands/CopyCommand.h"
@@ -444,6 +445,19 @@ void CommandDispatcher::handleCommandText(const QString& text) {
             startCommand(std::make_unique<ChamferCommand>(m_document, lineIds[0], lineIds[1]), QStringLiteral("CHAMFER"));
         } else {
             m_commandLine.appendLine(QStringLiteral("*Select exactly two lines first, then run CHAMFER*"));
+        }
+    } else if (cmd == QLatin1String("LIST") || cmd == QLatin1String("LI")) {
+        const std::vector<lcad::EntityId> ids = selectionForModify();
+        if (ids.empty()) {
+            m_commandLine.appendLine(QStringLiteral("*Select one or more entities first, then run LIST*"));
+        } else {
+            for (lcad::EntityId id : ids) {
+                for (const QString& line : formatEntityList(m_document, id)) m_commandLine.appendLine(line);
+            }
+        }
+    } else if (cmd == QLatin1String("DBLIST")) {
+        for (const lcad::Entity* e : m_document.entities()) {
+            for (const QString& line : formatEntityList(m_document, e->id())) m_commandLine.appendLine(line);
         }
     } else if (cmd == QLatin1String("WBLOCK")) {
         const std::vector<lcad::EntityId> ids = m_view ? m_view->selectedIds() : std::vector<lcad::EntityId>{};

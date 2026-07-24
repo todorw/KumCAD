@@ -149,6 +149,8 @@ add_executable(kumcad WIN32
     commands/DonutCommand.cpp
     commands/WBlockCommand.h
     commands/WBlockCommand.cpp
+    commands/ListCommand.h
+    commands/ListCommand.cpp
     commands/FindCommand.h
     commands/FindCommand.cpp
     commands/QSelectCommand.h
