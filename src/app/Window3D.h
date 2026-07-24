@@ -52,6 +52,11 @@ private:
     void importIgesFile();
     void exportStepFile();
     void exportIgesFile();
+    // STL: the de facto 3D-printing interchange format -- see StepIges.h's
+    // own comment on why it's a separate pair of functions (a tessellated
+    // mesh, not an exact B-rep, both directions).
+    void importStlFile();
+    void exportStlFile();
     void saveKcad3dFile();
     void openKcad3dFile();
 

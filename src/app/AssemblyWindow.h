@@ -27,6 +27,7 @@ private:
     void checkDof();
     void checkInterferences();
     void exportStep();
+    void exportStl();
     void exportPartsList();
     void refreshComponentList();
     void refreshMateList();

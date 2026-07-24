@@ -1466,9 +1466,11 @@ Window3D::Window3D(QWidget* parent) : QMainWindow(parent) {
     QMenu* fileMenu = menuBar()->addMenu(QStringLiteral("&File"));
     fileMenu->addAction(QStringLiteral("Import STEP..."), this, &Window3D::importStepFile);
     fileMenu->addAction(QStringLiteral("Import IGES..."), this, &Window3D::importIgesFile);
+    fileMenu->addAction(QStringLiteral("Import STL..."), this, &Window3D::importStlFile);
     fileMenu->addSeparator();
     fileMenu->addAction(QStringLiteral("Export STEP..."), this, &Window3D::exportStepFile);
     fileMenu->addAction(QStringLiteral("Export IGES..."), this, &Window3D::exportIgesFile);
+    fileMenu->addAction(QStringLiteral("Export STL..."), this, &Window3D::exportStlFile);
     fileMenu->addSeparator();
     fileMenu->addAction(QStringLiteral("Save As .kcad3d..."), this, &Window3D::saveKcad3dFile);
     fileMenu->addAction(QStringLiteral("Open .kcad3d..."), this, &Window3D::openKcad3dFile);
@@ -1870,6 +1872,36 @@ void Window3D::exportIgesFile() {
         return;
     }
     statusBar()->showMessage(QStringLiteral("Exported IGES to %1").arg(path), 3000);
+}
+
+void Window3D::importStlFile() {
+    const QString path = QFileDialog::getOpenFileName(this, QStringLiteral("Import STL"), QString(),
+                                                        QStringLiteral("STL Files (*.stl)"));
+    if (path.isEmpty()) return;
+    const TopoDS_Shape shape = lcad::readStl(path.toStdString());
+    if (shape.IsNull()) {
+        QMessageBox::warning(this, QStringLiteral("Import Failed"), QStringLiteral("Could not read that STL file."));
+        return;
+    }
+    const int importIdx = m_document.addImportedShape(shape);
+    Feature3D feature;
+    feature.type = FeatureType::Imported;
+    feature.name = QFileInfo(path).baseName().toStdString();
+    feature.importIndex = importIdx;
+    m_document.commandStack().execute(std::make_unique<AddFeature3DCommand>(m_document, feature));
+    refreshFeatureList();
+    refreshViewport();
+}
+
+void Window3D::exportStlFile() {
+    const QString path = QFileDialog::getSaveFileName(this, QStringLiteral("Export STL"), QString(),
+                                                        QStringLiteral("STL Files (*.stl)"));
+    if (path.isEmpty()) return;
+    if (!lcad::writeStl(exportableTipShapes(), path.toStdString())) {
+        statusBar()->showMessage(QStringLiteral("STL export failed -- no valid solid in the document"), 4000);
+        return;
+    }
+    statusBar()->showMessage(QStringLiteral("Exported STL to %1").arg(path), 3000);
 }
 
 void Window3D::saveKcad3dFile() {

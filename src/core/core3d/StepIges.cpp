@@ -1,11 +1,16 @@
 #include "core/core3d/StepIges.h"
 
+#include <BRepMesh_IncrementalMesh.hxx>
+#include <BRep_Builder.hxx>
 #include <IFSelect_ReturnStatus.hxx>
 #include <IGESControl_Reader.hxx>
 #include <IGESControl_Writer.hxx>
 #include <STEPControl_Reader.hxx>
 #include <STEPControl_Writer.hxx>
 #include <STEPControl_StepModelType.hxx>
+#include <StlAPI_Reader.hxx>
+#include <StlAPI_Writer.hxx>
+#include <TopoDS_Compound.hxx>
 
 namespace lcad {
 
@@ -78,6 +83,42 @@ TopoDS_Shape readIges(const std::string& path) {
     reader.TransferRoots();
     if (reader.NbShapes() < 1) return TopoDS_Shape();
     return reader.OneShape();
+}
+
+bool writeStl(const Document3D& doc, const std::string& path, double linearDeflection) {
+    std::vector<TopoDS_Shape> shapes;
+    for (int index : tipFeatureIndices(doc)) shapes.push_back(doc.shapeAt(index));
+    return writeStl(shapes, path, linearDeflection);
+}
+
+bool writeStl(const std::vector<TopoDS_Shape>& shapes, const std::string& path, double linearDeflection) {
+    // STL has no concept of separate named bodies (unlike STEP/IGES) --
+    // every shape combines into one compound before tessellation, exactly
+    // matching a real STL viewer/slicer's own "it's all just triangles"
+    // view of the file.
+    BRep_Builder builder;
+    TopoDS_Compound compound;
+    builder.MakeCompound(compound);
+    bool any = false;
+    for (const TopoDS_Shape& shape : shapes) {
+        if (shape.IsNull()) continue;
+        builder.Add(compound, shape);
+        any = true;
+    }
+    if (!any) return false;
+
+    BRepMesh_IncrementalMesh mesher(compound, linearDeflection, Standard_False, 0.3, Standard_True);
+    if (!mesher.IsDone()) return false;
+
+    StlAPI_Writer writer;
+    return writer.Write(compound, path.c_str());
+}
+
+TopoDS_Shape readStl(const std::string& path) {
+    StlAPI_Reader reader;
+    TopoDS_Shape shape;
+    if (!reader.Read(shape, path.c_str())) return TopoDS_Shape();
+    return shape;
 }
 
 } // namespace lcad

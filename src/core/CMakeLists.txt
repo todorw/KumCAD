@@ -270,7 +270,7 @@ if(LCAD_ENABLE_3D)
         target_link_libraries(lcad_core PUBLIC
             TKernel TKMath TKG2d TKG3d TKGeomBase TKGeomAlgo TKBRep TKTopAlgo
             TKPrim TKBO TKMesh TKService TKV3d TKOpenGl TKFillet TKOffset
-            TKDESTEP TKDEIGES TKXSBase TKHLR)
+            TKDESTEP TKDEIGES TKDESTL TKXSBase TKHLR)
         target_compile_definitions(lcad_core PUBLIC LCAD_HAS_OCCT)
         target_sources(lcad_core PRIVATE
             core3d/Feature3D.h

@@ -36,4 +36,20 @@ bool writeIges(const std::vector<TopoDS_Shape>& shapes, const std::string& path)
 TopoDS_Shape readStep(const std::string& path);
 TopoDS_Shape readIges(const std::string& path);
 
+// STL: the de facto standard for 3D printing, and unlike STEP/IGES a pure
+// triangulated-mesh format, not an exact B-rep one -- writeStl tessellates
+// every shape first (BRepMesh_IncrementalMesh; linearDeflection is an
+// absolute distance in the document's own units, e.g. mm, not a fraction
+// of shape size) before handing the result to OCCT's own StlAPI_Writer,
+// and every shape in the file becomes one combined mesh (STL has no
+// concept of separate named bodies the way STEP/IGES do). readStl's
+// result is a shell of planar triangular faces, not a real parametric
+// solid -- a real, disclosed limitation of the format itself, not
+// something this wrapper could recover even in principle; it's meant for
+// round-tripping/visualization, not for feeding back into further
+// parametric editing the way readStep/readIges's results can be.
+bool writeStl(const Document3D& doc, const std::string& path, double linearDeflection = 0.1);
+bool writeStl(const std::vector<TopoDS_Shape>& shapes, const std::string& path, double linearDeflection = 0.1);
+TopoDS_Shape readStl(const std::string& path);
+
 } // namespace lcad

@@ -124,6 +124,13 @@ void registerLisp3DBindings(LispInterpreter& interp, Document3D& doc) {
         }
         return writeStep(doc, args[0].text) ? Value::t() : Value::nil();
     });
+
+    interp.registerBuiltin("EXPORTSTL3D", [&doc](std::vector<Value>& args) -> Value {
+        if (args.empty() || args[0].kind != LispInterpreter::Kind::String) {
+            throw std::runtime_error("EXPORTSTL3D: expected a file path string");
+        }
+        return writeStl(doc, args[0].text) ? Value::t() : Value::nil();
+    });
 }
 
 } // namespace lcad

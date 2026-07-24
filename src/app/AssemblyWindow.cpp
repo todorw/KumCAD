@@ -338,6 +338,7 @@ AssemblyWindow::AssemblyWindow(QWidget* parent) : QMainWindow(parent) {
     toolbar->addAction(QStringLiteral("Check DOF..."), this, &AssemblyWindow::checkDof);
     toolbar->addAction(QStringLiteral("Check Interferences..."), this, &AssemblyWindow::checkInterferences);
     toolbar->addAction(QStringLiteral("Export STEP..."), this, &AssemblyWindow::exportStep);
+    toolbar->addAction(QStringLiteral("Export STL..."), this, &AssemblyWindow::exportStl);
     toolbar->addAction(QStringLiteral("Export Parts List..."), this, &AssemblyWindow::exportPartsList);
 
     if (m_viewport->isAvailable()) {
@@ -465,6 +466,17 @@ void AssemblyWindow::exportStep() {
         return;
     }
     statusBar()->showMessage(QStringLiteral("Exported assembly STEP to %1").arg(path), 3000);
+}
+
+void AssemblyWindow::exportStl() {
+    const QString path = QFileDialog::getSaveFileName(this, QStringLiteral("Export Assembly STL"), QString(),
+                                                       QStringLiteral("STL Files (*.stl)"));
+    if (path.isEmpty()) return;
+    if (!lcad::writeStl(lcad::assemblyPlacedShapes(m_assembly), path.toStdString())) {
+        statusBar()->showMessage(QStringLiteral("STL export failed -- no valid component shapes to export"), 4000);
+        return;
+    }
+    statusBar()->showMessage(QStringLiteral("Exported assembly STL to %1").arg(path), 3000);
 }
 
 void AssemblyWindow::exportPartsList() {
