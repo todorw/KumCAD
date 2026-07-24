@@ -1,24 +1,42 @@
 # KumCAD
 
-A free, open-source 2D CAD application in the spirit of AutoCAD, built with C++20 and Qt 6.
+A free, open-source CAD/EDA suite in the spirit of AutoCAD, KiCad, and FreeCAD, built with C++20 and Qt 6.
 
-KumCAD follows AutoCAD's conventions wherever possible — the command line drives everything, command names and aliases match (`L`, `C`, `TR`, `MI`, ...), and drawings are exchanged as DXF.
+KumCAD has three parts sharing one core: **2D drafting** (AutoCAD-style, command-line driven, DXF/DWG native), **electronic design** (KiCad-style schematic capture and PCB layout, sharing the same 2D command line and document), and **3D modeling** (FreeCAD-style parametric solid modeling, in its own window, built on OpenCASCADE). KumCAD follows each real tool's own conventions wherever possible — command names and aliases match AutoCAD's (`L`, `C`, `TR`, `MI`, ...), file formats match DXF/DWG/.kicad_sch/.kicad_pcb/.kicad_mod, and 3D concepts (sketches, pads/pockets, feature trees, assemblies) match FreeCAD's own.
 
 ## Features
 
-**Drawing** — LINE, CIRCLE, ARC (3-point), PLINE (line and tangent-arc segments, Close), SPLINE (fit-point B-spline), RECTANG, ELLIPSE, POINT (PDMODE/PDSIZE marker styles) with DIVIDE/MEASURE, XLINE/RAY construction lines, TEXT and MTEXT using named text styles (STYLE: font, fixed height, width factor, oblique), HATCH (solid fill or ANSI31/32/33/37 patterns with scale and angle), LEADER (arrow + annotation), and DIMENSIONS: linear, aligned, radius, diameter, and angular, with named dimension styles (DIMSTYLE: create/restore, text height, arrow size, decimals).
+### 2D Drafting (AutoCAD-style)
 
-**Editing** — MOVE, COPY, ROTATE, SCALE, MIRROR, OFFSET (including polylines with arcs and ellipses), TRIM, EXTEND, FILLET (tangent arc or sharp corner), STRETCH (crossing window), LENGTHEN (DElta/Percent/Total), BREAK (two-point or at-point), ALIGN (move+rotate+optional scale), ARRAY (rectangular and polar), PEDIT (Close/Open/Join/Decurve), MATCHPROP, ERASE, EXPLODE, and grip editing (drag endpoints, midpoints, centers, quadrants). Full undo/redo; multi-entity operations are single undo steps.
+**Drawing** — LINE, CIRCLE, ARC (3-point), PLINE (line and tangent-arc segments, Close), SPLINE (fit-point B-spline), RECTANG, ELLIPSE, POINT (PDMODE/PDSIZE marker styles) with DIVIDE/MEASURE, XLINE/RAY construction lines, TEXT and MTEXT using named text styles (STYLE: font, fixed height, width factor, oblique), HATCH (solid fill, gradient, or ANSI31/32/33/37 patterns with scale and angle), LEADER and MLEADER (with named MLEADERSTYLEs), REVCLOUD, DONUT, POLYGON, WIPEOUT, MLINE, TOLERANCE (GD&T feature-control frames), and DIMENSIONS: linear, aligned, radius, diameter, and angular, with named dimension styles (DIMSTYLE) and DIMEDIT/DIMTEDIT.
 
-**Layouts** — Model and multiple paper-space tabs (LAYOUT New/Copy/Rename/Delete); draw title blocks and notes directly on the sheet, PAGESETUP sets paper size and orientation, MVIEW places viewports (drag to move, VPSCALE to set the scale, Del to remove), and printing a layout plots the sheet with its viewports and paper entities.
+**Editing** — MOVE, COPY, ROTATE, SCALE, MIRROR, OFFSET, TRIM, EXTEND, FILLET, CHAMFER, STRETCH, LENGTHEN, BREAK, BREAKLINE, ALIGN, ARRAY (rectangular/polar/path), PEDIT, MATCHPROP, JOIN, XCLIP, PRESSPULL-style solid editing on regions, NCOPY, OVERKILL (duplicate cleanup), ERASE, EXPLODE, and grip editing. REGION with boolean UNION/SUBTRACT/INTERSECT, BOUNDARY/BPOLY tracing. Full undo/redo; multi-entity operations are single undo steps.
 
-**Blocks** — BLOCK turns a selection into a reusable definition; INSERT places it anywhere and prompts for attribute values (ATTDEF defines tags inside blocks); EXPLODE breaks it back apart. XREF attaches an external DXF/DWG as a live reference (reloaded from disk on open, dimmed on screen, cached in the file so drawings open even when the reference is missing). GROUP names a selection so one click selects it all; PURGE drops unused blocks and layers.
+**Layouts & blocks** — Model and multiple paper-space tabs, title blocks and viewports (MVIEW/VPSCALE), sheet sets. BLOCK/INSERT/ATTDEF/ATTEDIT, dynamic blocks (BPARAMETER: linear, flip, rotation, visibility, array, lookup), BEDIT opens a real in-place block editor (every 2D command works inside it), PADADD/PINADD turn a block into a PCB footprint or schematic symbol, WBLOCK, XREF, GROUP, PURGE.
 
-**Drafting aids** — object snap (endpoint, midpoint, center, quadrant, node, intersection, perpendicular, tangent, nearest — toggled per-kind via OSNAP, F3), ortho mode (F8), grid snap (F9), polar tracking (F10, POLARANG sets the increment), object snap tracking with alignment guides (F11), crossing/window selection, measurement commands (DIST, AREA, ID). Dimensions drawn with object snap are associative: they follow the geometry they measure.
+**Drafting aids & organization** — object snap, ortho, grid snap, polar tracking, object snap tracking, layers (LAYISO/LAYOFF/LAYFRZ/LAYMRG/LAYERSTATE/LAYTRANS), linetypes and lineweights, fields, data extraction, tables, AutoLISP interpreter, ACTRECORD/ACTSTOP macro recording.
 
-**Organization** — layers with visibility, locking, colors, linetypes, and lineweights; per-entity color/linetype/lineweight overrides (ByLayer default, LWEIGHT + LWDISPLAY); linetypes (CONTINUOUS, DASHED, DOT, DASHDOT, CENTER, HIDDEN, PHANTOM) with LTSCALE; a dockable Properties panel and Layers panel.
+**Input/output** — DXF read/write, DWG import and export via LibreDWG (optional, see below), fit-to-page printing and PDF export.
 
-**Input/output** — DXF read/write (ACI and true colors, old-style POLYLINE, polyline bulges, splines, MTEXT, hatch patterns, leaders, all dimension kinds, linetypes, lineweights, STYLE/DIMSTYLE tables, blocks with attributes, xrefs, and multiple layouts with viewports and paper entities), DWG import **and export** via LibreDWG (optional, see below), plus fit-to-page printing and PDF export of model or layout.
+### Electronic Design (KiCad-style)
+
+**Schematic capture** — WIRE, BUS/BUSENTRY (bundled multi-signal buses), JUNCTION, NOCONNECT, NETLABEL, PINADD (defines a symbol's pins on a block), hierarchical sheets (SHEETNEW/SHEETGOTO), ERC (electrical rule checking: driver conflicts, unconnected pins, missing footprints), NETLIST export, ANNOTATE (auto reference-designator numbering), BOM generation, wire numbering, wire lists.
+
+**PCB layout** — TRACK, VIA, copper pours, diff pairs, length tuning, teardrops, via stitching, panelization, multi-layer stackups, net classes, keepout zones, ratsnest, DRC, autorouting (including rip-up-and-reroute and multi-layer via insertion), FOOTPRINTGEN (parametric QFP/SOIC/HEADER/CHIP/SOT23/SOT223/BGA/mounting-hole/fiducial footprints) and PADADD (hand-placed pads on any block), pick-and-place export, Gerber X2 and Excellon drill export, Specctra DSN export.
+
+**File interop** — real .kicad_sch, .kicad_pcb, and .kicad_mod read/write.
+
+### 3D Modeling (FreeCAD-style)
+
+Its own window (opened via the 2D app), built on a real B-rep kernel (OpenCASCADE), with a feature tree and undo/redo.
+
+**Sketch-based parametric features** — New Sketch (with 2D geometric/dimensional constraints and a real constraint solver) or Sketch on Face; Pad/Pocket, Revolve/Groove, Loft, Sweep, Fillet, Chamfer, Draft, Hole, Shell, Linear/Polar/Scaled Pattern, Mirror, Slice, PressPull, Delete Face (feature suppression), Offset Solid (whole-solid grow/shrink), Helix.
+
+**Assembly** — components from STEP files, mates (coincident, concentric, tangent, parallel, perpendicular, fixed, slider), DOF checking, interference detection, linear/polar component patterning, parts-list/BOM export, assembly STEP export.
+
+**Specialized workbenches** — Sheet Metal (flanges, flat-pattern export), BIM/Architecture (walls, slabs, columns, beams, roofs, stairs, doors/windows, rooms, IFC-lite import/export, room/opening schedules), FEM (static, modal, and thermal analysis), TechDraw (drawing/section/detail/auxiliary views from the 3D model), Piping, CAM (3D toolpath generation), a Variables/Spreadsheet system, and a 3D AutoLISP console.
+
+**File interop** — STEP and IGES import/export, plus KumCAD's own native .kcad3d format.
 
 ## Building
 
@@ -36,9 +54,13 @@ Run the test suite (Catch2, fetched automatically):
 ctest --test-dir build --output-on-failure
 ```
 
-### DWG import (optional)
+### 3D modeling (optional)
 
-DWG reading uses [LibreDWG](https://www.gnu.org/software/libredwg/). If it isn't packaged for your distro, build it from source into your user prefix:
+The 3D modeling window requires [OpenCASCADE (OCCT)](https://dev.opencascade.org/). If it's found by CMake's `find_package(OpenCASCADE)`, the 3D core builds automatically; if not, KumCAD still builds and runs fully as a 2D/EDA application, just without the 3D window.
+
+### DWG import/export (optional)
+
+DWG reading and writing uses [LibreDWG](https://www.gnu.org/software/libredwg/) (GPLv3), which is why KumCAD itself is licensed GPLv3 — see [License](#license) below. If LibreDWG isn't packaged for your distro, build it from source into your user prefix:
 
 ```sh
 curl -LO https://github.com/LibreDWG/libredwg/releases/download/0.13.3/libredwg-0.13.3.tar.gz
@@ -47,12 +69,16 @@ tar xzf libredwg-0.13.3.tar.gz && cd libredwg-0.13.3
 make -j && make install
 ```
 
-Then reconfigure KumCAD (`cmake -B build`) — it picks LibreDWG up automatically, enabling *.dwg in the Open dialog and DWG (R2000) in Save As. DWG export covers the core entity set and reports anything it had to skip; DXF remains the lossless format.
+Then reconfigure KumCAD (`cmake -B build`) — it picks LibreDWG up automatically, enabling *.dwg in the Open dialog and DWG (R2000) in Save As. DXF remains the lossless, dependency-free format; you can build KumCAD entirely without LibreDWG (`-DLCAD_ENABLE_DWG=OFF`) and lose nothing but DWG itself.
 
 ## Usage
 
-Type a command in the command line at the bottom (or use the toolbar) and follow the prompts — points can be clicked in the canvas or typed as `x,y`. Enter/right-click finishes a command, Escape cancels. Select entities first for modify commands (MOVE, TRIM edges, etc.), exactly like AutoCAD's noun-verb workflow.
+Type a command in the command line at the bottom (or use the toolbar) and follow the prompts — points can be clicked in the canvas or typed as `x,y`. Enter/right-click finishes a command, Escape cancels. Select entities first for modify commands (MOVE, TRIM edges, etc.), exactly like AutoCAD's noun-verb workflow. Schematic and PCB commands (WIRE, TRACK, FOOTPRINTGEN, DRC, ...) run in this same command line, since schematic/PCB entities live in the same document as ordinary drawing entities. The 3D modeling window is a separate top-level window with its own toolbar and feature tree, opened from the main window.
 
 ## Status
 
-KumCAD is young and aims at AutoCAD LT-style 2D drafting. Not yet implemented: tables, dynamic blocks, multileader styles, annotative scaling, sheet-set tooling, and DWG export of hatches/leaders/paper space. Contributions welcome.
+KumCAD is a young, single-maintainer-plus-AI-assistance project, not a production-tested replacement for AutoCAD, KiCad, or FreeCAD. The command/feature coverage across all three areas is real (backed by an extensive automated test suite covering the core logic), but it hasn't had sustained real-world usage outside its own development — treat it as good for learning, personal projects, and experimentation, and expect rough edges under heavier or more unusual real-world use. Contributions, bug reports, and real-world testing are very welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+KumCAD is licensed under the [GNU General Public License v3.0](LICENSE) (or, at your option, any later version). This choice follows from the optional DWG import/export feature, which links LibreDWG (GPLv3) — see [DWG import/export](#dwg-importexport-optional) above; you can build without it (`-DLCAD_ENABLE_DWG=OFF`), but the project as a whole is licensed GPLv3 either way for consistency.
