@@ -231,7 +231,7 @@ lcad::Point2D DrawingView::applyOrtho(const lcad::Point2D& anchor, const lcad::P
 }
 
 lcad::Point2D DrawingView::snapToGrid(const lcad::Point2D& pt) const {
-    const double spacing = gridSpacing();
+    const double spacing = effectiveSnapSpacing();
     return lcad::Point2D(std::round(pt.x / spacing) * spacing, std::round(pt.y / spacing) * spacing);
 }
 
@@ -511,7 +511,7 @@ void DrawingView::paintEvent(QPaintEvent*) {
         return;
     }
 
-    drawGrid(painter);
+    if (m_gridVisible) drawGrid(painter);
 
     for (lcad::Entity* e : m_document.entities()) {
         const lcad::Layer* layer = m_document.findLayer(e->layer());
@@ -577,6 +577,7 @@ void DrawingView::drawCrosshair(QPainter& painter, const QColor& color) {
 }
 
 double DrawingView::gridSpacing() const {
+    if (m_gridSpacingOverride) return *m_gridSpacingOverride;
     double spacing = 1.0;
     while (spacing * m_scale < 20.0) spacing *= 10.0;
     while (spacing * m_scale > 200.0) spacing /= 10.0;

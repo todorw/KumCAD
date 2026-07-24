@@ -52,6 +52,8 @@ add_executable(kumcad WIN32
     commands/LineCommand.cpp
     commands/AnnoScaleCommand.h
     commands/LtScaleCommand.h
+    commands/GridCommand.h
+    commands/SnapCommand.h
     commands/CircleCommand.h
     commands/CircleCommand.cpp
     commands/ArcCommand.h

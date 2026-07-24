@@ -75,6 +75,8 @@
 #include "commands/LweightCommand.h"
 #include "commands/MatchPropCommand.h"
 #include "commands/OsnapCommand.h"
+#include "commands/GridCommand.h"
+#include "commands/SnapCommand.h"
 #include "commands/PageSetupCommand.h"
 #include "commands/PolarAngCommand.h"
 #include "commands/PointCloudAttachCommand.h"
@@ -424,6 +426,10 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         if (!ids.empty()) startCommand(std::make_unique<AlignCommand>(m_document, ids), QStringLiteral("ALIGN"));
     } else if (cmd == QLatin1String("OSNAP") || cmd == QLatin1String("OS")) {
         if (m_view) startCommand(std::make_unique<OsnapCommand>(*m_view), QStringLiteral("OSNAP"));
+    } else if (cmd == QLatin1String("GRID")) {
+        if (m_view) startCommand(std::make_unique<GridCommand>(*m_view), QStringLiteral("GRID"));
+    } else if (cmd == QLatin1String("SNAP") || cmd == QLatin1String("SN")) {
+        if (m_view) startCommand(std::make_unique<SnapCommand>(*m_view), QStringLiteral("SNAP"));
     } else if (cmd == QLatin1String("POLARANG")) {
         if (m_view) startCommand(std::make_unique<PolarAngCommand>(*m_view), QStringLiteral("POLARANG"));
     } else if (cmd == QLatin1String("TRIM") || cmd == QLatin1String("TR")) {

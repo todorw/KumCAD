@@ -99,6 +99,31 @@ public:
     bool snapModeEnabled(lcad::SnapKind kind) const { return m_snapModes[static_cast<int>(kind)]; }
     void setSnapModeEnabled(lcad::SnapKind kind, bool on) { m_snapModes[static_cast<int>(kind)] = on; }
 
+    // GRID/SNAP command support. Grid display normally auto-scales with zoom
+    // (gridSpacing()'s existing decade-stepping logic); GRID <value> pins it
+    // to an explicit spacing instead (nullopt = back to auto), matching real
+    // AutoCAD's GRID command. Snap spacing (what F9 grid-snap rounds to) is
+    // independent of grid display spacing, also matching real AutoCAD, where
+    // GRID and SNAP are set separately -- nullopt means "use whatever the
+    // (possibly overridden) grid spacing currently is".
+    bool gridVisible() const { return m_gridVisible; }
+    void setGridVisible(bool on) {
+        m_gridVisible = on;
+        update();
+    }
+    std::optional<double> gridSpacingOverride() const { return m_gridSpacingOverride; }
+    void setGridSpacingOverride(std::optional<double> spacing) {
+        m_gridSpacingOverride = spacing;
+        update();
+    }
+    std::optional<double> snapSpacingOverride() const { return m_snapSpacingOverride; }
+    void setSnapSpacingOverride(std::optional<double> spacing) { m_snapSpacingOverride = spacing; }
+    // The spacing grid display actually uses right now (override if set,
+    // otherwise the auto zoom-based value) -- exposed so GridCommand can
+    // report it without duplicating the decade-stepping logic.
+    double effectiveGridSpacing() const { return gridSpacing(); }
+    double effectiveSnapSpacing() const { return m_snapSpacingOverride.value_or(gridSpacing()); }
+
 signals:
     void mouseWorldMoved(const lcad::Point2D& pt);
     void selectionChanged();
@@ -205,6 +230,9 @@ private:
     bool m_osnapEnabled = true;
     bool m_orthoEnabled = false;
     bool m_gridSnapEnabled = false;
+    bool m_gridVisible = true;
+    std::optional<double> m_gridSpacingOverride;
+    std::optional<double> m_snapSpacingOverride;
     bool m_lineweightDisplay = false;
     bool m_polarEnabled = false;
     bool m_otrackEnabled = false;
