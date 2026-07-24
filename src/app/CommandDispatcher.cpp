@@ -38,6 +38,7 @@
 #include "commands/DistCommand.h"
 #include "commands/EllipseCommand.h"
 #include "commands/ExtendCommand.h"
+#include "commands/ChamferCommand.h"
 #include "commands/FilletCommand.h"
 #include "commands/GeoLocationCommand.h"
 #include "commands/FindCommand.h"
@@ -421,6 +422,19 @@ void CommandDispatcher::handleCommandText(const QString& text) {
             startCommand(std::make_unique<FilletCommand>(m_document, lineIds[0], lineIds[1]), QStringLiteral("FILLET"));
         } else {
             m_commandLine.appendLine(QStringLiteral("*Select exactly two lines first, then run FILLET*"));
+        }
+    } else if (cmd == QLatin1String("CHAMFER") || cmd == QLatin1String("CHA")) {
+        std::vector<lcad::EntityId> lineIds;
+        if (m_view) {
+            for (lcad::EntityId id : m_view->selectedIds()) {
+                const lcad::Entity* e = m_document.findEntity(id);
+                if (e && e->type() == lcad::EntityType::Line) lineIds.push_back(id);
+            }
+        }
+        if (lineIds.size() == 2) {
+            startCommand(std::make_unique<ChamferCommand>(m_document, lineIds[0], lineIds[1]), QStringLiteral("CHAMFER"));
+        } else {
+            m_commandLine.appendLine(QStringLiteral("*Select exactly two lines first, then run CHAMFER*"));
         }
     } else if (cmd == QLatin1String("GCHORIZONTAL") || cmd == QLatin1String("GCVERTICAL") ||
              cmd == QLatin1String("GCPARALLEL") || cmd == QLatin1String("GCPERPENDICULAR") ||

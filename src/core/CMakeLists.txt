@@ -6,6 +6,8 @@ add_library(lcad_core STATIC
     geometry/Entity.h
     geometry/Line.h
     geometry/Line.cpp
+    geometry/ChamferOps.h
+    geometry/ChamferOps.cpp
     geometry/Circle.h
     geometry/Circle.cpp
     geometry/Arc.h

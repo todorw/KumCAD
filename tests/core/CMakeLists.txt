@@ -18,6 +18,7 @@ add_executable(lcad_core_tests
     DxfIoTests.cpp
     DwgIoTests.cpp
     ModifyOpsTests.cpp
+    ChamferOpsTests.cpp
     ExprTests.cpp
     ScriptTests.cpp
     LispTests.cpp
