@@ -140,6 +140,63 @@ SketchFeatureDialog::SketchFeatureDialog(const lcad::Document3D& document, QWidg
         m_dirZ->setValue(axis->dirZ);
     });
 
+    auto* pointFromVertexButton = new QPushButton(QStringLiteral("Set Position from Target's Vertex..."), this);
+    form->addRow(QString(), pointFromVertexButton);
+    connect(pointFromVertexButton, &QPushButton::clicked, this, [this] {
+        const int targetIndex = m_targetCombo->currentData().toInt();
+        if (targetIndex < 0 || !m_document.isValid(targetIndex)) {
+            QMessageBox::warning(this, QStringLiteral("Set Position from Vertex"),
+                                  QStringLiteral("Pick a valid Target feature first."));
+            return;
+        }
+        bool ok = false;
+        const int vertexIndex = QInputDialog::getInt(this, QStringLiteral("Set Position from Vertex"),
+                                                      QStringLiteral("Vertex index on the Target feature:"), 0, 0,
+                                                      9999, 1, &ok);
+        if (!ok) return;
+
+        const auto point = lcad::pointFromVertex(m_document.shapeAt(targetIndex), vertexIndex);
+        if (!point) {
+            QMessageBox::warning(this, QStringLiteral("Set Position from Vertex"),
+                                  QStringLiteral("That vertex doesn't exist."));
+            return;
+        }
+        m_posX->setValue(point->x);
+        m_posY->setValue(point->y);
+        m_posZ->setValue(point->z);
+    });
+
+    auto* centerFromCircularEdgeButton =
+        new QPushButton(QStringLiteral("Set Position/Direction from Target's Circular Edge..."), this);
+    form->addRow(QString(), centerFromCircularEdgeButton);
+    connect(centerFromCircularEdgeButton, &QPushButton::clicked, this, [this] {
+        const int targetIndex = m_targetCombo->currentData().toInt();
+        if (targetIndex < 0 || !m_document.isValid(targetIndex)) {
+            QMessageBox::warning(this, QStringLiteral("Set Position from Circular Edge"),
+                                  QStringLiteral("Pick a valid Target feature first."));
+            return;
+        }
+        bool ok = false;
+        const int edgeIndex = QInputDialog::getInt(
+            this, QStringLiteral("Set Position from Circular Edge"),
+            QStringLiteral("Edge index on the Target feature (see Window3D's List Edges...):"), 0, 0, 9999, 1, &ok);
+        if (!ok) return;
+
+        const auto circle = lcad::centerOfCircularEdge(m_document.shapeAt(targetIndex), edgeIndex);
+        if (!circle) {
+            QMessageBox::warning(
+                this, QStringLiteral("Set Position from Circular Edge"),
+                QStringLiteral("That edge isn't circular or doesn't exist -- pick a hole/round edge."));
+            return;
+        }
+        m_posX->setValue(circle->centerX);
+        m_posY->setValue(circle->centerY);
+        m_posZ->setValue(circle->centerZ);
+        m_dirX->setValue(circle->normalX);
+        m_dirY->setValue(circle->normalY);
+        m_dirZ->setValue(circle->normalZ);
+    });
+
     m_edgeIndices = new QLineEdit(this);
     m_edgeIndices->setPlaceholderText(QStringLiteral("blank = every edge"));
     form->addRow(QStringLiteral("Fillet/Chamfer Edge Indices (comma-separated, see Pick3D.h):"), m_edgeIndices);

@@ -2,6 +2,7 @@
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <BRep_Tool.hxx>
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>
 #include <TopExp.hxx>
@@ -9,7 +10,10 @@
 #include <TopoDS.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
+#include <TopoDS_Vertex.hxx>
 #include <gp_Ax3.hxx>
+#include <gp_Circ.hxx>
+#include <gp_Dir.hxx>
 #include <gp_Pln.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Vec.hxx>
@@ -139,6 +143,45 @@ std::optional<EdgeAxis> axisFromEdge(const TopoDS_Shape& shape, int index) {
     axis.dirY = dir.Y();
     axis.dirZ = dir.Z();
     return axis;
+}
+
+std::optional<VertexPoint> pointFromVertex(const TopoDS_Shape& shape, int index) {
+    TopTools_IndexedMapOfShape vertexMap;
+    TopExp::MapShapes(shape, TopAbs_VERTEX, vertexMap);
+    if (index < 0 || index >= vertexMap.Extent()) return std::nullopt;
+
+    const TopoDS_Vertex vertex = TopoDS::Vertex(vertexMap(index + 1));
+    const gp_Pnt p = BRep_Tool::Pnt(vertex);
+
+    VertexPoint result;
+    result.x = p.X();
+    result.y = p.Y();
+    result.z = p.Z();
+    return result;
+}
+
+std::optional<EdgeCircle> centerOfCircularEdge(const TopoDS_Shape& shape, int index) {
+    TopTools_IndexedMapOfShape edgeMap;
+    TopExp::MapShapes(shape, TopAbs_EDGE, edgeMap);
+    if (index < 0 || index >= edgeMap.Extent()) return std::nullopt;
+
+    const TopoDS_Edge edge = TopoDS::Edge(edgeMap(index + 1));
+    BRepAdaptor_Curve curve(edge);
+    if (curve.GetType() != GeomAbs_Circle) return std::nullopt;
+
+    const gp_Circ circle = curve.Circle();
+    const gp_Pnt center = circle.Location();
+    const gp_Dir normal = circle.Axis().Direction();
+
+    EdgeCircle result;
+    result.centerX = center.X();
+    result.centerY = center.Y();
+    result.centerZ = center.Z();
+    result.normalX = normal.X();
+    result.normalY = normal.Y();
+    result.normalZ = normal.Z();
+    result.radius = circle.Radius();
+    return result;
 }
 
 } // namespace lcad

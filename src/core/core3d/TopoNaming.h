@@ -74,4 +74,35 @@ struct EdgeAxis {
 };
 std::optional<EdgeAxis> axisFromEdge(const TopoDS_Shape& shape, int index);
 
+// The exact position of a real vertex of shape at index (0-based into
+// TopExp::MapShapes(shape, TopAbs_VERTEX, ...)'s own ordering -- there's
+// no dedicated vertex-picking in Pick3D.h yet, so this indexes the same
+// way edge/face picking already does, for a caller that already knows
+// which vertex it wants, e.g. from inspecting the shape directly). Lets
+// Hole/Pattern/Mirror's own posX/Y/Z be set from a real picked corner
+// instead of typed numbers, the same idea axisFromEdge/planeFromFace
+// already give edges/faces. Returns nullopt if index is out of range.
+struct VertexPoint {
+    double x = 0.0, y = 0.0, z = 0.0;
+};
+std::optional<VertexPoint> pointFromVertex(const TopoDS_Shape& shape, int index);
+
+// The center point of a CIRCULAR edge of shape at index (same numbering
+// as pickEdge/fingerprintEdge/axisFromEdge) -- the everyday "place a
+// second hole at the same center as an existing one" or "pattern around
+// this hole's own axis" workflow, picking a hole's own rim rather than
+// typing its center by hand. normal is the circle's own plane normal
+// (consistent orientation from OCCT's own underlying curve, not
+// guaranteed outward-vs-inward -- a real, disclosed limitation, same
+// caveat planeFromFace's REVERSED-flip doesn't apply to a bare edge,
+// which carries no solid-material side to be "outward" from). Returns
+// nullopt if index is out of range or the edge isn't circular
+// (BRepAdaptor_Curve's GeomAbs_Circle check).
+struct EdgeCircle {
+    double centerX = 0.0, centerY = 0.0, centerZ = 0.0;
+    double normalX = 0.0, normalY = 0.0, normalZ = 1.0;
+    double radius = 0.0;
+};
+std::optional<EdgeCircle> centerOfCircularEdge(const TopoDS_Shape& shape, int index);
+
 } // namespace lcad

@@ -190,3 +190,53 @@ TEST_CASE("axisFromEdge rejects a curved (circular) edge", "[core3d][toponaming]
     REQUIRE(sawRejection);
     REQUIRE(sawAccepted); // the seam line itself is straight and must still resolve
 }
+
+TEST_CASE("pointFromVertex returns each of a box's 8 corners exactly", "[core3d][toponaming][attachment]") {
+    const TopoDS_Shape box = BRepPrimAPI_MakeBox(10.0, 4.0, 6.0).Shape();
+    bool sawOrigin = false, sawFarCorner = false;
+    for (int i = 0; i < 8; ++i) {
+        const auto v = pointFromVertex(box, i);
+        REQUIRE(v.has_value());
+        if (std::abs(v->x) < 1e-9 && std::abs(v->y) < 1e-9 && std::abs(v->z) < 1e-9) sawOrigin = true;
+        if (std::abs(v->x - 10.0) < 1e-9 && std::abs(v->y - 4.0) < 1e-9 && std::abs(v->z - 6.0) < 1e-9) {
+            sawFarCorner = true;
+        }
+    }
+    REQUIRE(sawOrigin);
+    REQUIRE(sawFarCorner);
+}
+
+TEST_CASE("pointFromVertex returns nullopt for an out-of-range index", "[core3d][toponaming][attachment]") {
+    const TopoDS_Shape box = BRepPrimAPI_MakeBox(10.0, 10.0, 10.0).Shape();
+    REQUIRE_FALSE(pointFromVertex(box, -1).has_value());
+    REQUIRE_FALSE(pointFromVertex(box, 999).has_value());
+}
+
+TEST_CASE("centerOfCircularEdge finds a cylinder's own top and bottom circle centers",
+         "[core3d][toponaming][attachment]") {
+    const TopoDS_Shape cylinder = BRepPrimAPI_MakeCylinder(5.0, 10.0).Shape();
+    bool sawBottom = false, sawTop = false;
+    for (int i = 0; i < 3; ++i) {
+        const auto c = centerOfCircularEdge(cylinder, i);
+        if (!c) continue;
+        REQUIRE(c->radius == Approx(5.0).margin(1e-6));
+        if (std::abs(c->centerZ) < 1e-6) sawBottom = true;
+        if (std::abs(c->centerZ - 10.0) < 1e-6) sawTop = true;
+    }
+    REQUIRE(sawBottom);
+    REQUIRE(sawTop);
+}
+
+TEST_CASE("centerOfCircularEdge rejects a straight edge and an out-of-range index",
+         "[core3d][toponaming][attachment]") {
+    const TopoDS_Shape cylinder = BRepPrimAPI_MakeCylinder(5.0, 10.0).Shape();
+    bool sawRejection = false;
+    for (int i = 0; i < 3; ++i) {
+        if (!centerOfCircularEdge(cylinder, i).has_value()) sawRejection = true;
+    }
+    REQUIRE(sawRejection); // the straight seam edge must reject
+
+    const TopoDS_Shape box = BRepPrimAPI_MakeBox(10.0, 10.0, 10.0).Shape();
+    REQUIRE_FALSE(centerOfCircularEdge(box, -1).has_value());
+    REQUIRE_FALSE(centerOfCircularEdge(box, 999).has_value());
+}
