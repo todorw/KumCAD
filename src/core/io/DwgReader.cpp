@@ -22,6 +22,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <exception>
 #include <unordered_map>
 
 namespace lcad {
@@ -298,13 +299,30 @@ bool dwgSupportAvailable() {
     return true;
 }
 
-bool readDwg(Document& document, const std::string& path, std::string* errorOut) {
+// Frees dwg on scope exit unconditionally -- success, an early return, OR
+// an exception unwinding through this function -- since Dwg_Data is a
+// plain C struct with no destructor of its own and this parser (like
+// DxfReader's/KiCadSch's/KiCadPcb's own) isn't written defensively against
+// every possible malformed shape a hand-edited or foreign-tool DWG could
+// have. Without this, an exception partway through convertOwnedEntities
+// would leak dwg's internal LibreDWG allocations on top of crashing.
+struct DwgDataGuard {
+    Dwg_Data* dwg;
+    ~DwgDataGuard() { dwg_free(dwg); }
+};
+
+// The real parse -- kept as its own internal-linkage function so the
+// public readDwg below can wrap the whole thing in a try/catch, converting
+// anything that slips past DwgDataGuard's cleanup into the existing "Open
+// Failed" error path instead of letting it escape into Qt's event loop and
+// crash the whole application.
+static bool readDwgImpl(Document& document, const std::string& path, std::string* errorOut) {
     Dwg_Data dwg;
     std::memset(&dwg, 0, sizeof(dwg));
+    DwgDataGuard guard{&dwg};
     const int error = dwg_read_file(path.c_str(), &dwg);
     if (error >= DWG_ERR_CRITICAL) {
         if (errorOut) *errorOut = "LibreDWG could not read this DWG file (error " + std::to_string(error) + ")";
-        dwg_free(&dwg);
         return false;
     }
 
@@ -352,9 +370,20 @@ bool readDwg(Document& document, const std::string& path, std::string* errorOut)
     // Model space entities.
     if (modelSpace) import.convertOwnedEntities(modelSpace, nullptr);
 
-    dwg_free(&dwg);
     document = std::move(fresh);
     return true;
+}
+
+bool readDwg(Document& document, const std::string& path, std::string* errorOut) {
+    try {
+        return readDwgImpl(document, path, errorOut);
+    } catch (const std::exception& e) {
+        if (errorOut) *errorOut = std::string("Unexpected error reading DWG file: ") + e.what();
+        return false;
+    } catch (...) {
+        if (errorOut) *errorOut = "Unexpected error reading DWG file";
+        return false;
+    }
 }
 
 } // namespace lcad

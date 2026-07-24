@@ -37,6 +37,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <exception>
 #include <fstream>
 #include <unordered_map>
 #include <vector>
@@ -97,7 +98,16 @@ int toInt(const std::string& s, int fallback = 0) {
 
 } // namespace
 
-bool readDxf(Document& document, const std::string& path, std::string* errorOut) {
+// The real parse -- kept as its own internal-linkage function so the
+// public readDxf below can wrap the whole thing in a try/catch. A hand-
+// edited, truncated, or foreign-tool-produced DXF is untrusted input, and
+// this parser wasn't written defensively against every possible malformed
+// shape (a stray group code sequence hitting an unexpected container
+// index, say) -- the numeric-parse helpers above already catch bad
+// std::stod/std::stoi input, but that's not everything. Better to convert
+// whatever slips through into the existing "Open Failed" error path than
+// let it escape into Qt's event loop and crash the whole application.
+static bool readDxfImpl(Document& document, const std::string& path, std::string* errorOut) {
     std::vector<Group> groups;
     if (!readGroups(path, groups)) {
         if (errorOut) *errorOut = "Could not open file for reading";
@@ -1409,6 +1419,18 @@ bool readDxf(Document& document, const std::string& path, std::string* errorOut)
 
     document = std::move(fresh);
     return true;
+}
+
+bool readDxf(Document& document, const std::string& path, std::string* errorOut) {
+    try {
+        return readDxfImpl(document, path, errorOut);
+    } catch (const std::exception& e) {
+        if (errorOut) *errorOut = std::string("Unexpected error reading DXF file: ") + e.what();
+        return false;
+    } catch (...) {
+        if (errorOut) *errorOut = "Unexpected error reading DXF file";
+        return false;
+    }
 }
 
 } // namespace lcad

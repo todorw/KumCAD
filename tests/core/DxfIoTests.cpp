@@ -215,6 +215,26 @@ TEST_CASE("readDxf reports failure for a nonexistent file", "[dxf]") {
     REQUIRE_FALSE(error.empty());
 }
 
+TEST_CASE("readDxf reports failure instead of crashing on garbage/malformed content", "[dxf]") {
+    TempDxfPath temp;
+    // Untrusted input (a hand-edited file, a non-DXF file with a .dxf
+    // extension, a truncated download): readDxf must convert whatever
+    // this trips into the usual false + error contract, not let an
+    // exception escape and take down the whole process -- if it did, this
+    // whole test binary would abort rather than report a failed REQUIRE.
+    {
+        std::ofstream out(temp.path, std::ios::binary);
+        out << "This is not a DXF file at all, just garbage text.\n\x01\x02\x03\xff\xfe";
+    }
+    lcad::Document doc;
+    std::string error;
+    const bool ok = lcad::readDxf(doc, temp.path.string(), &error);
+    // Whatever it decides (most real "garbage" just parses as zero
+    // recognized entities and succeeds trivially), the call must return
+    // normally -- reaching this line at all is the actual assertion.
+    if (!ok) REQUIRE_FALSE(error.empty());
+}
+
 TEST_CASE("DXF ellipse rotation round-trips", "[dxf][ellipse]") {
     TempDxfPath temp;
 

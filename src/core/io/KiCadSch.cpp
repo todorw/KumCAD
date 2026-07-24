@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <exception>
 #include <fstream>
 #include <map>
 #include <random>
@@ -258,7 +259,11 @@ bool writeKiCadSch(const Document& doc, const std::string& path, std::string* er
     return static_cast<bool>(out);
 }
 
-bool readKiCadSch(Document& doc, const std::string& path, std::string* errorOut) {
+// Kept as its own internal-linkage function so the public readKiCadSch
+// below can wrap the whole parse in a try/catch -- untrusted input (a
+// hand-edited or foreign-tool .kicad_sch) shouldn't be able to crash the
+// whole application over a malformed S-expression.
+static bool readKiCadSchImpl(Document& doc, const std::string& path, std::string* errorOut) {
     std::ifstream in(path, std::ios::binary);
     if (!in) {
         if (errorOut) *errorOut = "Could not open " + path + " for reading";
@@ -369,6 +374,18 @@ bool readKiCadSch(Document& doc, const std::string& path, std::string* errorOut)
     }
 
     return true;
+}
+
+bool readKiCadSch(Document& doc, const std::string& path, std::string* errorOut) {
+    try {
+        return readKiCadSchImpl(doc, path, errorOut);
+    } catch (const std::exception& e) {
+        if (errorOut) *errorOut = std::string("Unexpected error reading .kicad_sch file: ") + e.what();
+        return false;
+    } catch (...) {
+        if (errorOut) *errorOut = "Unexpected error reading .kicad_sch file";
+        return false;
+    }
 }
 
 namespace {

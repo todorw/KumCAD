@@ -7,6 +7,7 @@
 #include "core/io/KiCadMod.h"
 #include "core/io/SExpr.h"
 
+#include <exception>
 #include <fstream>
 #include <map>
 #include <sstream>
@@ -256,7 +257,11 @@ bool writeKiCadPcb(const Document& doc, const std::vector<ImportedNet>& nets, co
     return static_cast<bool>(out);
 }
 
-bool readKiCadPcb(Document& doc, const std::string& path, std::string* errorOut) {
+// Kept as its own internal-linkage function so the public readKiCadPcb
+// below can wrap the whole parse in a try/catch -- untrusted input (a
+// hand-edited or foreign-tool .kicad_pcb) shouldn't be able to crash the
+// whole application over a malformed S-expression.
+static bool readKiCadPcbImpl(Document& doc, const std::string& path, std::string* errorOut) {
     std::ifstream in(path, std::ios::binary);
     if (!in) {
         if (errorOut) *errorOut = "Could not open " + path + " for reading";
@@ -339,6 +344,18 @@ bool readKiCadPcb(Document& doc, const std::string& path, std::string* errorOut)
     }
 
     return true;
+}
+
+bool readKiCadPcb(Document& doc, const std::string& path, std::string* errorOut) {
+    try {
+        return readKiCadPcbImpl(doc, path, errorOut);
+    } catch (const std::exception& e) {
+        if (errorOut) *errorOut = std::string("Unexpected error reading .kicad_pcb file: ") + e.what();
+        return false;
+    } catch (...) {
+        if (errorOut) *errorOut = "Unexpected error reading .kicad_pcb file";
+        return false;
+    }
 }
 
 } // namespace lcad

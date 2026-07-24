@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <exception>
 #include <fstream>
 #include <optional>
 #include <sstream>
@@ -438,7 +439,11 @@ std::optional<ParsedPlacedFootprint> readPlacedFootprintExpr(Document& doc, cons
     return result;
 }
 
-const BlockDefinition* readKiCadMod(Document& doc, const std::string& path, std::string* errorOut) {
+// Kept as its own internal-linkage function so the public readKiCadMod
+// below can wrap the whole parse in a try/catch -- untrusted input (a
+// hand-edited or foreign-tool .kicad_mod) shouldn't be able to crash the
+// whole application over a malformed S-expression.
+static const BlockDefinition* readKiCadModImpl(Document& doc, const std::string& path, std::string* errorOut) {
     std::ifstream in(path, std::ios::binary);
     if (!in) {
         if (errorOut) *errorOut = "Could not open " + path + " for reading";
@@ -463,6 +468,18 @@ const BlockDefinition* readKiCadMod(Document& doc, const std::string& path, std:
     BlockDefinition* mutableBlock = doc.findBlock(name);
     if (mutableBlock) mutableBlock->pads = std::move(pads);
     return mutableBlock;
+}
+
+const BlockDefinition* readKiCadMod(Document& doc, const std::string& path, std::string* errorOut) {
+    try {
+        return readKiCadModImpl(doc, path, errorOut);
+    } catch (const std::exception& e) {
+        if (errorOut) *errorOut = std::string("Unexpected error reading .kicad_mod file: ") + e.what();
+        return nullptr;
+    } catch (...) {
+        if (errorOut) *errorOut = "Unexpected error reading .kicad_mod file";
+        return nullptr;
+    }
 }
 
 } // namespace lcad
