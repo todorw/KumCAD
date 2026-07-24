@@ -10,6 +10,8 @@ add_library(lcad_core STATIC
     geometry/ChamferOps.cpp
     geometry/PolygonOps.h
     geometry/PolygonOps.cpp
+    geometry/DonutOps.h
+    geometry/DonutOps.cpp
     geometry/Circle.h
     geometry/Circle.cpp
     geometry/Arc.h

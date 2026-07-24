@@ -145,6 +145,8 @@ add_executable(kumcad WIN32
     commands/ChamferCommand.cpp
     commands/PolygonCommand.h
     commands/PolygonCommand.cpp
+    commands/DonutCommand.h
+    commands/DonutCommand.cpp
     commands/FindCommand.h
     commands/FindCommand.cpp
     commands/QSelectCommand.h

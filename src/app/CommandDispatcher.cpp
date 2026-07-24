@@ -16,6 +16,7 @@
 #include "commands/BreakCommand.h"
 #include "commands/CircleCommand.h"
 #include "commands/PolygonCommand.h"
+#include "commands/DonutCommand.h"
 #include "commands/CopyCommand.h"
 #include "commands/ClipboardPasteCommand.h"
 #include "commands/DataLinkCommand.h"
@@ -356,6 +357,8 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         startCommand(std::make_unique<CircleCommand>(m_document), QStringLiteral("CIRCLE"));
     } else if (cmd == QLatin1String("POLYGON") || cmd == QLatin1String("POL")) {
         startCommand(std::make_unique<PolygonCommand>(m_document), QStringLiteral("POLYGON"));
+    } else if (cmd == QLatin1String("DONUT") || cmd == QLatin1String("DOUGHNUT") || cmd == QLatin1String("DO")) {
+        startCommand(std::make_unique<DonutCommand>(m_document), QStringLiteral("DONUT"));
     } else if (cmd == QLatin1String("ARC") || cmd == QLatin1String("A")) {
         startCommand(std::make_unique<ArcCommand>(m_document), QStringLiteral("ARC"));
     } else if (cmd == QLatin1String("PLINE") || cmd == QLatin1String("PL")) {
