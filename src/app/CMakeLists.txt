@@ -143,6 +143,8 @@ add_executable(kumcad WIN32
     commands/FilletCommand.cpp
     commands/ChamferCommand.h
     commands/ChamferCommand.cpp
+    commands/PolygonCommand.h
+    commands/PolygonCommand.cpp
     commands/FindCommand.h
     commands/FindCommand.cpp
     commands/QSelectCommand.h
