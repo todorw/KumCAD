@@ -79,6 +79,7 @@
 #include "commands/PolarAngCommand.h"
 #include "commands/PointCloudAttachCommand.h"
 #include "commands/PointCommands.h"
+#include "commands/AttEditCommand.h"
 #include "commands/MLineCommand.h"
 #include "commands/MTextCommand.h"
 #include "commands/QSelectCommand.h"
@@ -925,6 +926,23 @@ void CommandDispatcher::handleCommandText(const QString& text) {
             m_commandLine.appendLine(QStringLiteral("*Select exactly one block/xref reference to clip*"));
         } else {
             startCommand(std::make_unique<XClipCommand>(m_document, targetId), QStringLiteral("XCLIP"));
+        }
+    } else if (cmd == QLatin1String("ATTEDIT") || cmd == QLatin1String("EATTEDIT") || cmd == QLatin1String("ATE")) {
+        const std::vector<lcad::EntityId> ids = selectionForModify();
+        lcad::EntityId targetId = 0;
+        int withAttributes = 0;
+        for (lcad::EntityId id : ids) {
+            const lcad::Entity* e = m_document.findEntity(id);
+            if (e && e->type() == lcad::EntityType::Insert &&
+                !static_cast<const lcad::InsertEntity*>(e)->attributes().empty()) {
+                targetId = id;
+                ++withAttributes;
+            }
+        }
+        if (withAttributes != 1) {
+            m_commandLine.appendLine(QStringLiteral("*Select exactly one block reference with attributes*"));
+        } else {
+            startCommand(std::make_unique<AttEditCommand>(m_document, targetId), QStringLiteral("ATTEDIT"));
         }
     } else if (cmd == QLatin1String("EXPLODE") || cmd == QLatin1String("X")) {
         explodeSelection();

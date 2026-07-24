@@ -1,5 +1,6 @@
 #include "core/document/Commands.h"
 #include "core/document/Document.h"
+#include "core/geometry/Insert.h"
 #include "core/geometry/Line.h"
 
 #include <catch2/catch_approx.hpp>
@@ -264,4 +265,26 @@ TEST_CASE("DeleteLayoutCommand resets activeSpace when the deleted layout was th
     doc.commandStack().execute(std::make_unique<lcad::DeleteLayoutCommand>(doc, 1));
     REQUIRE(doc.layouts().size() == 1);
     REQUIRE(doc.activeSpace() == -1); // back to model space, not a dangling index into a 1-element vector
+}
+
+TEST_CASE("SetInsertAttributeCommand undo/redo round-trips a placed block's own attribute value",
+         "[commands][attribute]") {
+    lcad::Document doc;
+    doc.addBlock("TitleBlock", {});
+    const lcad::BlockDefinition* block = doc.findBlock("TitleBlock");
+    const lcad::EntityId id = doc.reserveEntityId();
+    auto insert = std::make_unique<lcad::InsertEntity>(id, doc.currentLayer(), block, lcad::Point2D(0, 0));
+    insert->setAttribute("DWGNO", "001");
+    doc.addEntity(std::move(insert));
+
+    doc.commandStack().execute(std::make_unique<lcad::SetInsertAttributeCommand>(doc, id, "DWGNO", "002"));
+    auto* placed = dynamic_cast<lcad::InsertEntity*>(doc.findEntity(id));
+    REQUIRE(placed != nullptr);
+    REQUIRE(*placed->attributeValue("DWGNO") == "002");
+
+    doc.commandStack().undo();
+    REQUIRE(*placed->attributeValue("DWGNO") == "001");
+
+    doc.commandStack().redo();
+    REQUIRE(*placed->attributeValue("DWGNO") == "002");
 }

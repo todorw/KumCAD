@@ -223,6 +223,8 @@ add_executable(kumcad WIN32
     commands/CamCommands.cpp
     commands/ToleranceCommand.h
     commands/ToleranceCommand.cpp
+    commands/AttEditCommand.h
+    commands/AttEditCommand.cpp
 )
 
 target_include_directories(kumcad PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

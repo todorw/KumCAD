@@ -410,6 +410,38 @@ private:
     std::string m_oldValue;
 };
 
+// Undoable change of a single INSERT's own attribute VALUE (ATTEDIT) --
+// the block itself was already placed with its attribute tags/values set
+// at insertion time; this is the "go back and fix the DWG NO. on the
+// title block" real AutoCAD workflow, which previously had no path here
+// at all (InsertEntity::setAttribute was only ever called by InsertCommand
+// at insertion time).
+class SetInsertAttributeCommand : public Command {
+public:
+    SetInsertAttributeCommand(Document& document, EntityId id, std::string tag, std::string newValue)
+        : m_document(document), m_id(id), m_tag(std::move(tag)), m_newValue(std::move(newValue)) {}
+
+    void execute() override {
+        if (auto* insert = dynamic_cast<InsertEntity*>(m_document.findEntity(m_id))) {
+            if (const std::string* old = insert->attributeValue(m_tag)) m_oldValue = *old;
+            insert->setAttribute(m_tag, m_newValue);
+        }
+    }
+    void undo() override {
+        if (auto* insert = dynamic_cast<InsertEntity*>(m_document.findEntity(m_id))) {
+            insert->setAttribute(m_tag, m_oldValue);
+        }
+    }
+    std::string description() const override { return "Edit Attribute"; }
+
+private:
+    Document& m_document;
+    EntityId m_id;
+    std::string m_tag;
+    std::string m_newValue;
+    std::string m_oldValue;
+};
+
 // Undoable restore of a saved LayerState (LAYERSTATE / Layer States
 // Manager): captures the current layers as its own "before" snapshot on
 // execute, so undo puts every layer's visibility/lock/color/linetype/
