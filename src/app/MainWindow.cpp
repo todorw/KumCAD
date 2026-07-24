@@ -31,6 +31,7 @@
 #include <QCloseEvent>
 #include <QDir>
 #include <QDockWidget>
+#include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QKeySequence>
@@ -45,6 +46,7 @@
 #include <QSet>
 #include <QStatusBar>
 #include <QTabBar>
+#include <QTimer>
 #include <QVBoxLayout>
 #include <QToolBar>
 
@@ -102,6 +104,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setupDocks();
     setupMenusAndToolbar();
 
+    m_autosaveTimer = new QTimer(this);
+    m_autosaveTimer->setInterval(10 * 60 * 1000); // AutoCAD's own SAVETIME default: 10 minutes
+    connect(m_autosaveTimer, &QTimer::timeout, this, &MainWindow::autosaveTick);
+    m_autosaveTimer->start();
+
     m_coordLabel = new QLabel(QStringLiteral("0.000, 0.000"), this);
     m_gridLabel = new QLabel(QStringLiteral("GRID"), this);
     m_orthoLabel = new QLabel(QStringLiteral("ORTHO"), this);
@@ -132,7 +139,12 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         "DIVIDE, MEASURE, LAYOUT, PAGESETUP, MVIEW, LWEIGHT, LWDISPLAY, PURGE, OSNAP, POLARANG, DIST, AREA, ID."));
     m_commandLine->appendLine(QStringLiteral(
         "Also: TABLE, TABLEDIT, MLEADER, MLEADERSTYLE, GRADIENT, ANNOSCALE, BPARAMETER, QSELECT, FIND, QUICKCALC "
-        "(CAL), ACTRECORD/ACTSTOP/PLAY. Type AutoLISP directly, e.g. (+ 1 2) or (load \"script.lsp\")."));
+        "(CAL), ACTRECORD/ACTSTOP/PLAY, BEDIT (edit a block in place). Type AutoLISP directly, e.g. (+ 1 2) or "
+        "(load \"script.lsp\")."));
+    m_commandLine->appendLine(QStringLiteral(
+        "Schematic/PCB: WIRE, BUS, BUSENTRY, JUNCTION, NOCONNECT, NETLABEL, PINADD, PADADD, ANNOTATE, ERC, NETLIST, "
+        "BOM, TRACK, VIA, FOOTPRINTGEN, RATSNEST, DRC, AUTOROUTE, GERBER, KICADSCHEXPORT/IMPORT, "
+        "KICADPCBEXPORT/IMPORT."));
     m_commandLine->appendLine(QStringLiteral(
         "F3 Object Snap / F8 Ortho / F9 Grid Snap / F10 Polar / F11 Snap Tracking / F12 Dynamic Input toggle the "
         "drafting aids below."));
@@ -497,9 +509,35 @@ void MainWindow::rebuildWindowMenu() {
 
 bool MainWindow::loadFromPath(const QString& path) {
     const bool isDwg = path.endsWith(QStringLiteral(".dwg"), Qt::CaseInsensitive);
+
+    // Recovery: a DXF autosave sibling newer than the real file means a
+    // previous session ended without a clean save (crash, power loss, force
+    // quit) -- offer to load that instead of the last thing actually saved.
+    // Not attempted for DWG, which never gets an autosave written for it in
+    // the first place (see autosaveTick()'s own DXF-only reasoning).
+    QString actualLoadPath = path;
+    bool recoveredFromAutosave = false;
+    if (!isDwg) {
+        const QString autosavePath = path + QStringLiteral(".autosave");
+        const QFileInfo autosaveInfo(autosavePath);
+        const QFileInfo realInfo(path);
+        if (autosaveInfo.exists() && (!realInfo.exists() || autosaveInfo.lastModified() > realInfo.lastModified())) {
+            const auto choice = QMessageBox::question(
+                this, QStringLiteral("Recover Autosave?"),
+                QStringLiteral("An autosave file for \"%1\" is newer than the saved file, likely left over from an "
+                              "interrupted session. Load the autosave instead?")
+                    .arg(QFileInfo(path).fileName()),
+                QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+            if (choice == QMessageBox::Yes) {
+                actualLoadPath = autosavePath;
+                recoveredFromAutosave = true;
+            }
+        }
+    }
+
     std::string error;
     const bool ok = isDwg ? lcad::readDwg(m_document, path.toStdString(), &error)
-                          : lcad::readDxf(m_document, path.toStdString(), &error);
+                          : lcad::readDxf(m_document, actualLoadPath.toStdString(), &error);
     if (!ok) {
         QMessageBox::warning(this, QStringLiteral("Open Failed"), QString::fromStdString(error));
         return false;
@@ -518,12 +556,23 @@ bool MainWindow::loadFromPath(const QString& path) {
     m_propertiesPanel->refresh();
     syncSpaceTabs();
     // A DWG can only be saved back as DXF, so don't adopt its path as the
-    // save target -- Ctrl+S falls through to Save As.
+    // save target -- Ctrl+S falls through to Save As. The REAL path (not
+    // the recovered .autosave one) stays the save target either way, so
+    // Ctrl+S after a recovery overwrites the actual file, not the hidden
+    // autosave copy.
     m_currentFilePath = isDwg ? QString() : path;
     m_dispatcher->setDocumentFileName(m_currentFilePath);
-    m_dirty = false;
+    // Recovered content differs from what's on disk -- leave it flagged
+    // dirty so the title bar/close-confirmation remind the user to save it.
+    m_dirty = recoveredFromAutosave;
     updateWindowTitle();
-    statusBar()->showMessage(QStringLiteral("Opened %1").arg(QFileInfo(path).fileName()), 3000);
+    if (recoveredFromAutosave) {
+        statusBar()->showMessage(
+            QStringLiteral("Recovered autosaved changes for %1 -- save to keep them").arg(QFileInfo(path).fileName()),
+            8000);
+    } else {
+        statusBar()->showMessage(QStringLiteral("Opened %1").arg(QFileInfo(path).fileName()), 3000);
+    }
     RecentFiles::add(path);
     return true;
 }
@@ -595,7 +644,23 @@ bool MainWindow::saveDocument() {
     m_dirty = false;
     updateWindowTitle();
     statusBar()->showMessage(QStringLiteral("Saved %1").arg(QFileInfo(m_currentFilePath).fileName()), 3000);
+    removeStaleAutosave(m_currentFilePath);
     return true;
+}
+
+void MainWindow::autosaveTick() {
+    // Only once the document has a real save location -- an untitled
+    // document that was never saved anywhere has no sensible sibling path
+    // to write next to, and losing unsaved work on a document that's still
+    // entirely unsaved is a smaller loss than losing edits since the last
+    // real save of a file the user has already been working on.
+    if (!m_dirty || m_currentFilePath.isEmpty()) return;
+    lcad::writeDxf(m_document, (m_currentFilePath + QStringLiteral(".autosave")).toStdString(), nullptr);
+}
+
+void MainWindow::removeStaleAutosave(const QString& realPath) {
+    const QString autosavePath = realPath + QStringLiteral(".autosave");
+    if (QFile::exists(autosavePath)) QFile::remove(autosavePath);
 }
 
 void MainWindow::printDocument() {
@@ -741,5 +806,6 @@ bool MainWindow::saveDocumentAs() {
     updateWindowTitle();
     statusBar()->showMessage(QStringLiteral("Saved %1").arg(QFileInfo(m_currentFilePath).fileName()), 3000);
     RecentFiles::add(m_currentFilePath);
+    removeStaleAutosave(m_currentFilePath);
     return true;
 }

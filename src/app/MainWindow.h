@@ -20,6 +20,7 @@ class QLabel;
 class QMenu;
 class QPrinter;
 class QTabBar;
+class QTimer;
 
 // Multi-document support (see [[kumcad-6060-75-push]] parity notes: real
 // AutoCAD's MDI is a single frame with a file-tab strip; every panel here
@@ -106,6 +107,17 @@ private:
     bool saveDocument();
     bool saveDocumentAs();
 
+    // Crash/power-loss recovery (AutoCAD's own SAVETIME, defaulted the same
+    // way: every 10 minutes). Writes a sibling "<path>.autosave" DXF file
+    // next to the real one whenever there are unsaved changes -- only once
+    // the document actually has a real save path, so an untitled document
+    // that was never saved anywhere doesn't need a location invented for
+    // it. loadFromPath() offers to recover from a newer .autosave file than
+    // the real one; a successful real save removes the stale .autosave
+    // file, since it no longer reflects anything the real file doesn't.
+    void autosaveTick();
+    void removeStaleAutosave(const QString& realPath);
+
     void printDocument();
     void exportPdf();
     // eTransmit: packages the current DXF plus every xref/image/point-cloud
@@ -142,5 +154,6 @@ private:
 
     QString m_currentFilePath;
     bool m_dirty = false;
+    QTimer* m_autosaveTimer = nullptr;
     QString m_modeLabel; // e.g. "Panel Layout" -- appended to the window title when set
 };
