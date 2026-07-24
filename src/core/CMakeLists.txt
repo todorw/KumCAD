@@ -172,6 +172,8 @@ add_library(lcad_core STATIC
     document/Document.cpp
     document/DocumentExtract.h
     document/DocumentExtract.cpp
+    document/BlockEdit.h
+    document/BlockEdit.cpp
     document/Spreadsheet.h
     document/Spreadsheet.cpp
     core3d/HalfSpaceBox.h

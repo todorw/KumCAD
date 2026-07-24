@@ -84,6 +84,13 @@ public:
 
     // Layers
     LayerId addLayer(const std::string& name, Color color);
+    // Adds layer as-is, preserving its own id instead of assigning a fresh
+    // one, and bumps the next-layer-id counter past it if needed -- for
+    // core/document/BlockEdit.h's own use, seeding a temporary editing
+    // document with copies of another document's layers under the SAME
+    // ids so entities keep resolving to their real layer while being
+    // edited elsewhere. Not used by ordinary layer creation.
+    void addLayerRaw(Layer layer);
     Layer* findLayer(LayerId id);
     const Layer* findLayer(LayerId id) const;
     // Removes the layer record itself (LAYDEL/LAYMRG). Refuses layer "0".
@@ -141,6 +148,15 @@ public:
     // spaces, and an entity re-added after removeEntity (undo) returns to the
     // space it was removed from because ids stay in exactly one order list.
     EntityId reserveEntityId() { return m_nextEntityId++; }
+    // Bumps the next-entity-id counter forward if next is past it -- never
+    // moves it backward. For core/document/BlockEdit.h's own use: after
+    // seeding a temporary editing document with clones that keep their
+    // original ids (see addEntity's own id-preserving behavior below), the
+    // counter needs to skip past every preserved id so a NEW entity drawn
+    // during that session can't collide with one of them.
+    void bumpNextEntityId(EntityId next) {
+        if (next > m_nextEntityId) m_nextEntityId = next;
+    }
     void addEntity(std::unique_ptr<Entity> entity);
     std::unique_ptr<Entity> removeEntity(EntityId id);
     // Re-inserts a previously-removed entity directly into the entity map,

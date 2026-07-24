@@ -23,6 +23,11 @@ LayerId Document::addLayer(const std::string& name, Color color) {
     return id;
 }
 
+void Document::addLayerRaw(Layer layer) {
+    if (layer.id >= m_nextLayerId) m_nextLayerId = layer.id + 1;
+    m_layers.push_back(std::move(layer));
+}
+
 bool Document::deleteLayer(LayerId id) {
     if (id == 0) return false; // layer "0" always exists, as in AutoCAD
     const auto it = std::find_if(m_layers.begin(), m_layers.end(), [id](const Layer& l) { return l.id == id; });

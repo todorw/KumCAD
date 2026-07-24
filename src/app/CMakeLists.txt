@@ -19,6 +19,8 @@ add_executable(kumcad WIN32
     CommandLine.cpp
     CommandDispatcher.h
     CommandDispatcher.cpp
+    BlockEditorWindow.h
+    BlockEditorWindow.cpp
     IconFactory.h
     IconFactory.cpp
     RecentFiles.h
@@ -227,6 +229,8 @@ add_executable(kumcad WIN32
     commands/ToleranceCommand.cpp
     commands/AttEditCommand.h
     commands/AttEditCommand.cpp
+    commands/BEditCommand.h
+    commands/BEditCommand.cpp
 )
 
 target_include_directories(kumcad PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

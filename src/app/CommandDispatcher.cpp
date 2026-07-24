@@ -82,6 +82,7 @@
 #include "commands/PointCloudAttachCommand.h"
 #include "commands/PointCommands.h"
 #include "commands/AttEditCommand.h"
+#include "commands/BEditCommand.h"
 #include "commands/MLineCommand.h"
 #include "commands/MTextCommand.h"
 #include "commands/QSelectCommand.h"
@@ -951,6 +952,8 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         } else {
             startCommand(std::make_unique<AttEditCommand>(m_document, targetId), QStringLiteral("ATTEDIT"));
         }
+    } else if (cmd == QLatin1String("BEDIT")) {
+        startCommand(std::make_unique<BEditCommand>(m_document), QStringLiteral("BEDIT"));
     } else if (cmd == QLatin1String("EXPLODE") || cmd == QLatin1String("X")) {
         explodeSelection();
     } else if (cmd == QLatin1String("OVERKILL") || cmd == QLatin1String("OV")) {
