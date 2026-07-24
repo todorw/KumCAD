@@ -9,6 +9,7 @@
 #include "core/io/KiCadSch.h"
 #include "core/pcb/Autorouter.h"
 #include "core/pcb/CopperPour.h"
+#include "core/pcb/Drc.h"
 #include "core/pcb/FootprintGenerator.h"
 #include "core/pcb/GerberWriter.h"
 #include "core/pcb/Ratsnest.h"
@@ -18,7 +19,41 @@
 
 #include <algorithm>
 #include <fstream>
+#include <optional>
 #include <sstream>
+
+namespace {
+
+// Resolves comma-separated layer names (top to bottom) into a real
+// lcad::CopperStackup (see core/pcb/Stackup.h) -- an empty/blank string
+// resolves to an empty (legacy single-shared-plane) stackup, not an
+// error, matching every layer-aware command's own "Enter to skip"
+// convention. Returns nullopt only for a genuinely unknown layer name,
+// with *errorOut set to a message ready to show the user.
+std::optional<lcad::CopperStackup> parseStackupLayers(const lcad::Document& doc, const QString& text,
+                                                      QString* errorOut) {
+    lcad::CopperStackup stackup;
+    const QString trimmed = text.trimmed();
+    if (trimmed.isEmpty()) return stackup;
+    for (const QString& name : trimmed.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+        const std::string layerName = name.trimmed().toStdString();
+        bool found = false;
+        for (const lcad::Layer& layer : doc.layers()) {
+            if (layer.name == layerName) {
+                stackup.layers.push_back(layer.id);
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            if (errorOut) *errorOut = QStringLiteral("*Layer \"%1\" not found*").arg(name.trimmed());
+            return std::nullopt;
+        }
+    }
+    return stackup;
+}
+
+} // namespace
 
 QString TrackCommand::start() {
     return QStringLiteral("TRACK  Specify first point:");
@@ -60,22 +95,49 @@ std::optional<QString> ViaCommand::onPoint(const lcad::Point2D& pt) {
 }
 
 std::optional<QString> RatsnestCommand::onText(const QString& text) {
-    m_finished = true;
-    const std::string path = text.trimmed().toStdString();
-    std::ifstream in(path, std::ios::binary);
-    if (!in) return QStringLiteral("*Could not open %1*").arg(text.trimmed());
+    if (m_stage == Stage::NetlistPath) {
+        const std::string path = text.trimmed().toStdString();
+        std::ifstream in(path, std::ios::binary);
+        if (!in) return QStringLiteral("*Could not open %1*").arg(text.trimmed());
+        std::ostringstream buffer;
+        buffer << in.rdbuf();
+        m_nets = lcad::parseNetlist(buffer.str());
+        m_stage = Stage::Layers;
+        return QStringLiteral("Layer stackup, top to bottom, e.g. F.Cu,In1.Cu,In2.Cu,B.Cu (Enter for "
+                              "single shared-plane connectivity):");
+    }
 
-    std::ostringstream buffer;
-    buffer << in.rdbuf();
-    const std::vector<lcad::ImportedNet> nets = lcad::parseNetlist(buffer.str());
-    const std::vector<lcad::RatsnestLine> lines = lcad::computeRatsnest(m_document, nets);
+    QString error;
+    const auto stackup = parseStackupLayers(m_document, text, &error);
+    if (!stackup) return error; // stays in Stage::Layers, re-prompts on the next input
+    m_finished = true;
+    const std::vector<lcad::RatsnestLine> lines = lcad::computeRatsnest(m_document, m_nets, *stackup);
 
     double totalLength = 0.0;
     for (const auto& line : lines) totalLength += line.a.distanceTo(line.b);
     return QStringLiteral("*Ratsnest: %1 net(s) read, %2 unrouted connection(s), %3 units total*")
-        .arg(nets.size())
+        .arg(m_nets.size())
         .arg(lines.size())
         .arg(totalLength, 0, 'f', 2);
+}
+
+std::optional<QString> DrcCommand::onText(const QString& text) {
+    QString error;
+    const auto stackup = parseStackupLayers(m_document, text, &error);
+    if (!stackup) return error;
+    m_finished = true;
+
+    lcad::DrcRules rules;
+    rules.checkCourtyards = true;
+    rules.checkSilkscreenOverPad = true;
+    const std::vector<lcad::DrcViolation> violations = lcad::runDrc(m_document, rules, *stackup);
+
+    QStringList lines;
+    lines << QStringLiteral("*DRC: %1 violation(s)*").arg(violations.size());
+    for (const lcad::DrcViolation& v : violations) {
+        lines << QStringLiteral("  %1").arg(QString::fromStdString(v.message));
+    }
+    return lines.join(QLatin1Char('\n'));
 }
 
 std::optional<QString> CopperPourCommand::onPoint(const lcad::Point2D& pt) {
@@ -407,27 +469,14 @@ std::optional<QString> AutorouteCommand::onText(const QString& text) {
                               "on the current layer):");
     }
     case Stage::Layers: {
-        const QString trimmed = text.trimmed();
-        if (!trimmed.isEmpty()) {
-            std::vector<lcad::LayerId> layers;
-            for (const QString& name : trimmed.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
-                const std::string layerName = name.trimmed().toStdString();
-                bool found = false;
-                for (const lcad::Layer& layer : m_document.layers()) {
-                    if (layer.name == layerName) {
-                        layers.push_back(layer.id);
-                        found = true;
-                        break;
-                    }
-                }
-                if (!found) return QStringLiteral("*Layer \"%1\" not found*").arg(name.trimmed());
-            }
-            if (layers.size() < 2) {
-                return QStringLiteral("*Enter at least 2 layer names for multi-layer routing, or leave "
-                                      "blank for single-layer*");
-            }
-            m_params.stackup.layers = layers;
+        QString error;
+        const auto stackup = parseStackupLayers(m_document, text, &error);
+        if (!stackup) return error;
+        if (!stackup->layers.empty() && stackup->layers.size() < 2) {
+            return QStringLiteral("*Enter at least 2 layer names for multi-layer routing, or leave "
+                                  "blank for single-layer*");
         }
+        m_params.stackup = *stackup;
         m_stage = Stage::NetClasses;
         return QStringLiteral("Net class overrides <none> (name:trackWidth:clearance:net1,net2,...; "
                               "multiple separated by ;):");

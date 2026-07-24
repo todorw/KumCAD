@@ -106,7 +106,6 @@
 #include "core/geometry/ModifyOps.h"
 #include "core/geometry/Polyline.h"
 #include "core/electrical/WireNumbering.h"
-#include "core/pcb/Drc.h"
 #include "core/pcb/Teardrop.h"
 #include "core/pid/InstrumentTagging.h"
 #include "core/schematic/Erc.h"
@@ -903,19 +902,7 @@ void CommandDispatcher::handleCommandText(const QString& text) {
     } else if (cmd == QLatin1String("PROFILE")) {
         startCommand(std::make_unique<ProfileCommand>(m_document), QStringLiteral("PROFILE"));
     } else if (cmd == QLatin1String("DRC")) {
-        // The interactive DRC command turns on every check this library
-        // supports, including the two opt-in ones (courtyard overlap,
-        // silkscreen-over-pad) -- runDrc's own default keeps them off
-        // for API/test backward compatibility, not because a real user
-        // running DRC here wouldn't want them.
-        lcad::DrcRules rules;
-        rules.checkCourtyards = true;
-        rules.checkSilkscreenOverPad = true;
-        const std::vector<lcad::DrcViolation> violations = lcad::runDrc(m_document, rules);
-        m_commandLine.appendLine(QStringLiteral("*DRC: %1 violation(s)*").arg(violations.size()));
-        for (const lcad::DrcViolation& v : violations) {
-            m_commandLine.appendLine(QStringLiteral("  %1").arg(QString::fromStdString(v.message)));
-        }
+        startCommand(std::make_unique<DrcCommand>(m_document), QStringLiteral("DRC"));
     } else if (cmd == QLatin1String("ERC")) {
         const std::vector<lcad::Net> nets = lcad::computeNets(m_document);
         const std::vector<lcad::ErcIssue> issues = lcad::runErc(m_document, nets);

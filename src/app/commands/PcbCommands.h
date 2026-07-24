@@ -57,9 +57,10 @@ private:
 
 // RATSNEST: reads a netlist file path (typically exported by NETLIST from a
 // schematic document -- see core/pcb/Ratsnest.h for why this is file-based
-// rather than a live cross-document link) and reports the unrouted
-// connections it implies for the pads already placed in this board
-// document.
+// rather than a live cross-document link), then an optional layer stackup
+// (Enter for the legacy single-shared-plane behavior -- see Stackup.h's
+// own comment), and reports the unrouted connections it implies for the
+// pads already placed in this board document.
 class RatsnestCommand : public DrawCommand {
 public:
     explicit RatsnestCommand(lcad::Document& document) : m_document(document) {}
@@ -75,7 +76,10 @@ public:
     void cancel() override { m_finished = true; }
 
 private:
+    enum class Stage { NetlistPath, Layers };
     lcad::Document& m_document;
+    Stage m_stage = Stage::NetlistPath;
+    std::vector<lcad::ImportedNet> m_nets;
     bool m_finished = false;
 };
 
@@ -104,6 +108,36 @@ private:
     Stage m_stage = Stage::LayerName;
     std::string m_outputPath;
     lcad::LayerId m_layer = 0;
+    bool m_finished = false;
+};
+
+// DRC: an optional layer stackup (Enter for the legacy single-shared-
+// plane clearance checking -- see Stackup.h's own comment; a real
+// stackup makes Track-vs-Track clearance layer-aware, see runDrc's own
+// comment for exactly what that does and doesn't cover), then runs every
+// check this library supports, including the two opt-in ones (courtyard
+// overlap, silkscreen-over-pad) that runDrc's own default leaves off for
+// API/test backward compatibility, not because a real user running DRC
+// interactively wouldn't want them.
+class DrcCommand : public DrawCommand {
+public:
+    explicit DrcCommand(lcad::Document& document) : m_document(document) {}
+
+    QString start() override {
+        return QStringLiteral("DRC  Layer stackup, top to bottom, e.g. F.Cu,In1.Cu,In2.Cu,B.Cu (Enter for "
+                              "single shared-plane clearance checking):");
+    }
+    std::optional<QString> onPoint(const lcad::Point2D& pt) override {
+        (void)pt;
+        return std::nullopt;
+    }
+    bool wantsTextInput() const override { return true; }
+    std::optional<QString> onText(const QString& text) override;
+    bool isFinished() const override { return m_finished; }
+    void cancel() override { m_finished = true; }
+
+private:
+    lcad::Document& m_document;
     bool m_finished = false;
 };
 
