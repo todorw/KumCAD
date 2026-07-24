@@ -357,6 +357,40 @@ private:
     bool m_finished = false;
 };
 
+// PADADD: defines one pad on an existing block definition, turning it into
+// a PCB footprint (see BlockDefinition::pads) -- the footprint-side
+// counterpart to PINADD's schematic-symbol pins. Not undoable, matching
+// PINADD/BlockParamCommand's own existing precedent for block-metadata
+// edits. Custom (arbitrary-outline) pads aren't reachable from this
+// point-and-type flow -- they still come from FOOTPRINTGEN or a
+// KICADMODIMPORT, same disclosed limit real point-driven flows like
+// MLINE's own fixed-style convention already accept elsewhere.
+class PadAddCommand : public DrawCommand {
+public:
+    explicit PadAddCommand(lcad::Document& document) : m_document(document) {}
+
+    QString start() override { return QStringLiteral("PADADD  Enter block name:"); }
+    std::optional<QString> onPoint(const lcad::Point2D& pt) override;
+    bool wantsTextInput() const override { return m_stage != Stage::Position; }
+    std::optional<QString> onText(const QString& text) override;
+    bool isFinished() const override { return m_finished; }
+    void cancel() override { m_finished = true; }
+
+private:
+    enum class Stage { BlockName, PadNumber, Shape, Width, Height, Drill, ShapeParam, Position };
+
+    lcad::Document& m_document;
+    Stage m_stage = Stage::BlockName;
+    lcad::BlockDefinition* m_block = nullptr;
+    std::string m_number;
+    lcad::PadShape m_shape = lcad::PadShape::Round;
+    double m_width = 1.6;
+    double m_height = 1.6;
+    double m_drill = 0.0;
+    double m_shapeParam = 0.0;
+    bool m_finished = false;
+};
+
 // KICADSCHEXPORT: output file path -- writes a real .kicad_sch schematic
 // file (see core/io/KiCadSch.h) from the current document.
 class KiCadSchExportCommand : public DrawCommand {

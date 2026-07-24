@@ -759,6 +759,96 @@ std::optional<QString> FootprintGenCommand::onText(const QString& text) {
         .arg(family);
 }
 
+std::optional<QString> PadAddCommand::onPoint(const lcad::Point2D& pt) {
+    if (m_stage != Stage::Position) return std::nullopt;
+    m_block->pads.push_back(lcad::Pad{m_number, m_shape, pt, m_width, m_height, m_drill, m_shapeParam});
+    m_finished = true;
+    return QStringLiteral("*Pad \"%1\" added to block \"%2\"*")
+        .arg(QString::fromStdString(m_number), QString::fromStdString(m_block->name));
+}
+
+std::optional<QString> PadAddCommand::onText(const QString& text) {
+    const QString trimmed = text.trimmed();
+    switch (m_stage) {
+    case Stage::BlockName: {
+        m_block = m_document.findBlock(trimmed.toStdString());
+        if (!m_block) return QStringLiteral("*Block \"%1\" not found*\nEnter block name:").arg(trimmed);
+        m_stage = Stage::PadNumber;
+        return QStringLiteral("Enter pad number:");
+    }
+    case Stage::PadNumber:
+        if (trimmed.isEmpty()) return QStringLiteral("*Pad number can't be empty*\nEnter pad number:");
+        m_number = trimmed.toStdString();
+        m_stage = Stage::Shape;
+        return QStringLiteral("Pad shape [Round/Rect/Oval/RoundRect/Trapezoid] <Round>:");
+    case Stage::Shape: {
+        const QString t = trimmed.toUpper();
+        if (t.isEmpty() || t == QLatin1String("ROUND")) m_shape = lcad::PadShape::Round;
+        else if (t == QLatin1String("RECT")) m_shape = lcad::PadShape::Rect;
+        else if (t == QLatin1String("OVAL")) m_shape = lcad::PadShape::Oval;
+        else if (t == QLatin1String("ROUNDRECT")) m_shape = lcad::PadShape::RoundRect;
+        else if (t == QLatin1String("TRAPEZOID")) m_shape = lcad::PadShape::Trapezoid;
+        else return QStringLiteral("*Unrecognized shape*\nPad shape [Round/Rect/Oval/RoundRect/Trapezoid] <Round>:");
+        m_stage = Stage::Width;
+        return QStringLiteral("Enter pad width <1.6>:");
+    }
+    case Stage::Width: {
+        if (!trimmed.isEmpty()) {
+            bool ok = false;
+            const double v = trimmed.toDouble(&ok);
+            if (!ok || v <= 0) return QStringLiteral("*Width must be positive*\nEnter pad width <1.6>:");
+            m_width = v;
+        }
+        m_stage = Stage::Height;
+        return QStringLiteral("Enter pad height <1.6>:");
+    }
+    case Stage::Height: {
+        if (!trimmed.isEmpty()) {
+            bool ok = false;
+            const double v = trimmed.toDouble(&ok);
+            if (!ok || v <= 0) return QStringLiteral("*Height must be positive*\nEnter pad height <1.6>:");
+            m_height = v;
+        }
+        m_stage = Stage::Drill;
+        return QStringLiteral("Enter drill diameter, 0 for SMD <0>:");
+    }
+    case Stage::Drill: {
+        if (!trimmed.isEmpty()) {
+            bool ok = false;
+            const double v = trimmed.toDouble(&ok);
+            if (!ok || v < 0) {
+                return QStringLiteral("*Drill diameter can't be negative*\nEnter drill diameter, 0 for SMD <0>:");
+            }
+            m_drill = v;
+        }
+        if (m_shape == lcad::PadShape::RoundRect) {
+            m_stage = Stage::ShapeParam;
+            return QStringLiteral("Enter corner radius ratio, 0..0.5 <0.25>:");
+        }
+        if (m_shape == lcad::PadShape::Trapezoid) {
+            m_stage = Stage::ShapeParam;
+            return QStringLiteral("Enter taper delta <0.4>:");
+        }
+        m_stage = Stage::Position;
+        return QStringLiteral("Specify pad position:");
+    }
+    case Stage::ShapeParam: {
+        if (trimmed.isEmpty()) {
+            m_shapeParam = m_shape == lcad::PadShape::RoundRect ? 0.25 : 0.4;
+        } else {
+            bool ok = false;
+            const double v = trimmed.toDouble(&ok);
+            if (!ok) return QStringLiteral("*Enter a number*");
+            m_shapeParam = v;
+        }
+        m_stage = Stage::Position;
+        return QStringLiteral("Specify pad position:");
+    }
+    default:
+        return std::nullopt;
+    }
+}
+
 std::optional<QString> KiCadSchExportCommand::onText(const QString& text) {
     m_finished = true;
     std::string error;

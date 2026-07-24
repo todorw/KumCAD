@@ -1076,6 +1076,8 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         startCommand(std::make_unique<BusEntryCommand>(m_document), QStringLiteral("BUSENTRY"));
     } else if (cmd == QLatin1String("PINADD")) {
         startCommand(std::make_unique<PinAddCommand>(m_document), QStringLiteral("PINADD"));
+    } else if (cmd == QLatin1String("PADADD")) {
+        startCommand(std::make_unique<PadAddCommand>(m_document), QStringLiteral("PADADD"));
     } else if (cmd == QLatin1String("TRACK")) {
         startCommand(std::make_unique<TrackCommand>(m_document), QStringLiteral("TRACK"));
     } else if (cmd == QLatin1String("VIA") || cmd == QLatin1String("V")) {
