@@ -17,6 +17,8 @@
 #include "commands/CircleCommand.h"
 #include "commands/PolygonCommand.h"
 #include "commands/DonutCommand.h"
+#include "core/geometry/Region.h"
+#include "core/geometry/RegionBuild.h"
 #include "commands/CopyCommand.h"
 #include "commands/ClipboardPasteCommand.h"
 #include "commands/DataLinkCommand.h"
@@ -441,6 +443,70 @@ void CommandDispatcher::handleCommandText(const QString& text) {
             startCommand(std::make_unique<ChamferCommand>(m_document, lineIds[0], lineIds[1]), QStringLiteral("CHAMFER"));
         } else {
             m_commandLine.appendLine(QStringLiteral("*Select exactly two lines first, then run CHAMFER*"));
+        }
+    } else if (cmd == QLatin1String("REGION") || cmd == QLatin1String("REG")) {
+        // Consumes each selected closed curve (closed Polyline or Circle --
+        // see RegionBuild.h's own disclosed subset) and replaces it in
+        // place with a real RegionEntity, matching real AutoCAD's REGION.
+        const std::vector<lcad::EntityId> ids = m_view ? m_view->selectedIds() : std::vector<lcad::EntityId>{};
+        auto batch = std::make_unique<lcad::BatchCommand>("Region");
+        int converted = 0, skipped = 0;
+        for (lcad::EntityId id : ids) {
+            const lcad::Entity* e = m_document.findEntity(id);
+            if (!e) continue;
+            const auto loop = lcad::closedCurveToRegionLoop(*e);
+            if (!loop) {
+                ++skipped;
+                continue;
+            }
+            std::vector<lcad::RegionLoop> loops(1);
+            loops[0].vertices = *loop;
+            batch->add(std::make_unique<lcad::ReplaceEntityCommand>(
+                m_document, id, std::make_unique<lcad::RegionEntity>(id, e->layer(), loops)));
+            ++converted;
+        }
+        if (converted > 0) {
+            m_document.commandStack().execute(std::move(batch));
+            emit documentChanged();
+        }
+        m_commandLine.appendLine(
+            QStringLiteral("*REGION: %1 region(s) created, %2 skipped*").arg(converted).arg(skipped));
+    } else if (cmd == QLatin1String("UNION") || cmd == QLatin1String("UNI") || cmd == QLatin1String("SUBTRACT") ||
+             cmd == QLatin1String("SU") || cmd == QLatin1String("INTERSECT") || cmd == QLatin1String("IN")) {
+        // 2D solid booleans, real AutoCAD's UNION/SUBTRACT/INTERSECT --
+        // operates on exactly two selected RegionEntity objects (see
+        // Region.h's own booleanOp comment for the "single loop, no
+        // existing holes on either side" scope this composes within).
+        // SUBTRACT's order is "first selected minus second selected."
+        std::vector<lcad::EntityId> regionIds;
+        if (m_view) {
+            for (lcad::EntityId id : m_view->selectedIds()) {
+                const lcad::Entity* e = m_document.findEntity(id);
+                if (e && e->type() == lcad::EntityType::Region) regionIds.push_back(id);
+            }
+        }
+        if (regionIds.size() != 2) {
+            m_commandLine.appendLine(QStringLiteral("*Select exactly two regions first, then run %1*").arg(cmd));
+        } else {
+            const auto* a = static_cast<const lcad::RegionEntity*>(m_document.findEntity(regionIds[0]));
+            const auto* b = static_cast<const lcad::RegionEntity*>(m_document.findEntity(regionIds[1]));
+            const lcad::RegionBoolOp op = (cmd == QLatin1String("UNION") || cmd == QLatin1String("UNI"))
+                                              ? lcad::RegionBoolOp::Union
+                                          : (cmd == QLatin1String("SUBTRACT") || cmd == QLatin1String("SU"))
+                                              ? lcad::RegionBoolOp::Subtract
+                                              : lcad::RegionBoolOp::Intersect;
+            auto result = lcad::RegionEntity::booleanOp(m_document.reserveEntityId(), a->layer(), *a, *b, op);
+            if (!result) {
+                m_commandLine.appendLine(
+                    QStringLiteral("*%1 failed -- regions must be single loops with no existing holes*").arg(cmd));
+            } else {
+                auto batch = std::make_unique<lcad::BatchCommand>(cmd.toStdString());
+                batch->add(std::make_unique<lcad::DeleteEntityCommand>(m_document, regionIds[0]));
+                batch->add(std::make_unique<lcad::DeleteEntityCommand>(m_document, regionIds[1]));
+                batch->add(std::make_unique<lcad::AddEntityCommand>(m_document, std::move(result)));
+                m_document.commandStack().execute(std::move(batch));
+                emit documentChanged();
+            }
         }
     } else if (cmd == QLatin1String("GCHORIZONTAL") || cmd == QLatin1String("GCVERTICAL") ||
              cmd == QLatin1String("GCPARALLEL") || cmd == QLatin1String("GCPERPENDICULAR") ||
