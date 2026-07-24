@@ -2,14 +2,17 @@
 
 #include "core/document/Block.h"
 #include "core/document/Document.h"
+#include "core/document/DocumentExtract.h"
 #include "core/geometry/Insert.h"
 #include "core/geometry/Junction.h"
 #include "core/geometry/NetLabel.h"
 #include "core/geometry/NoConnect.h"
 #include "core/geometry/Wire.h"
 #include "core/io/SExpr.h"
+#include "core/schematic/Sheets.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <fstream>
 #include <map>
@@ -132,23 +135,14 @@ void collectPins(const SExpr& symbolExpr, std::vector<Pin>& pins) {
     for (const SExpr* nested : symbolExpr.children("symbol")) collectPins(*nested, pins);
 }
 
-} // namespace
-
-bool writeKiCadSch(const Document& doc, const std::string& path, std::string* errorOut) {
-    std::ofstream out(path, std::ios::binary);
-    if (!out) {
-        if (errorOut) *errorOut = "Could not open " + path + " for writing";
-        return false;
-    }
-
-    std::mt19937 rng(0xC0FFEE);
-
+// Every non-header item of a .kicad_sch's own root list (lib_symbols,
+// wires, junctions, no_connects, labels, symbol instances) for doc --
+// shared between writeKiCadSch's own single-file form and
+// writeKiCadSchHierarchical's per-sheet-file form, which additionally
+// appends its own (sheet ...) cross-reference items to the ROOT file's
+// list after calling this.
+std::vector<SExpr> buildKiCadSchBodyItems(const Document& doc, std::mt19937& rng) {
     std::vector<SExpr> root;
-    root.push_back(SExpr::sym("kicad_sch"));
-    root.push_back(SExpr::list("version", {SExpr::num(20231120)}));
-    root.push_back(SExpr::list("generator", {SExpr::str("kumcad")}));
-    root.push_back(uuidExpr(rng));
-    root.push_back(SExpr::list("paper", {SExpr::str("A4")}));
 
     // lib_symbols: every distinct symbol block actually placed, in
     // first-encountered order, with its REAL pin geometry/electrical
@@ -235,6 +229,29 @@ bool writeKiCadSch(const Document& doc, const std::string& path, std::string* er
             root.push_back(SExpr{SExpr::Kind::List, "", 0.0, std::move(se)});
         }
     }
+
+    return root;
+}
+
+} // namespace
+
+bool writeKiCadSch(const Document& doc, const std::string& path, std::string* errorOut) {
+    std::ofstream out(path, std::ios::binary);
+    if (!out) {
+        if (errorOut) *errorOut = "Could not open " + path + " for writing";
+        return false;
+    }
+
+    std::mt19937 rng(0xC0FFEE);
+
+    std::vector<SExpr> root;
+    root.push_back(SExpr::sym("kicad_sch"));
+    root.push_back(SExpr::list("version", {SExpr::num(20231120)}));
+    root.push_back(SExpr::list("generator", {SExpr::str("kumcad")}));
+    root.push_back(uuidExpr(rng));
+    root.push_back(SExpr::list("paper", {SExpr::str("A4")}));
+
+    for (SExpr& item : buildKiCadSchBodyItems(doc, rng)) root.push_back(std::move(item));
 
     SExpr file{SExpr::Kind::List, "", 0.0, std::move(root)};
     out << writeSExpr(file);
@@ -352,6 +369,81 @@ bool readKiCadSch(Document& doc, const std::string& path, std::string* errorOut)
     }
 
     return true;
+}
+
+namespace {
+
+std::string sanitizeFileNamePart(const std::string& name) {
+    std::string out;
+    for (char c : name) {
+        if (std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_') out += c;
+        else out += '_';
+    }
+    return out.empty() ? std::string("sheet") : out;
+}
+
+std::string directoryOf(const std::string& path) {
+    const auto pos = path.find_last_of('/');
+    return pos == std::string::npos ? std::string() : path.substr(0, pos + 1);
+}
+
+} // namespace
+
+bool writeKiCadSchHierarchical(const Document& doc, const std::string& rootPath, std::string* errorOut) {
+    const std::vector<Sheet> sheets = listSheets(doc);
+    if (sheets.empty()) return writeKiCadSch(doc, rootPath, errorOut); // no sheets: today's flat behavior, unchanged
+
+    // Common content: everything NOT on any sheet layer (see Sheets.h's
+    // own comment -- visible regardless of which sheet is active).
+    std::vector<EntityId> rootIds;
+    for (const Entity* e : doc.entities()) {
+        const bool onSheetLayer =
+            std::any_of(sheets.begin(), sheets.end(), [&](const Sheet& s) { return e->layer() == s.layerId; });
+        if (!onSheetLayer) rootIds.push_back(e->id());
+    }
+
+    const std::string dir = directoryOf(rootPath);
+    std::mt19937 rng(0xC0FFEE);
+
+    std::vector<SExpr> root;
+    root.push_back(SExpr::sym("kicad_sch"));
+    root.push_back(SExpr::list("version", {SExpr::num(20231120)}));
+    root.push_back(SExpr::list("generator", {SExpr::str("kumcad")}));
+    root.push_back(uuidExpr(rng));
+    root.push_back(SExpr::list("paper", {SExpr::str("A4")}));
+
+    const Document rootDoc = extractSubset(doc, rootIds);
+    for (SExpr& item : buildKiCadSchBodyItems(rootDoc, rng)) root.push_back(std::move(item));
+
+    double x = 20.0;
+    for (const Sheet& sheet : sheets) {
+        std::vector<EntityId> sheetIds;
+        for (const Entity* e : doc.entities()) {
+            if (e->layer() == sheet.layerId) sheetIds.push_back(e->id());
+        }
+        const Document sheetDoc = extractSubset(doc, sheetIds);
+        const std::string fileName = sanitizeFileNamePart(sheet.name) + ".kicad_sch";
+        if (!writeKiCadSch(sheetDoc, dir + fileName, errorOut)) return false;
+
+        std::vector<SExpr> se;
+        se.push_back(SExpr::sym("sheet"));
+        se.push_back(SExpr::list("at", {SExpr::num(x), SExpr::num(20.0)}));
+        se.push_back(SExpr::list("size", {SExpr::num(20.0), SExpr::num(10.0)}));
+        se.push_back(uuidExpr(rng));
+        se.push_back(propertyExpr("Sheetname", sheet.name, Point2D(x, 19.0), 1.27));
+        se.push_back(propertyExpr("Sheetfile", fileName, Point2D(x, 31.0), 1.27));
+        root.push_back(SExpr{SExpr::Kind::List, "", 0.0, std::move(se)});
+        x += 40.0;
+    }
+
+    std::ofstream out(rootPath, std::ios::binary);
+    if (!out) {
+        if (errorOut) *errorOut = "Could not open " + rootPath + " for writing";
+        return false;
+    }
+    SExpr file{SExpr::Kind::List, "", 0.0, std::move(root)};
+    out << writeSExpr(file);
+    return static_cast<bool>(out);
 }
 
 } // namespace lcad

@@ -664,7 +664,10 @@ std::optional<QString> FootprintGenCommand::onText(const QString& text) {
 std::optional<QString> KiCadSchExportCommand::onText(const QString& text) {
     m_finished = true;
     std::string error;
-    if (!lcad::writeKiCadSch(m_document, text.trimmed().toStdString(), &error)) {
+    // Real multi-file hierarchical export when the document has sheets
+    // (see KiCadSch.h's own comment); falls back to today's flat
+    // single-file behavior automatically when it doesn't.
+    if (!lcad::writeKiCadSchHierarchical(m_document, text.trimmed().toStdString(), &error)) {
         return QStringLiteral("*%1*").arg(QString::fromStdString(error));
     }
     return QStringLiteral("*Schematic written to %1*").arg(text.trimmed());

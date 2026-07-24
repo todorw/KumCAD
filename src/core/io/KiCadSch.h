@@ -63,4 +63,22 @@ bool writeKiCadSch(const Document& doc, const std::string& path, std::string* er
 // to Netlist.h's own connectivity computation.
 bool readKiCadSch(Document& doc, const std::string& path, std::string* errorOut = nullptr);
 
+// Real multi-file hierarchical export, matching how actual KiCad
+// schematics organize a project with sheets: each of doc's own sheets
+// (core/schematic/Sheets.h -- a "SHEET:<name>" layer, this codebase's
+// own single-file simplification of KiCad's real per-sheet-is-its-own-
+// file model) becomes its OWN standalone .kicad_sch file, written
+// alongside rootPath as "<name>.kicad_sch"; content on any OTHER
+// (non-sheet) layer -- "common," visible regardless of which sheet is
+// active, per Sheets.h's own comment -- goes directly into the ROOT
+// file at rootPath. The root file cross-references each child with a
+// real (sheet (at ..) (property "Sheetname" ..) (property "Sheetfile"
+// ..)) block, laid out in a simple left-to-right row (a real, disclosed
+// simplification: no attempt to avoid overlap for a large sheet count,
+// or to preserve any position information, since Sheet itself stores
+// none). A document with no sheets at all falls back to a single flat
+// writeKiCadSch(doc, rootPath, ...) call -- the degenerate case is
+// exactly today's existing behavior, unchanged.
+bool writeKiCadSchHierarchical(const Document& doc, const std::string& rootPath, std::string* errorOut = nullptr);
+
 } // namespace lcad
