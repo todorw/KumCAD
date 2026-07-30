@@ -5,10 +5,12 @@
 
 // LENGTHTUNE (KiCad's track length tuning tool): meanders the selected
 // TrackEntity's longest straight segment to reach a target total length.
-// Prompts for target length, then meander amplitude, then pitch -- see
-// core/pcb/LengthTuning.h for the actual geometry, including the disclosed
-// "picks the longest segment automatically" simplification vs. a real
-// tuner's interactive placement.
+// Prompts for target length, then meander amplitude, then pitch, then an
+// optional max amplitude (Enter = unbounded) -- see core/pcb/
+// LengthTuning.h for the actual geometry, including the disclosed "picks
+// the longest segment automatically" simplification vs. a real tuner's
+// interactive placement, and maxAmplitude's own role as the caller-side
+// clearance cap that function has no built-in awareness of.
 class LengthTuneCommand : public DrawCommand {
 public:
     LengthTuneCommand(lcad::Document& document, lcad::EntityId trackId)
@@ -27,9 +29,11 @@ private:
 
     lcad::Document& m_document;
     lcad::EntityId m_trackId;
-    int m_stage = 0; // 0 = target length, 1 = amplitude, 2 = pitch
+    int m_stage = 0; // 0 = target length, 1 = amplitude, 2 = pitch, 3 = max amplitude
     double m_targetLength = 0.0;
     double m_amplitude = 0.5;
+    double m_pitch = 1.0;
+    double m_maxAmplitude = 0.0;
     std::optional<QString> m_result;
     bool m_finished = false;
 };

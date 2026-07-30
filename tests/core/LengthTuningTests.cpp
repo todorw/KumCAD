@@ -122,13 +122,46 @@ TEST_CASE("tuneTrackLength grows the amplitude to still meet a target the base a
     REQUIRE(result.achievedLength >= 1000.0);
 }
 
-TEST_CASE("tuneTrackLength reports metTarget=false only when the segment can't fit even one tooth",
+TEST_CASE("tuneTrackLength reports metTarget=false when the segment can't fit even one tooth",
          "[lengthtuning]") {
     // 1-unit segment, pitch=2: no room for a single tooth at all, so no
-    // amount of amplitude growth can help -- the one real remaining
-    // failure case.
+    // amount of amplitude growth can help.
     const std::vector<Point2D> path = {Point2D(0, 0), Point2D(1, 0)};
     const TuneResult result = tuneTrackLength(path, /*targetLength=*/100.0, /*amplitude=*/1.0, /*pitch=*/2.0);
     REQUIRE_FALSE(result.metTarget);
     REQUIRE(result.achievedLength == Approx(result.originalLength));
+}
+
+TEST_CASE("meanderSegment's maxAmplitude caps how wide a tooth is allowed to swing", "[lengthtuning]") {
+    // Same setup as the amplitude-growth test above -- 10 units, pitch 2,
+    // base amplitude 2.0, an unreachable-without-growth target of 50 --
+    // but this time capped at maxAmplitude=3.0, well below what unbounded
+    // growth would use.
+    double achieved = 0.0;
+    const auto path =
+        meanderSegment(Point2D(0, 0), Point2D(10, 0), /*targetExtraLength=*/50.0, 2.0, 2.0, &achieved, /*maxAmplitude=*/3.0);
+
+    double maxAbsY = 0.0;
+    for (const Point2D& p : path) maxAbsY = std::max(maxAbsY, std::abs(p.y));
+    REQUIRE(maxAbsY <= 3.0 + 1e-9);
+    // Capped short of the target -- the whole point of the cap.
+    REQUIRE(achieved < 50.0);
+    REQUIRE(pathLength(path) == Approx(10.0 + achieved).margin(1e-9));
+}
+
+TEST_CASE("meanderSegment's maxAmplitude=0 stays unbounded (the default, backward-compatible)", "[lengthtuning]") {
+    double achievedUnbounded = 0.0;
+    meanderSegment(Point2D(0, 0), Point2D(10, 0), 50.0, 2.0, 2.0, &achievedUnbounded, /*maxAmplitude=*/0.0);
+    double achievedDefaulted = 0.0;
+    meanderSegment(Point2D(0, 0), Point2D(10, 0), 50.0, 2.0, 2.0, &achievedDefaulted);
+    REQUIRE(achievedUnbounded == Approx(achievedDefaulted));
+}
+
+TEST_CASE("tuneTrackLength's maxAmplitude can leave metTarget false even though the segment has room for teeth",
+         "[lengthtuning]") {
+    const std::vector<Point2D> path = {Point2D(0, 0), Point2D(10, 0)};
+    const TuneResult result =
+        tuneTrackLength(path, /*targetLength=*/1000.0, /*amplitude=*/1.0, /*pitch=*/2.0, /*maxAmplitude=*/3.0);
+    REQUIRE_FALSE(result.metTarget); // capped amplitude can't possibly add 990 units over 5 teeth
+    REQUIRE(result.achievedLength > result.originalLength); // but it did add what it safely could
 }

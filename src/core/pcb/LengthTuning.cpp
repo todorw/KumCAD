@@ -12,7 +12,7 @@ double pathLength(const std::vector<Point2D>& path) {
 }
 
 std::vector<Point2D> meanderSegment(const Point2D& a, const Point2D& b, double targetExtraLength, double amplitude,
-                                    double pitch, double* achievedExtraLength) {
+                                    double pitch, double* achievedExtraLength, double maxAmplitude) {
     if (achievedExtraLength) *achievedExtraLength = 0.0;
     if (targetExtraLength <= 0.0 || amplitude <= 0.0 || pitch <= 0.0) return {a, b};
 
@@ -54,6 +54,7 @@ std::vector<Point2D> meanderSegment(const Point2D& a, const Point2D& b, double t
         const double halfPitch = pitch / 2.0;
         if (halfTooth > halfPitch) effectiveAmplitude = std::sqrt(halfTooth * halfTooth - halfPitch * halfPitch);
     }
+    if (maxAmplitude > 0.0) effectiveAmplitude = std::min(effectiveAmplitude, maxAmplitude);
     const double effectiveToothLength =
         2.0 * std::sqrt((pitch / 2.0) * (pitch / 2.0) + effectiveAmplitude * effectiveAmplitude);
     const double effectiveExtraPerTooth = effectiveToothLength - pitch;
@@ -82,7 +83,8 @@ std::vector<Point2D> meanderSegment(const Point2D& a, const Point2D& b, double t
     return path;
 }
 
-TuneResult tuneTrackLength(const std::vector<Point2D>& path, double targetLength, double amplitude, double pitch) {
+TuneResult tuneTrackLength(const std::vector<Point2D>& path, double targetLength, double amplitude, double pitch,
+                           double maxAmplitude) {
     TuneResult result;
     result.originalLength = pathLength(path);
     result.path = path;
@@ -107,7 +109,7 @@ TuneResult tuneTrackLength(const std::vector<Point2D>& path, double targetLength
     const double needed = targetLength - result.originalLength;
     double achievedExtra = 0.0;
     const std::vector<Point2D> meandered =
-        meanderSegment(path[longestIndex], path[longestIndex + 1], needed, amplitude, pitch, &achievedExtra);
+        meanderSegment(path[longestIndex], path[longestIndex + 1], needed, amplitude, pitch, &achievedExtra, maxAmplitude);
 
     std::vector<Point2D> tuned;
     tuned.insert(tuned.end(), path.begin(), path.begin() + static_cast<long>(longestIndex));

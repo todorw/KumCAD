@@ -31,11 +31,15 @@ double pathLength(const std::vector<Point2D>& path);
 // requested amplitude to reach targetExtraLength, amplitude itself grows
 // (using every available tooth, wider) to make up the difference instead
 // of falling short -- real, disclosed departure from a fixed-style
-// meander: there's no upper bound on how far amplitude grows for a very
-// large target, and no clearance awareness of neighboring copper, so the
-// caller should sanity-check the amplitude actually used stays realistic.
+// meander. maxAmplitude (0 = unbounded, the old behavior) caps how far
+// amplitude is allowed to grow -- e.g. set from the caller's own DRC
+// clearance to neighboring copper, which this function has no awareness
+// of on its own -- at the cost of possibly falling short of
+// targetExtraLength when even every available tooth at maxAmplitude
+// isn't enough (achievedExtraLength reports exactly how much was reached
+// either way, so the caller can tell).
 std::vector<Point2D> meanderSegment(const Point2D& a, const Point2D& b, double targetExtraLength, double amplitude,
-                                    double pitch, double* achievedExtraLength = nullptr);
+                                    double pitch, double* achievedExtraLength = nullptr, double maxAmplitude = 0.0);
 
 struct TuneResult {
     std::vector<Point2D> path;
@@ -53,6 +57,9 @@ struct TuneResult {
 // targetLength, returns it unchanged (a trace can only be lengthened by
 // meandering, never shortened this way -- matching a real tuner, which
 // also can't shrink a trace).
-TuneResult tuneTrackLength(const std::vector<Point2D>& path, double targetLength, double amplitude, double pitch);
+// maxAmplitude is forwarded to meanderSegment unchanged (see its own
+// comment) -- 0 means unbounded.
+TuneResult tuneTrackLength(const std::vector<Point2D>& path, double targetLength, double amplitude, double pitch,
+                           double maxAmplitude = 0.0);
 
 } // namespace lcad

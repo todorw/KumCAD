@@ -33,14 +33,26 @@ std::optional<QString> LengthTuneCommand::onText(const QString& text) {
         return QStringLiteral("Meander pitch <%1>:").arg(m_amplitude * 2.0, 0, 'g', 3);
     }
 
-    double pitch = m_amplitude * 2.0;
+    if (m_stage == 2) {
+        double pitch = m_amplitude * 2.0;
+        if (!trimmed.isEmpty()) {
+            bool ok = false;
+            const double v = trimmed.toDouble(&ok);
+            if (!ok || v <= 0.0) return QStringLiteral("*Enter a positive pitch*");
+            pitch = v;
+        }
+        m_pitch = pitch;
+        m_stage = 3;
+        return QStringLiteral("Max amplitude (0 = unbounded) <0>:");
+    }
+
     if (!trimmed.isEmpty()) {
         bool ok = false;
         const double v = trimmed.toDouble(&ok);
-        if (!ok || v <= 0.0) return QStringLiteral("*Enter a positive pitch*");
-        pitch = v;
+        if (!ok || v < 0.0) return QStringLiteral("*Enter a non-negative max amplitude*");
+        m_maxAmplitude = v;
     }
-    apply(pitch);
+    apply(m_pitch);
     m_finished = true;
     return m_result;
 }
@@ -53,7 +65,8 @@ void LengthTuneCommand::apply(double pitch) {
     }
     const auto& track = static_cast<const lcad::TrackEntity&>(*e);
 
-    const lcad::TuneResult tuned = lcad::tuneTrackLength(track.vertices(), m_targetLength, m_amplitude, pitch);
+    const lcad::TuneResult tuned =
+        lcad::tuneTrackLength(track.vertices(), m_targetLength, m_amplitude, pitch, m_maxAmplitude);
     auto replacement = std::make_unique<lcad::TrackEntity>(m_trackId, track.layer(), tuned.path, track.width());
     m_document.commandStack().execute(std::make_unique<lcad::ReplaceEntityCommand>(m_document, m_trackId, std::move(replacement)));
 
