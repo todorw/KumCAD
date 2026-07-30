@@ -75,6 +75,56 @@ TEST_CASE("writeGCode emits a well-formed program with plunge, feed moves, and e
     REQUIRE(text.find("M30") != std::string::npos);
 }
 
+TEST_CASE("writeGCode steps down in multiple passes when stepDown is set", "[cam][gcode]") {
+    TempPath temp;
+    const std::vector<Point2D> path = {Point2D(0, 0), Point2D(10, 0), Point2D(10, 10), Point2D(0, 10)};
+    ToolpathParams params;
+    params.cutDepth = 9.0;
+    params.stepDown = 4.0;
+
+    REQUIRE(writeGCode(path, params, temp.path.string()));
+
+    std::ifstream in(temp.path);
+    std::ostringstream oss;
+    oss << in.rdbuf();
+    const std::string text = oss.str();
+
+    // ceil(9/4) == 3 passes at depths 4, 8, then the final pass clamped to 9.
+    REQUIRE(text.find("Z-4") != std::string::npos);
+    REQUIRE(text.find("Z-8") != std::string::npos);
+    REQUIRE(text.find("Z-9") != std::string::npos);
+    // Three plunges means the full XY loop is retraced three times: 3 feed moves/pass * 3 passes.
+    std::size_t count = 0, pos = 0;
+    while ((pos = text.find("G1 X", pos)) != std::string::npos) {
+        ++count;
+        pos += 4;
+    }
+    REQUIRE(count == 9);
+}
+
+TEST_CASE("writeGCode treats a stepDown >= cutDepth as a single pass", "[cam][gcode]") {
+    TempPath temp;
+    const std::vector<Point2D> path = {Point2D(0, 0), Point2D(10, 0), Point2D(10, 10), Point2D(0, 10)};
+    ToolpathParams params;
+    params.cutDepth = 3.0;
+    params.stepDown = 5.0;
+
+    REQUIRE(writeGCode(path, params, temp.path.string()));
+
+    std::ifstream in(temp.path);
+    std::ostringstream oss;
+    oss << in.rdbuf();
+    const std::string text = oss.str();
+
+    std::size_t count = 0, pos = 0;
+    while ((pos = text.find("G1 Z", pos)) != std::string::npos) {
+        ++count;
+        pos += 4;
+    }
+    REQUIRE(count == 1); // exactly one plunge
+    REQUIRE(text.find("Z-3") != std::string::npos);
+}
+
 TEST_CASE("writeGCode rejects a degenerate toolpath", "[cam][gcode]") {
     TempPath temp;
     std::string error;

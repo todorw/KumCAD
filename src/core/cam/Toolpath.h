@@ -19,7 +19,8 @@ struct ToolpathParams {
     CutSide side = CutSide::OnLine;
     double feedRate = 1000.0;  // cutting feed, units/min
     double plungeRate = 300.0; // Z plunge feed, units/min
-    double cutDepth = 1.0;     // total depth, single pass (no stepped multi-pass roughing yet)
+    double cutDepth = 1.0;     // total depth, machined in one or more stepDown passes
+    double stepDown = 0.0;     // max Z removed per pass; <=0 or >= cutDepth means a single full-depth pass
     double safeHeight = 5.0;   // Z retract height between rapid moves
 };
 

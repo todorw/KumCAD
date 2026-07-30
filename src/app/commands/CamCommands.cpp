@@ -40,6 +40,20 @@ bool parsePositiveOrDefault(const QString& text, double fallback, double& out) {
     out = value;
     return true;
 }
+
+// Same as parsePositiveOrDefault, but zero is accepted too (StepDown's
+// "0 means single full-depth pass" convention).
+bool parseNonNegativeOrDefault(const QString& text, double fallback, double& out) {
+    if (text.trimmed().isEmpty()) {
+        out = fallback;
+        return true;
+    }
+    bool ok = false;
+    const double value = text.trimmed().toDouble(&ok);
+    if (!ok || value < 0.0) return false;
+    out = value;
+    return true;
+}
 } // namespace
 
 std::optional<QString> GCodeExportCommand::onText(const QString& text) {
@@ -79,6 +93,13 @@ std::optional<QString> GCodeExportCommand::onText(const QString& text) {
         double value = 0.0;
         if (!parsePositiveOrDefault(text, m_params.cutDepth, value)) return QStringLiteral("*Invalid cut depth*");
         m_params.cutDepth = value;
+        m_stage = Stage::StepDown;
+        return QStringLiteral("Step down per pass (0 = single pass) <%1>:").arg(m_params.stepDown);
+    }
+    case Stage::StepDown: {
+        double value = 0.0;
+        if (!parseNonNegativeOrDefault(text, m_params.stepDown, value)) return QStringLiteral("*Invalid step down*");
+        m_params.stepDown = value;
         m_stage = Stage::SafeHeight;
         return QStringLiteral("Safe height <%1>:").arg(m_params.safeHeight);
     }

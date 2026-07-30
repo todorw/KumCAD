@@ -5,13 +5,14 @@
 #include "core/document/Document.h"
 
 // GCODE: select a closed polyline profile, then tool diameter, cut side
-// (OUTSIDE/INSIDE/ONLINE), feed rate, plunge rate, cut depth, safe height,
-// and an output file path -- writes G-code for it (see core/cam/
-// Toolpath.h, core/cam/GCodeWriter.h). Pressing Enter with no input at
-// each of the last four prompts keeps ToolpathParams's own default for
-// that field, shown in the prompt. Only PolylineEntity profiles are
-// supported (a HATCH's traced boundary or a drawn PLINE/RECTANG) -- not
-// circles or other closed curves directly.
+// (OUTSIDE/INSIDE/ONLINE), feed rate, plunge rate, cut depth, step down,
+// safe height, and an output file path -- writes G-code for it (see
+// core/cam/Toolpath.h, core/cam/GCodeWriter.h). Pressing Enter with no
+// input at each of the last five prompts keeps ToolpathParams's own
+// default for that field, shown in the prompt; a step down of 0 (the
+// default) cuts the full depth in a single pass. Only PolylineEntity
+// profiles are supported (a HATCH's traced boundary or a drawn
+// PLINE/RECTANG) -- not circles or other closed curves directly.
 class GCodeExportCommand : public DrawCommand {
 public:
     GCodeExportCommand(lcad::Document& document, double pickTolerance)
@@ -25,7 +26,7 @@ public:
     void cancel() override { m_finished = true; }
 
 private:
-    enum class Stage { Pick, ToolDiameter, CutSide, FeedRate, PlungeRate, CutDepth, SafeHeight, Path };
+    enum class Stage { Pick, ToolDiameter, CutSide, FeedRate, PlungeRate, CutDepth, StepDown, SafeHeight, Path };
     lcad::Document& m_document;
     double m_pickTolerance;
     Stage m_stage = Stage::Pick;
