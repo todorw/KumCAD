@@ -5,3 +5,4 @@ packaging/linux/.cache/
 packaging/windows/.cache/
 packaging/windows/build/
 .claudeTesting/
+.claude
