@@ -17,8 +17,8 @@ class TableEntity;
 struct BomRow {
     std::string part;               // the symbol block's own name (e.g. "R")
     std::string value;               // the "VALUE" attribute if set on any grouped instance, else empty
-    std::vector<std::string> refDes; // sorted plain string order (a real, disclosed simplification --
-                                     // "R10" sorts before "R2", not true natural/numeric ordering)
+    std::vector<std::string> refDes; // natural/numeric order (e.g. "R2" before "R10", matching KiCad's
+                                     // own BOM sort), not plain lexicographic string order
     int quantity = 0;
     bool dnp = false; // true if every instance in this group carries a truthy DNP attribute
 };

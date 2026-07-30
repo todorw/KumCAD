@@ -49,6 +49,24 @@ TEST_CASE("generateBom groups instances sharing the same part and value into one
     REQUIRE(fourSevenK->refDes == std::vector<std::string>{"R3"});
 }
 
+TEST_CASE("generateBom sorts a group's refDes list in natural/numeric order, not plain string order",
+         "[schematic][bom]") {
+    Document doc;
+    registerBuiltinSymbols(doc);
+    // Placed out of order, and R10/R9 would land BEFORE R2 under plain
+    // lexicographic sort ('1' < '2' and '9' < 'a plain-string R2' too --
+    // "R10" < "R2" < "R9" lexicographically), which is exactly the bug.
+    placeSymbol(doc, "R", "R10", "10k", Point2D(0, 0));
+    placeSymbol(doc, "R", "R2", "10k", Point2D(50, 0));
+    placeSymbol(doc, "R", "R9", "10k", Point2D(100, 0));
+    placeSymbol(doc, "R", "R1", "10k", Point2D(150, 0));
+
+    const std::vector<BomRow> rows = generateBom(doc);
+    const BomRow* tenK = findRow(rows, "R", "10k");
+    REQUIRE(tenK);
+    REQUIRE(tenK->refDes == std::vector<std::string>{"R1", "R2", "R9", "R10"});
+}
+
 TEST_CASE("generateBom gives components with no VALUE attribute their own empty-value row",
          "[schematic][bom]") {
     Document doc;
