@@ -264,6 +264,23 @@ TEST_CASE("solveSketch satisfies external circle-circle tangency", "[sketch][sol
     REQUIRE(dist == Approx(radiusA + radiusB).margin(1e-6));
 }
 
+TEST_CASE("solveSketch satisfies internal circle-circle tangency (one circle nested inside the other)",
+         "[sketch][solver]") {
+    Sketch sketch;
+    const int centerA = sketch.addPoint(Point2D(0, 0), true);
+    const int centerB = sketch.addPoint(Point2D(1, 1)); // nested inside A, not yet tangent
+    const int circleA = sketch.addCircle(centerA, 10.0);
+    const int circleB = sketch.addCircle(centerB, 3.0);
+    sketch.addConstraint({SketchConstraintType::InternalTangentCircleCircle, circleA, circleB});
+
+    REQUIRE(solveSketch(sketch).converged);
+    const double dist =
+        sketch.points()[static_cast<std::size_t>(centerA)].distanceTo(sketch.points()[static_cast<std::size_t>(centerB)]);
+    const double radiusA = sketch.circles()[static_cast<std::size_t>(circleA)].radius;
+    const double radiusB = sketch.circles()[static_cast<std::size_t>(circleB)].radius;
+    REQUIRE(dist == Approx(std::abs(radiusA - radiusB)).margin(1e-6));
+}
+
 TEST_CASE("analyzeDof reports remaining freedom for an under-constrained sketch", "[sketch][dof]") {
     Sketch sketch;
     const int p0 = sketch.addPoint(Point2D(0, 0), true); // fixed: 0 DOF

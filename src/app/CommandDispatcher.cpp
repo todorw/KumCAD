@@ -118,6 +118,7 @@
 #include <set>
 #include "core/geometry/Text.h"
 #include "core/geometry/Arc.h"
+#include "core/geometry/Circle.h"
 #include "core/geometry/Hatch.h"
 #include "core/geometry/Insert.h"
 #include "core/geometry/Line.h"
@@ -635,7 +636,20 @@ void CommandDispatcher::handleCommandText(const QString& text) {
                 constraint = c;
             } else if (circleIds.size() == 2) {
                 lcad::DocumentConstraint c;
-                c.type = lcad::SketchConstraintType::TangentCircleCircle;
+                // External or internal tangency isn't distinguishable from
+                // just "two circles selected" -- infer whichever one the
+                // CURRENT geometry already sits closer to (one nested
+                // inside the other reads as an internal-tangency intent,
+                // side-by-side reads as external), the same "figure out
+                // the caller's intent from the current state" convention
+                // DiffPair.h's own side-detection already uses.
+                const auto* circleA = static_cast<const lcad::CircleEntity*>(m_document.findEntity(circleIds[0]));
+                const auto* circleB = static_cast<const lcad::CircleEntity*>(m_document.findEntity(circleIds[1]));
+                const double dist = circleA->center().distanceTo(circleB->center());
+                const double externalResidual = std::abs(dist - (circleA->radius() + circleB->radius()));
+                const double internalResidual = std::abs(dist - std::abs(circleA->radius() - circleB->radius()));
+                c.type = internalResidual < externalResidual ? lcad::SketchConstraintType::InternalTangentCircleCircle
+                                                              : lcad::SketchConstraintType::TangentCircleCircle;
                 c.geomA = circleIds[0];
                 c.geomB = circleIds[1];
                 constraint = c;

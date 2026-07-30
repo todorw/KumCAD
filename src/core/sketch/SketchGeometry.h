@@ -117,8 +117,10 @@ enum class SketchConstraintType {
     Radius,       // geomA (circle) has radius == value -- how a circle gets dimensioned
     ArcRadius,    // geomA (arc) has radius == value -- how an arc gets dimensioned
     Diameter,     // geomA (circle) has 2*radius == value -- alternative to Radius for diameter-style dimensioning
-    TangentCircleCircle, // geomA, geomB (circles) are externally tangent (distance(centers) == rA + rB) --
-                         // internal tangency (one circle inside the other) isn't covered, a disclosed gap
+    TangentCircleCircle, // geomA, geomB (circles) are externally tangent (distance(centers) == rA + rB)
+    InternalTangentCircleCircle, // geomA, geomB (circles) are internally tangent -- one circle inside
+                                 // the other, touching from within (distance(centers) == |rA - rB|) --
+                                 // TangentCircleCircle's own counterpart for the nested case
     Angle,        // angle between geomA, geomB (lines) == value radians -- a general-purpose version of
                   // Perpendicular/Parallel, same cos-of-the-angle residual form so it shares their
                   // freedom from atan2's branch discontinuities

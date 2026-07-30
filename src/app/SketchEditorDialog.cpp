@@ -252,7 +252,21 @@ void SketchEditorDialog::applyTangent() {
 void SketchEditorDialog::applyCircleCircleTangent() {
     const auto pair = twoSelectedCircles();
     if (!pair) return;
-    m_view->sketch().addConstraint({SketchConstraintType::TangentCircleCircle, pair->first, pair->second});
+
+    // Infer external vs. internal tangency from the CURRENT geometry --
+    // one circle nested inside the other reads as internal-tangency
+    // intent, side-by-side reads as external -- same convention
+    // CommandDispatcher's own GCTANGENT handling uses.
+    const lcad::Sketch& sketch = m_view->sketch();
+    const lcad::SketchCircle& circleA = sketch.circles()[static_cast<std::size_t>(pair->first)];
+    const lcad::SketchCircle& circleB = sketch.circles()[static_cast<std::size_t>(pair->second)];
+    const double dist = sketch.points()[static_cast<std::size_t>(circleA.center)].distanceTo(
+        sketch.points()[static_cast<std::size_t>(circleB.center)]);
+    const double externalResidual = std::abs(dist - (circleA.radius + circleB.radius));
+    const double internalResidual = std::abs(dist - std::abs(circleA.radius - circleB.radius));
+    const auto type = internalResidual < externalResidual ? SketchConstraintType::InternalTangentCircleCircle
+                                                           : SketchConstraintType::TangentCircleCircle;
+    m_view->sketch().addConstraint({type, pair->first, pair->second});
     m_view->resolve();
 }
 

@@ -229,6 +229,16 @@ std::vector<double> computeResidual(const Sketch& sketch, const VariableMap& var
             r.push_back(centerA.distanceTo(centerB) - (radiusA + radiusB));
             break;
         }
+        case SketchConstraintType::InternalTangentCircleCircle: {
+            const SketchCircle& a = sketch.circles()[static_cast<std::size_t>(c.geomA)];
+            const SketchCircle& b = sketch.circles()[static_cast<std::size_t>(c.geomB)];
+            const Point2D centerA = pointAt(sketch, vars, a.center, x);
+            const Point2D centerB = pointAt(sketch, vars, b.center, x);
+            const double radiusA = radiusAt(sketch, vars, c.geomA, x);
+            const double radiusB = radiusAt(sketch, vars, c.geomB, x);
+            r.push_back(centerA.distanceTo(centerB) - std::abs(radiusA - radiusB));
+            break;
+        }
         case SketchConstraintType::Angle: {
             const SketchLine& la = sketch.lines()[static_cast<std::size_t>(c.geomA)];
             const SketchLine& lb = sketch.lines()[static_cast<std::size_t>(c.geomB)];
