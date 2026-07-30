@@ -117,8 +117,11 @@ std::vector<FemLoad> distributedPressureLoadOnFaces(const FemMesh& mesh, const T
 // hand-deriving cofactor-expansion gradient formulas, which is exactly the
 // kind of algebra-error risk the sketch constraint solver's own
 // numerical-Jacobian choice was made to avoid), applies boundaryCondition
-// and loads, and solves K*u = F. Returns solved=false if mesh has no
-// tets, or the system is singular (e.g. nothing is actually fixed).
+// and loads, and solves K*u = F via sparse Conjugate Gradient (see
+// solveSparseCG in Fem.cpp) rather than a dense O(n^3) factorization, so
+// mesh resolution isn't ceilinged by dense-solve cost. Returns solved=false
+// if mesh has no tets, or the system is singular (e.g. nothing is actually
+// fixed).
 FemResult solveLinearStatic(const FemMesh& mesh, const FemMaterial& material,
                             const FemBoundaryCondition& boundaryCondition, const std::vector<FemLoad>& loads);
 
@@ -150,15 +153,17 @@ struct FemModalResult {
 // just with every iterate's own component along each already-found mode
 // subtracted out (mass-inner-product projection) before renormalizing --
 // deflation, the standard extension of single-vector inverse iteration
-// to several modes, not a fundamentally different algorithm. Real,
-// disclosed limits: still one O(n^3) dense factorization per iteration
-// per mode (not sized for industrial mesh counts, same as
-// solveLinearStatic's own), and deflation's accuracy degrades for
-// closely-spaced eigenvalues (no explicit re-orthogonalization pass
-// beyond the one projection per already-found mode) -- fine for the
-// well-separated low modes a coarse voxel mesh actually resolves
-// meaningfully, not a substitute for a real Lanczos/subspace solver on
-// a large, closely-spaced spectrum.
+// to several modes, not a fundamentally different algorithm. Each
+// iteration's solve is the same sparse Conjugate Gradient solveLinearStatic
+// uses (not a dense O(n^3) factorization), though CG is re-run from
+// scratch every iteration since nothing caches a factorization to reuse
+// across them (see solveSparseCG's own comment) -- a real remaining cost,
+// not something CG's own O(n)-per-iteration win eliminates. Real, disclosed
+// limits: deflation's accuracy degrades for closely-spaced eigenvalues (no
+// explicit re-orthogonalization pass beyond the one projection per
+// already-found mode) -- fine for the well-separated low modes a coarse
+// voxel mesh actually resolves meaningfully, not a substitute for a real
+// Lanczos/subspace solver on a large, closely-spaced spectrum.
 //
 // M is a lumped (diagonal) mass matrix built the same way
 // distributedBodyForce distributes a body force -- each tet's
@@ -213,10 +218,10 @@ struct FemThermalResult {
 // (tetShapeFunctionCoeffs, shared internally) -- the thermal
 // "conductivity matrix" K_e[i][j] = k * volume * grad(N_i).grad(N_j) is
 // the direct scalar-field equivalent of the elasticity stiffness matrix,
-// solved via the same LinearSolve.h dense solver. Returns solved=false
-// under the same conditions solveLinearStatic does (no tets, degenerate
-// element, or singular K -- e.g. nothing fixing an absolute temperature
-// at all).
+// solved via the same sparse Conjugate Gradient solver as
+// solveLinearStatic. Returns solved=false under the same conditions
+// solveLinearStatic does (no tets, degenerate element, or singular K --
+// e.g. nothing fixing an absolute temperature at all).
 FemThermalResult solveThermalSteadyState(const FemMesh& mesh, const FemThermalMaterial& material,
                                          const FemThermalBoundaryCondition& boundaryCondition,
                                          const std::vector<ThermalLoad>& loads);
