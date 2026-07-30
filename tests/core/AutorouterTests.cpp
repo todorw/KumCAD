@@ -305,6 +305,20 @@ TEST_CASE("autoroute with a 2-layer stackup recovers a connection legacy single-
 // (TrackEntity split into layer-contiguous runs, ViaEntity dropped at
 // each transition with throughHole=true) was verified by code review
 // instead -- see runRoutingPass's own comment in Autorouter.cpp.
+//
+// Same real, disclosed testing gap applies to bfsRoute's own via-barrel
+// full-span clearance check (see its comment in Autorouter.cpp): forcing
+// a 3-layer scenario where a via switch is BOTH selected as optimal AND
+// passes through a specific pre-obstructed intermediate layer at the
+// same (x,y) is strictly harder to construct by hand than the mid-path
+// via case above (which already proved impractical), since it also needs
+// control over exactly which cell the via lands on. Verified by code
+// review instead: the fix only widens the obstacle check from the
+// destination layer alone to every layer index between source and
+// destination inclusive, which is a no-op for the source layer itself
+// (already known clear, or the search couldn't have reached it) and
+// therefore provably behavior-preserving for an adjacent 2-layer stack --
+// consistent with the 2-layer test above still passing unchanged.
 
 TEST_CASE("autoroute treats a KeepoutZone with blocksAutorouting as a real, impassable obstacle",
          "[pcb][autoroute][keepout]") {

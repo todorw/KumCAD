@@ -81,15 +81,15 @@ struct AutorouteResult {
 //
 // Real, disclosed simplifications: no length matching or differential
 // pairs (LengthTuning.h/DiffPair.h cover those as their own separate,
-// dedicated tools instead), grid-based paths (not the smooth
-// 45-degree-preferring paths a real interactive router produces), and a
-// via-switch move is only checked against clearance on the layer it's
-// switching TO, not every layer its physical barrel would pass through
-// (correct for a 2-layer stack, an approximation for 3+) -- a real,
-// useful "does it connect without shorting" autorouter, still not
-// KiCad's own interactive push-and-shove router (that needs live
-// mouse-drag physics during routing, a kind of interactive viewport
-// plumbing this batch/typed-command architecture doesn't have -- rip-up-
+// dedicated tools instead), and grid-based paths (not the smooth
+// 45-degree-preferring paths a real interactive router produces) -- a
+// via-switch move IS checked against every layer its physical barrel
+// would pass through, not just the destination layer (see bfsRoute's
+// own comment in Autorouter.cpp) -- a real, useful "does it connect
+// without shorting" autorouter, still not KiCad's own interactive
+// push-and-shove router (that needs live mouse-drag physics during
+// routing, a kind of interactive viewport plumbing this batch/typed-
+// command architecture doesn't have -- rip-up-
 // and-reroute is the bounded alternative that's actually buildable here).
 //
 // Adds one TrackEntity per layer-contiguous run of each successfully

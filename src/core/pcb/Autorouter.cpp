@@ -114,16 +114,24 @@ Point2D toWorld(const GridCell& c, double minX, double minY, double gridSize) {
 // search -- no via move is ever generated since there's no other layer
 // index to switch to.
 //
-// Real, disclosed simplification: a via-switch move is only checked
-// against the DESTINATION layer's own obstacle grid at (x,y), not every
-// layer the via barrel would physically pass through -- correct for a
-// 2-layer stack (the common case), an approximation for 3+ layers. Once
-// a connection's own via is placed, it's marked as an obstacle on EVERY
-// layer for later connections (see runMultiLayerObstacles), so this
-// simplification only affects whether THIS SAME connection's own path
-// can freely pass through a layer it doesn't yet know is about to become
-// crowded by its own via -- a self-consistency edge case, not a
-// clearance violation risk to other nets.
+// A via-switch move is checked against the obstacle grid of EVERY layer
+// between current.layerIdx and the destination (inclusive), not just the
+// destination itself -- `layers` is top-to-bottom physical order (see
+// Stackup.h's own contract), so a through-hole via's barrel physically
+// spans every layer index in that range, and another net's copper on a
+// layer the barrel merely passes through (without landing there) is a
+// real short, not just a destination-layer clearance issue. Once a
+// connection's own via is placed, it's marked as an obstacle on EVERY
+// layer for later connections (see runMultiLayerObstacles) -- this
+// per-move check is what closes the matching gap for the connection
+// currently being routed, before its own via exists yet to mark anything.
+//
+// Real, remaining disclosed simplification: this still can't detect a
+// self-consistency edge case where the SAME connection's own path later
+// crosses (x,y) on a layer between two of its OWN earlier via switches --
+// each via-switch move only checks layers already marked as obstacles by
+// OTHER nets/pads/vias, not by this connection's own not-yet-placed via
+// barrels from earlier in the same BFS.
 std::vector<GridCell> bfsRoute(const std::vector<std::vector<bool>>& obstacle, int nx, int ny, int numLayers,
                                GridCell start, GridCell goal) {
     auto inBounds = [&](GridCell c) { return c.x >= 0 && c.x < nx && c.y >= 0 && c.y < ny; };
@@ -179,7 +187,19 @@ std::vector<GridCell> bfsRoute(const std::vector<std::vector<bool>>& obstacle, i
             const GridCell next{current.x, current.y, l};
             if (visited[idx3d(next)]) continue;
             const bool isGoal = next.x == goal.x && next.y == goal.y;
-            if (obstacle[static_cast<std::size_t>(l)][idx2d(next)] && !isGoal) continue;
+
+            bool barrelBlocked = false;
+            if (!isGoal) {
+                const int lo = std::min(current.layerIdx, l);
+                const int hi = std::max(current.layerIdx, l);
+                for (int mid = lo; mid <= hi; ++mid) {
+                    if (obstacle[static_cast<std::size_t>(mid)][idx2d(next)]) {
+                        barrelBlocked = true;
+                        break;
+                    }
+                }
+            }
+            if (barrelBlocked) continue;
             visited[idx3d(next)] = true;
             parent[idx3d(next)] = static_cast<int>(idx3d(current));
             if (isGoal) {
