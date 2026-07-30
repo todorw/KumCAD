@@ -142,6 +142,110 @@ std::vector<std::vector<Point2D>> allLoopsAt(const TopoDS_Shape& shape, double z
     return loops;
 }
 
+struct Interval {
+    double lo, hi;
+};
+
+// x-coordinates where the horizontal line y crosses poly's edges (an
+// even-odd scanline test): consecutive pairs, once sorted, bound the
+// spans of poly's interior at that y.
+std::vector<double> scanlineXs(const std::vector<Point2D>& poly, double y) {
+    std::vector<double> xs;
+    for (std::size_t i = 0; i < poly.size(); ++i) {
+        const Point2D& a = poly[i];
+        const Point2D& b = poly[(i + 1) % poly.size()];
+        if ((a.y <= y) != (b.y <= y)) {
+            const double t = (y - a.y) / (b.y - a.y);
+            xs.push_back(a.x + t * (b.x - a.x));
+        }
+    }
+    std::sort(xs.begin(), xs.end());
+    return xs;
+}
+
+std::vector<Interval> insideIntervals(const std::vector<Point2D>& poly, double y) {
+    const std::vector<double> xs = scanlineXs(poly, y);
+    std::vector<Interval> result;
+    for (std::size_t i = 0; i + 1 < xs.size(); i += 2) result.push_back({xs[i], xs[i + 1]});
+    return result;
+}
+
+std::vector<Interval> mergeIntervals(std::vector<Interval> ivs) {
+    std::sort(ivs.begin(), ivs.end(), [](const Interval& a, const Interval& b) { return a.lo < b.lo; });
+    std::vector<Interval> merged;
+    for (const Interval& iv : ivs) {
+        if (!merged.empty() && iv.lo <= merged.back().hi) merged.back().hi = std::max(merged.back().hi, iv.hi);
+        else merged.push_back(iv);
+    }
+    return merged;
+}
+
+// base minus every interval in holes (holes must already be sorted by lo
+// and non-overlapping, see mergeIntervals).
+std::vector<Interval> subtractIntervals(const std::vector<Interval>& base, const std::vector<Interval>& holes) {
+    std::vector<Interval> result;
+    for (const Interval& b : base) {
+        double cur = b.lo;
+        for (const Interval& h : holes) {
+            if (h.hi <= cur) continue;
+            if (h.lo >= b.hi) break;
+            if (h.lo > cur) result.push_back({cur, h.lo});
+            cur = std::max(cur, h.hi);
+        }
+        if (cur < b.hi) result.push_back({cur, b.hi});
+    }
+    return result;
+}
+
+// Raster/zigzag material-clearing pass: horizontal scanlines stepoverFraction
+// * toolDiameter apart, each clipped to outer's interior and clear of every
+// island (outer and islands are assumed already tool-radius-compensated --
+// same paths sliceIntoLevels already computes for wall-following, see
+// Cam3DLevel's comment) -- a real but simple strategy, not a spiral or
+// adaptive-load-controlled one. Scan direction alternates row to row
+// (boustrophedon); an island splitting a row produces more than one
+// returned span for that row, each its own polyline since they aren't
+// contiguous. Spans narrower than 5% of toolDiameter are dropped as
+// degenerate slivers rather than emitted as a near-zero-length move.
+std::vector<std::vector<Point2D>> rasterPocket(const std::vector<Point2D>& outer,
+                                               const std::vector<std::vector<Point2D>>& islands,
+                                               double toolDiameter, double stepoverFraction) {
+    std::vector<std::vector<Point2D>> rows;
+    if (outer.size() < 3 || toolDiameter <= 1e-9) return rows;
+
+    double ymin = outer[0].y, ymax = outer[0].y;
+    for (const Point2D& p : outer) {
+        ymin = std::min(ymin, p.y);
+        ymax = std::max(ymax, p.y);
+    }
+
+    const double stepover = std::max(toolDiameter * std::clamp(stepoverFraction, 0.05, 1.0), 1e-6);
+    const double minSpan = toolDiameter * 0.05;
+
+    bool leftToRight = true;
+    for (double y = ymin + stepover / 2.0; y < ymax; y += stepover) {
+        std::vector<Interval> clear = insideIntervals(outer, y);
+        if (!clear.empty()) {
+            std::vector<Interval> blocked;
+            for (const auto& island : islands) {
+                for (const Interval& iv : insideIntervals(island, y)) blocked.push_back(iv);
+            }
+            if (!blocked.empty()) clear = subtractIntervals(clear, mergeIntervals(blocked));
+        }
+
+        std::sort(clear.begin(), clear.end(), [](const Interval& a, const Interval& b) { return a.lo < b.lo; });
+        if (!leftToRight) std::reverse(clear.begin(), clear.end());
+
+        for (const Interval& iv : clear) {
+            if (iv.hi - iv.lo < minSpan) continue;
+            if (leftToRight) rows.push_back({Point2D(iv.lo, y), Point2D(iv.hi, y)});
+            else rows.push_back({Point2D(iv.hi, y), Point2D(iv.lo, y)});
+        }
+        leftToRight = !leftToRight;
+    }
+    return rows;
+}
+
 } // namespace
 
 std::vector<Cam3DLevel> sliceIntoLevels(const TopoDS_Shape& shape, const Cam3DParams& params) {
@@ -188,7 +292,21 @@ std::vector<Cam3DLevel> sliceIntoLevels(const TopoDS_Shape& shape, const Cam3DPa
             if (islandPath.size() >= 2) level.toolpaths.push_back(islandPath);
         }
 
-        if (!level.toolpaths.empty()) levels.push_back(std::move(level));
+        if (level.toolpaths.empty()) continue;
+
+        if (params.pocketClear) {
+            ToolpathParams clearParams = toolParams;
+            clearParams.side = CutSide::Inside; // pocket clearing always stays tool-radius inside the outer wall
+            const std::vector<Point2D> clearBoundary = computeToolpath(outerProfile, clearParams);
+            if (clearBoundary.size() >= 3) {
+                const std::vector<std::vector<Point2D>> islandBoundaries(level.toolpaths.begin() + 1, level.toolpaths.end());
+                for (auto& row : rasterPocket(clearBoundary, islandBoundaries, params.toolDiameter, params.stepoverFraction)) {
+                    if (row.size() >= 2) level.toolpaths.push_back(std::move(row));
+                }
+            }
+        }
+
+        levels.push_back(std::move(level));
     }
     return levels;
 }

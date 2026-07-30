@@ -1148,6 +1148,17 @@ public:
         m_safeHeight->setValue(10.0);
         form->addRow(QStringLiteral("Safe Height:"), m_safeHeight);
 
+        m_pocketClear = new QCheckBox(QStringLiteral("Clear pocket interior (raster)"), this);
+        connect(m_pocketClear, &QCheckBox::toggled, this, [this](bool on) { m_stepover->setEnabled(on); });
+        form->addRow(m_pocketClear);
+
+        m_stepover = new QDoubleSpinBox(this);
+        m_stepover->setRange(0.05, 1.0);
+        m_stepover->setSingleStep(0.05);
+        m_stepover->setValue(0.5);
+        m_stepover->setEnabled(false);
+        form->addRow(QStringLiteral("Raster Stepover (x tool dia.):"), m_stepover);
+
         auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
         connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
         connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
@@ -1162,6 +1173,8 @@ public:
         params.feedRate = m_feedRate->value();
         params.plungeRate = m_plungeRate->value();
         params.safeHeight = m_safeHeight->value();
+        params.pocketClear = m_pocketClear->isChecked();
+        params.stepoverFraction = m_stepover->value();
         return params;
     }
 
@@ -1172,6 +1185,8 @@ private:
     QDoubleSpinBox* m_feedRate;
     QDoubleSpinBox* m_plungeRate;
     QDoubleSpinBox* m_safeHeight;
+    QCheckBox* m_pocketClear;
+    QDoubleSpinBox* m_stepover;
 };
 
 class FemDialog : public QDialog {

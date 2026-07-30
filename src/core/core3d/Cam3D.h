@@ -17,6 +17,11 @@ struct Cam3DParams {
     double plungeRate = 200.0;
     double stepDown = 2.0;    // Z distance between roughing levels
     double safeHeight = 10.0; // absolute Z retract height, above the stock top
+    // When set, each level also gets a raster/zigzag toolpath clearing the
+    // bulk material between the outer contour and every island (see
+    // Cam3DLevel's comment) instead of leaving it untouched.
+    bool pocketClear = false;
+    double stepoverFraction = 0.5; // raster row spacing, as a fraction of toolDiameter
 };
 
 struct Cam3DLevel {
@@ -27,11 +32,11 @@ struct Cam3DLevel {
     // as before); toolpaths[1..] are every other loop at this level
     // (islands/pocket walls), each compensated Outside its own boundary
     // regardless of params.side, since an island is material to stay
-    // clear of, not the profile to follow. This is still not full pocket-
-    // clearing (nothing removes the material *between* the outer contour
-    // and an island -- that needs an adaptive-clearing toolpath generator,
-    // real additional scope) -- it's "the tool now also traces a contour
-    // around every island instead of ignoring it entirely."
+    // clear of, not the profile to follow. When params.pocketClear is set,
+    // any toolpaths after the island contours are raster-fill passes (see
+    // rasterPocket in Cam3D.cpp) clearing the bulk material between the
+    // outer contour and the islands -- a real but simple scanline-based
+    // clearing strategy, not a spiral/adaptive-load-controlled one.
     std::vector<std::vector<Point2D>> toolpaths;
 };
 

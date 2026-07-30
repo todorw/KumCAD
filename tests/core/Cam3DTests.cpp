@@ -128,6 +128,59 @@ TEST_CASE("sliceIntoLevels' outer toolpath keeps the outer footprint AND contour
     REQUIRE(checkedMidLevel);
 }
 
+TEST_CASE("sliceIntoLevels leaves the pocket interior untouched when pocketClear is off", "[core3d][cam3d]") {
+    const TopoDS_Shape box = BRepPrimAPI_MakeBox(50.0, 50.0, 20.0).Shape();
+    Cam3DParams params;
+    params.stepDown = 5.0;
+    params.side = CutSide::OnLine;
+    params.toolDiameter = 6.0;
+
+    const std::vector<Cam3DLevel> levels = sliceIntoLevels(box, params);
+    REQUIRE_FALSE(levels.empty());
+    for (const Cam3DLevel& level : levels) REQUIRE(level.toolpaths.size() == 1); // wall contour only
+}
+
+TEST_CASE("sliceIntoLevels' pocketClear adds raster passes that clear the box interior around a pocket island",
+          "[core3d][cam3d]") {
+    const TopoDS_Shape box = BRepPrimAPI_MakeBox(50.0, 50.0, 20.0).Shape();
+    const TopoDS_Shape pocket = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(25, 25, 5), gp_Dir(0, 0, 1)), 8.0, 20.0).Shape();
+    BRepAlgoAPI_Cut cut(box, pocket);
+    REQUIRE(cut.IsDone());
+
+    Cam3DParams params;
+    params.stepDown = 5.0;
+    params.side = CutSide::OnLine;
+    params.toolDiameter = 4.0;
+    params.pocketClear = true;
+    params.stepoverFraction = 0.5;
+
+    const std::vector<Cam3DLevel> levels = sliceIntoLevels(cut.Shape(), params);
+    REQUIRE_FALSE(levels.empty());
+
+    bool checkedMidLevel = false;
+    for (const Cam3DLevel& level : levels) {
+        if (std::abs(level.z - 10.0) > 1.0) continue; // within the pocket's depth: outer wall + island wall + raster
+        checkedMidLevel = true;
+
+        REQUIRE(level.toolpaths.size() > 2); // more than just the two wall-following contours
+        for (std::size_t i = 2; i < level.toolpaths.size(); ++i) {
+            const auto& row = level.toolpaths[i];
+            REQUIRE(row.size() == 2); // each raster span is a straight two-point move
+            REQUIRE(row[0].y == Approx(row[1].y)); // horizontal scanline
+
+            // Every raster point must stay outside the pocket's own circle
+            // (center (25,25), radius 8) with at least a sliver of clearance,
+            // since the boundary passed to rasterPocket is already the
+            // Outside-compensated island contour, not the pocket's raw edge.
+            for (const Point2D& p : row) {
+                const double distFromPocketCenter = p.distanceTo(Point2D(25.0, 25.0));
+                REQUIRE(distFromPocketCenter > 8.0);
+            }
+        }
+    }
+    REQUIRE(checkedMidLevel);
+}
+
 TEST_CASE("sliceIntoLevels rejects a null shape or non-positive stepDown", "[core3d][cam3d]") {
     Cam3DParams params;
     REQUIRE(sliceIntoLevels(TopoDS_Shape(), params).empty());
