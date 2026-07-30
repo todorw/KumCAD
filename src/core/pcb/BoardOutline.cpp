@@ -198,6 +198,30 @@ std::vector<Point2D> deriveBoardOutline(const Document& doc, const std::string& 
     });
 }
 
+BoardOutlineWithHoles deriveBoardOutlineWithHoles(const Document& doc, const std::string& layerName,
+                                                  double chainTolerance) {
+    BoardOutlineWithHoles result;
+    std::vector<std::vector<Point2D>> loops = deriveAllClosedLoops(doc, layerName, chainTolerance);
+    if (loops.empty()) return result;
+
+    const auto largest = std::max_element(loops.begin(), loops.end(), [](const std::vector<Point2D>& a, const std::vector<Point2D>& b) {
+        return polygonArea(a) < polygonArea(b);
+    });
+    result.boundary = *largest;
+    for (auto it = loops.begin(); it != loops.end(); ++it) {
+        if (it != largest) result.holes.push_back(std::move(*it));
+    }
+    return result;
+}
+
+bool pointOnBoard(const Point2D& p, const BoardOutlineWithHoles& outline) {
+    if (!pointInPolygon(p, outline.boundary)) return false;
+    for (const std::vector<Point2D>& hole : outline.holes) {
+        if (pointInPolygon(p, hole)) return false;
+    }
+    return true;
+}
+
 std::vector<KeepoutZone> deriveKeepoutZones(const Document& doc, const std::string& layerName, double chainTolerance) {
     std::vector<KeepoutZone> zones;
     const auto addZonesFrom = [&](const std::string& drawLayerName, bool blocksPour, bool blocksRoute,

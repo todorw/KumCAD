@@ -238,6 +238,30 @@ TEST_CASE("runDrc flags copper too close to the board edge even when still insid
     REQUIRE(flagged);
 }
 
+TEST_CASE("runDrc flags copper landing inside a board cutout hole, not just outside the outer boundary",
+         "[pcb][drc][boardedge]") {
+    Document doc;
+    const LayerId edgeCuts = doc.addLayer("Edge.Cuts", Color{0, 255, 0});
+    // A 40x30 board with a 5x5 cutout (e.g. a connector slot) drawn as a
+    // second closed loop on Edge.Cuts, same convention BoardOutlineTests'
+    // own deriveBoardOutlineWithHoles coverage uses.
+    doc.addEntity(std::make_unique<PolylineEntity>(
+        doc.reserveEntityId(), edgeCuts, std::vector<Point2D>{{0, 0}, {40, 0}, {40, 30}, {0, 30}}, true));
+    doc.addEntity(std::make_unique<PolylineEntity>(
+        doc.reserveEntityId(), edgeCuts, std::vector<Point2D>{{5, 5}, {10, 5}, {10, 10}, {5, 10}}, true));
+    // A via square in the middle of the cutout -- inside the OUTER
+    // boundary, but there's no actual board material there.
+    doc.addEntity(std::make_unique<ViaEntity>(doc.reserveEntityId(), doc.currentLayer(), Point2D(7, 7), 0.6, 0.3));
+
+    DrcRules rules;
+    rules.checkBoardEdgeClearance = true;
+    const std::vector<DrcViolation> violations = runDrc(doc, rules);
+    const bool flaggedOutside = std::any_of(violations.begin(), violations.end(), [](const DrcViolation& v) {
+        return v.message.find("outside the board outline") != std::string::npos;
+    });
+    REQUIRE(flaggedOutside);
+}
+
 TEST_CASE("runDrc flags overlapping footprint courtyards only when checkCourtyards is enabled", "[pcb][drc]") {
     Document doc;
     registerBuiltinSymbols(doc);

@@ -33,15 +33,37 @@ bool pointInPolygon(const Point2D& p, const std::vector<Point2D>& poly);
 // If several closed loops exist (e.g. a board with an internal cutout
 // also drawn on Edge.Cuts), the one with the largest enclosed area is
 // returned as the OUTER boundary -- matching SketchToFace's own
-// "largest loop wins" convention -- with no support yet for returning
-// the smaller loops as holes (a real, disclosed gap: every consumer here
-// already only takes one boundary polygon, not a boundary-plus-holes
-// shape).
+// "largest loop wins" convention. Every other loop found on the layer is
+// silently dropped by this plain-polygon overload -- see
+// deriveBoardOutlineWithHoles below for a caller that actually needs
+// those as real cutouts, not just an equal-priority outer boundary.
 //
 // Returns an empty vector if the layer doesn't exist, has no geometry, or
 // none of its geometry closes into a loop.
 std::vector<Point2D> deriveBoardOutline(const Document& doc, const std::string& layerName = "Edge.Cuts",
                                         double chainTolerance = 1e-6);
+
+// deriveBoardOutline's own outer boundary, plus every OTHER closed loop
+// found on the same layer as a hole -- a board cutout (a slot for a
+// connector, a mounting cutout) drawn as a second closed shape on
+// Edge.Cuts, the same reserved-layer convention deriveKeepoutZones
+// already treats every one of its own loops as individually significant
+// under, rather than deriveBoardOutline's "largest wins, rest dropped"
+// simplification. No containment check is performed (every non-largest
+// loop is assumed a hole in the largest one) -- correct for the real
+// "board shape plus cutouts" case this exists for, not a general
+// nested-shapes solver.
+struct BoardOutlineWithHoles {
+    std::vector<Point2D> boundary;
+    std::vector<std::vector<Point2D>> holes;
+};
+BoardOutlineWithHoles deriveBoardOutlineWithHoles(const Document& doc, const std::string& layerName = "Edge.Cuts",
+                                                  double chainTolerance = 1e-6);
+
+// True if p falls inside outline.boundary and NOT inside any of its
+// holes (even-odd pointInPolygon test against each) -- "is this point
+// actually part of the board," accounting for cutouts.
+bool pointOnBoard(const Point2D& p, const BoardOutlineWithHoles& outline);
 
 // A no-go region (KiCad's own "Add Keepout Area"/rule area with copper-
 // pour and routing restrictions checked): polygon lives in the SAME

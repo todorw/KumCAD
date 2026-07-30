@@ -334,18 +334,27 @@ std::vector<DrcViolation> runDrc(const Document& doc, const DrcRules& rules, con
     }
 
     if (rules.checkBoardEdgeClearance) {
-        const std::vector<Point2D> outline = deriveBoardOutline(doc);
-        if (!outline.empty()) {
-            auto distanceToOutlineEdge = [&](const Point2D& p) {
+        const BoardOutlineWithHoles outline = deriveBoardOutlineWithHoles(doc);
+        if (!outline.boundary.empty()) {
+            auto edgeDistance = [](const Point2D& p, const std::vector<Point2D>& poly) {
                 double best = std::numeric_limits<double>::max();
-                for (std::size_t i = 0, j = outline.size() - 1; i < outline.size(); j = i++) {
-                    best = std::min(best, pointSegmentDistance(p, outline[i], outline[j]));
+                for (std::size_t i = 0, j = poly.size() - 1; i < poly.size(); j = i++) {
+                    best = std::min(best, pointSegmentDistance(p, poly[i], poly[j]));
                 }
+                return best;
+            };
+            // Distance to the nearest edge that actually bounds the board:
+            // the outer boundary, or any cutout hole's own edge -- copper
+            // can be too close to a cutout the exact same way it can be
+            // too close to the board's outer edge.
+            auto distanceToOutlineEdge = [&](const Point2D& p) {
+                double best = edgeDistance(p, outline.boundary);
+                for (const std::vector<Point2D>& hole : outline.holes) best = std::min(best, edgeDistance(p, hole));
                 return best;
             };
             for (const Capsule& c : capsules) {
                 for (const Point2D& p : {c.a, c.b}) {
-                    if (!pointInPolygon(p, outline)) {
+                    if (!pointOnBoard(p, outline)) {
                         violations.push_back({"Copper outside the board outline", c.ownerId});
                     } else if (distanceToOutlineEdge(p) - c.radius < rules.boardEdgeClearance) {
                         violations.push_back(

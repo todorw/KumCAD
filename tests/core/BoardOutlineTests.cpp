@@ -98,6 +98,48 @@ TEST_CASE("deriveBoardOutline picks the largest closed loop as the outer boundar
     REQUIRE(polygonArea(outline) == Approx(40.0 * 30.0).margin(1e-6));
 }
 
+TEST_CASE("deriveBoardOutlineWithHoles keeps the internal cutout deriveBoardOutline itself drops",
+         "[pcb][boardoutline]") {
+    Document doc;
+    const LayerId edgeCuts = doc.addLayer("Edge.Cuts", Color{0, 255, 0});
+    doc.addEntity(std::make_unique<PolylineEntity>(
+        doc.reserveEntityId(), edgeCuts, std::vector<Point2D>{{0, 0}, {40, 0}, {40, 30}, {0, 30}}, true));
+    doc.addEntity(std::make_unique<PolylineEntity>(
+        doc.reserveEntityId(), edgeCuts, std::vector<Point2D>{{5, 5}, {10, 5}, {10, 10}, {5, 10}}, true));
+
+    const BoardOutlineWithHoles outline = deriveBoardOutlineWithHoles(doc);
+    REQUIRE(polygonArea(outline.boundary) == Approx(40.0 * 30.0).margin(1e-6));
+    REQUIRE(outline.holes.size() == 1);
+    REQUIRE(polygonArea(outline.holes[0]) == Approx(5.0 * 5.0).margin(1e-6));
+}
+
+TEST_CASE("deriveBoardOutlineWithHoles has no holes when Edge.Cuts is just the one boundary loop",
+         "[pcb][boardoutline]") {
+    Document doc;
+    const LayerId edgeCuts = doc.addLayer("Edge.Cuts", Color{0, 255, 0});
+    doc.addEntity(std::make_unique<PolylineEntity>(
+        doc.reserveEntityId(), edgeCuts, std::vector<Point2D>{{0, 0}, {40, 0}, {40, 30}, {0, 30}}, true));
+
+    const BoardOutlineWithHoles outline = deriveBoardOutlineWithHoles(doc);
+    REQUIRE_FALSE(outline.boundary.empty());
+    REQUIRE(outline.holes.empty());
+}
+
+TEST_CASE("pointOnBoard is false inside a cutout hole, true elsewhere inside the boundary",
+         "[pcb][boardoutline]") {
+    Document doc;
+    const LayerId edgeCuts = doc.addLayer("Edge.Cuts", Color{0, 255, 0});
+    doc.addEntity(std::make_unique<PolylineEntity>(
+        doc.reserveEntityId(), edgeCuts, std::vector<Point2D>{{0, 0}, {40, 0}, {40, 30}, {0, 30}}, true));
+    doc.addEntity(std::make_unique<PolylineEntity>(
+        doc.reserveEntityId(), edgeCuts, std::vector<Point2D>{{5, 5}, {10, 5}, {10, 10}, {5, 10}}, true));
+
+    const BoardOutlineWithHoles outline = deriveBoardOutlineWithHoles(doc);
+    REQUIRE(pointOnBoard(Point2D(20, 15), outline));  // plain board interior
+    REQUIRE_FALSE(pointOnBoard(Point2D(7, 7), outline)); // inside the cutout
+    REQUIRE_FALSE(pointOnBoard(Point2D(50, 50), outline)); // outside the boundary entirely
+}
+
 TEST_CASE("deriveBoardOutline returns empty when there's no Edge.Cuts layer or geometry", "[pcb][boardoutline]") {
     Document doc;
     REQUIRE(deriveBoardOutline(doc).empty());
