@@ -242,6 +242,52 @@ TEST_CASE("LispInterpreter's interactive input builtins call the embedder's sink
     REQUIRE(prompts.size() == 4);
 }
 
+TEST_CASE("LispInterpreter's initget sets a pending keyword list consumed by the next getkword", "[lisp]") {
+    std::vector<std::vector<std::string>> keywordsSeen;
+    lcad::LispInterpreter interp(
+        [](const std::string&) {}, nullptr,
+        [&keywordsSeen](const std::string&, const std::vector<std::string>& keywords,
+                        bool /*isPoint*/) -> std::optional<std::string> {
+            keywordsSeen.push_back(keywords);
+            return keywords.empty() ? std::nullopt : std::optional<std::string>(keywords.front());
+        });
+
+    // Real AutoLISP's usual (initget "Yes No") (getkword "Continue? ")
+    // pairing, with no explicit keyword-list argument to getkword itself.
+    auto r = interp.run("(initget \"Yes No\") (getkword \"Continue? \")");
+    REQUIRE(r.ok);
+    REQUIRE(r.resultText == "\"Yes\"");
+    REQUIRE(keywordsSeen.size() == 1);
+    REQUIRE(keywordsSeen[0] == std::vector<std::string>{"Yes", "No"});
+
+    // initget is one-shot: a second getkword with no fresh initget call
+    // sees no keywords at all.
+    r = interp.run("(getkword \"Again? \")");
+    REQUIRE(r.ok);
+    REQUIRE(keywordsSeen.size() == 2);
+    REQUIRE(keywordsSeen[1].empty());
+
+    // A leading numeric bits argument is accepted without erroring, even
+    // though this codebase doesn't otherwise act on it.
+    r = interp.run("(initget 1 \"On Off\") (getkword \"State? \")");
+    REQUIRE(r.ok);
+    REQUIRE(r.resultText == "\"On\"");
+    REQUIRE(keywordsSeen.back() == std::vector<std::string>{"On", "Off"});
+
+    // An explicit keyword-list argument to getkword still works and takes
+    // precedence over any (unrelated, here nonexistent) pending initget.
+    r = interp.run("(getkword \"Pick: \" (list \"Red\" \"Blue\"))");
+    REQUIRE(r.ok);
+    REQUIRE(r.resultText == "\"Red\"");
+    REQUIRE(keywordsSeen.back() == std::vector<std::string>{"Red", "Blue"});
+
+    // initget is one-shot even when the following call isn't getkword at
+    // all -- a getpoint (which never consults keywords) still clears it.
+    r = interp.run("(initget \"Yes No\") (getpoint \"Pick: \") (getkword \"Again? \")");
+    REQUIRE(r.ok);
+    REQUIRE(keywordsSeen.back().empty());
+}
+
 TEST_CASE("LispInterpreter's interactive input returns nil without an embedder sink or on cancel", "[lisp]") {
     // No sink at all (e.g. a headless run): getpoint/getreal/getstring/
     // getkword degrade to nil instead of crashing.

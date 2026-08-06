@@ -510,10 +510,33 @@ Value LispInterpreter::builtinSsget(std::vector<Value>& args) {
     return listFromVector(ids);
 }
 
+std::vector<std::string> LispInterpreter::consumePendingInitgetKeywords() {
+    std::vector<std::string> result = std::move(m_pendingInitgetKeywords);
+    m_pendingInitgetKeywords.clear();
+    return result;
+}
+
+Value LispInterpreter::builtinInitGet(std::vector<Value>& args) {
+    // (initget), (initget bits), (initget keywordstring), (initget bits
+    // keywordstring) -- bits is accepted (so a real script's call doesn't
+    // error) but not otherwise honored, see LispInterpreter.h's own
+    // disclosure. keywordstring is real AutoLISP's own space-separated
+    // format ("Yes No" -> {"Yes", "No"}).
+    m_pendingInitgetKeywords.clear();
+    for (const Value& a : args) {
+        if (a.kind != Kind::String) continue;
+        std::istringstream iss(a.text);
+        std::string keyword;
+        while (iss >> keyword) m_pendingInitgetKeywords.push_back(keyword);
+    }
+    return Value::nil(); // real AutoLISP's initget always returns nil
+}
+
 Value LispInterpreter::builtinGetPoint(std::vector<Value>& args) {
     // (getpoint), (getpoint prompt), (getpoint basePoint), (getpoint
     // basePoint prompt) -- basePoint is accepted for call compatibility but
     // doesn't draw a rubber-band line to it like real AutoCAD.
+    (void)consumePendingInitgetKeywords(); // one-shot: cleared even though getpoint doesn't use keywords
     std::string prompt = "Specify point: ";
     for (const Value& a : args) {
         if (a.kind == Kind::String) prompt = a.text;
@@ -530,6 +553,7 @@ Value LispInterpreter::builtinGetPoint(std::vector<Value>& args) {
 }
 
 Value LispInterpreter::builtinGetReal(std::vector<Value>& args) {
+    (void)consumePendingInitgetKeywords(); // one-shot: cleared even though getreal doesn't use keywords
     std::string prompt = "Specify a number: ";
     for (const Value& a : args) {
         if (a.kind == Kind::String) prompt = a.text;
@@ -547,6 +571,7 @@ Value LispInterpreter::builtinGetString(std::vector<Value>& args) {
     // (getstring), (getstring cropit), (getstring prompt), (getstring cropit
     // prompt) -- cropit (real AutoCAD's "allow embedded spaces" flag) is
     // accepted but ignored; whatever the embedder returns is used verbatim.
+    (void)consumePendingInitgetKeywords(); // one-shot: cleared even though getstring doesn't use keywords
     std::string prompt = "Enter string: ";
     for (const Value& a : args) {
         if (a.kind == Kind::String) prompt = a.text;
@@ -558,12 +583,16 @@ Value LispInterpreter::builtinGetString(std::vector<Value>& args) {
 }
 
 Value LispInterpreter::builtinGetKword(std::vector<Value>& args) {
-    // (getkword prompt keywordlist) -- a simplification of real AutoLISP,
-    // which validates against a global keyword set from a prior (initget)
-    // call rather than an explicit argument (initget isn't implemented).
+    // (getkword prompt), (getkword prompt keywordlist) -- keywordlist, if
+    // given explicitly, takes precedence over any pending (initget ...)
+    // keyword list (both real AutoLISP conventions: usually initget sets
+    // the list and getkword takes only a prompt, but an explicit second
+    // argument here is this codebase's own extension for callers that'd
+    // rather not bother with initget at all).
     if (args.empty() || args[0].kind != Kind::String) throw LispError("getkword expects a prompt string");
-    std::vector<std::string> keywords;
+    std::vector<std::string> keywords = consumePendingInitgetKeywords();
     if (args.size() >= 2) {
+        keywords.clear();
         for (const Value& v : vectorFromList(args[1])) {
             if (v.kind == Kind::String) keywords.push_back(v.text);
         }
@@ -909,6 +938,7 @@ Value LispInterpreter::callBuiltin(const std::string& name, std::vector<Value>& 
     if (name == "GETREAL" || name == "GETDIST" || name == "GETINT") return builtinGetReal(a);
     if (name == "GETSTRING") return builtinGetString(a);
     if (name == "GETKWORD") return builtinGetKword(a);
+    if (name == "INITGET") return builtinInitGet(a);
     if (name == "GETVAR") return builtinGetvar(a);
     if (name == "SETVAR") return builtinSetvar(a);
     if (name == "ENTGET") return builtinEntget(a);

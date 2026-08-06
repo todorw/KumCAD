@@ -43,10 +43,15 @@ class Document;
 //
 // When constructed with interactiveInput, also supports getpoint/getreal/
 // getstring/getkword (getdist and getint are aliased to getreal -- no
-// rubber-band line for getdist, no integer truncation for getint). Not
-// implemented, disclosed: DCL dialogs, and initget (getkword takes its
-// keyword list as an explicit second argument instead, since there's no
-// initget to source it from).
+// rubber-band line for getdist, no integer truncation for getint), plus
+// initget: (initget "Yes No") sets a pending keyword list consumed by the
+// very next get* call, real AutoLISP's usual (initget "Yes No") (getkword
+// "Continue? ") pairing, in addition to getkword's own explicit second
+// argument, which still works and takes precedence when given. initget's
+// optional leading bits argument is accepted (so a real script's
+// (initget 1 "Yes No") doesn't error) but not otherwise honored -- no
+// input-value validation (reject-null, reject-negative, etc.) beyond the
+// keyword list itself. Not implemented, disclosed: DCL dialogs.
 class LispInterpreter {
 public:
     enum class Kind { Nil, True, Number, String, Symbol, Cons };
@@ -171,6 +176,10 @@ private:
     std::unordered_map<std::string, Value> m_sysvars; // getvar/setvar, for names not backed by real state
     std::string m_output;
     std::unordered_map<std::string, ExternalBuiltin> m_externalBuiltins;
+    // Set by (initget ...), consumed by the very next get* call regardless
+    // of whether that call actually uses keywords (matching real AutoLISP's
+    // one-shot semantics) -- see consumePendingInitgetKeywords.
+    std::vector<std::string> m_pendingInitgetKeywords;
 
     Value builtinGetvar(std::vector<Value>& args);
     Value builtinSetvar(std::vector<Value>& args);
@@ -181,6 +190,8 @@ private:
     Value builtinGetReal(std::vector<Value>& args);
     Value builtinGetString(std::vector<Value>& args);
     Value builtinGetKword(std::vector<Value>& args);
+    Value builtinInitGet(std::vector<Value>& args);
+    std::vector<std::string> consumePendingInitgetKeywords();
 
     Value eval(const Value& form, Env& env);
     Value evalBody(const std::vector<Value>& body, Env& env);
