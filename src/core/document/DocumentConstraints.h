@@ -11,7 +11,8 @@ class Document;
 
 // One constrainable point on a Document entity: a LineEntity's start (0)
 // or end (1), a CircleEntity's center (0, its only constrainable point),
-// or a PointEntity's own position (0).
+// an ArcEntity's start (0), end (1), or center (2), or a PointEntity's own
+// position (0).
 struct DocumentPointRef {
     EntityId entityId = 0;
     int pointIndex = 0;
@@ -59,14 +60,20 @@ struct DocumentConstraintResult {
 // Reuses solveSketch as-is, then writes the solved positions back into
 // the SAME Document entities via their own moveGripPoint.
 //
-// Disclosed scope cut: Arc entities aren't supported. ArcEntity stores
-// (center, radius, startAngle, endAngle) with no direct radius setter in
-// its own public grip API, while Sketch's own SketchArc models start/end
-// as independent points with their own solver-driven radius DOF --
-// bridging the two representations would need a new ArcEntity setter
-// this pass doesn't add. Any constraint referencing an unsupported
-// entity (Arc, or anything that isn't Line/Circle/Point) is silently
-// skipped, along with the points/entities only it referenced.
+// ArcEntity (center, radius, startAngle, endAngle) bridges to Sketch's own
+// SketchArc (independent start/end points plus a solver-driven radius DOF,
+// kept consistent with center by ConstraintSolver's internal residual) by
+// registering all three of the arc's points (start, end, center) and
+// writing the solved radius back via ArcEntity::setRadius -- see
+// DocumentConstraints.cpp's writeBack for the exact order (center grip
+// first, so the start/end angle recompute in terms of the final center).
+// This makes ArcRadius, EqualArcRadius, and any other constraint type that
+// takes an arc's geomA/geomB usable from the plain-Document "Parametric"
+// path, not just core3d's separate Sketch concept.
+//
+// Any constraint referencing an entity that still isn't Line/Circle/Arc/
+// Point is silently skipped, along with the points/entities only it
+// referenced.
 DocumentConstraintResult solveDocumentConstraints(Document& doc, const std::vector<DocumentConstraint>& constraints,
                                                   double snapTolerance = 1e-6);
 

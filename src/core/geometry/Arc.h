@@ -17,6 +17,15 @@ public:
     double startAngle() const { return m_startAngle; }
     double endAngle() const { return m_endAngle; }
 
+    // Sets the radius directly, leaving center/startAngle/endAngle untouched
+    // -- unlike CircleEntity, which exposes its radius as grip index 1
+    // (moveGripPoint(1, p) sets radius = distance(center, p)), ArcEntity has
+    // no grip that means "radius" (its 3 grips are start/end/center), so
+    // callers that need to set a solved radius directly (e.g.
+    // DocumentConstraints.cpp's ArcRadius/EqualArcRadius write-back) need
+    // this instead.
+    void setRadius(double r) { m_radius = r; }
+
     Point2D startPoint() const;
     Point2D endPoint() const;
 

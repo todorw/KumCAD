@@ -130,8 +130,13 @@ TEST_CASE("solveDocumentConstraints pins a standalone Point onto a Line via Poin
     REQUIRE(pointToLineDistance(linePtr->start(), linePtr->end(), pointPtr->position()) == Approx(0.0).margin(1e-4));
 }
 
-TEST_CASE("solveDocumentConstraints silently skips a constraint referencing an unsupported Arc entity",
+TEST_CASE("solveDocumentConstraints silently skips a constraint type that doesn't match its geometry's kind",
          "[document][constraints]") {
+    // Arc entities ARE supported now (see the ArcRadius/EqualArcRadius tests
+    // below), but Horizontal is a line-only constraint type -- applying it
+    // to an Arc's geomA must still be rejected, not misapplied against
+    // whatever line (if any) happens to share the arc's sketch index in a
+    // completely different array.
     Document doc;
     auto arc = std::make_unique<ArcEntity>(doc.reserveEntityId(), doc.currentLayer(), Point2D(0, 0), 5.0, 0.0, 1.0);
     const EntityId arcId = arc->id();
@@ -143,4 +148,61 @@ TEST_CASE("solveDocumentConstraints silently skips a constraint referencing an u
 
     const DocumentConstraintResult result = solveDocumentConstraints(doc, {horizontal});
     REQUIRE(result.converged); // the constraint was dropped, leaving an empty (trivially solved) system
+}
+
+TEST_CASE("solveDocumentConstraints dimensions a freestanding Arc's radius", "[document][constraints]") {
+    Document doc;
+    auto arc = std::make_unique<ArcEntity>(doc.reserveEntityId(), doc.currentLayer(), Point2D(2, 3), 5.0, 0.0,
+                                           M_PI / 2.0);
+    const EntityId arcId = arc->id();
+    ArcEntity* arcPtr = arc.get();
+    doc.addEntity(std::move(arc));
+
+    DocumentConstraint arcRadius;
+    arcRadius.type = SketchConstraintType::ArcRadius;
+    arcRadius.geomA = arcId;
+    arcRadius.value = 9.0;
+
+    const DocumentConstraintResult result = solveDocumentConstraints(doc, {arcRadius});
+    REQUIRE(result.converged);
+    REQUIRE(arcPtr->radius() == Approx(9.0).margin(1e-6));
+    // Nothing anchors the arc's position (DocumentConstraint has no way to
+    // express Fix's second value yet, so absolute placement isn't checkable
+    // here -- same underdetermined-system story the PointOnLine test above
+    // already calls out), but the arc's curve itself must actually match
+    // the new radius: its start point, re-derived from the (possibly
+    // rewritten) center/radius/angle, has to sit exactly radius away from
+    // its (possibly rewritten) center.
+    REQUIRE(arcPtr->startPoint().distanceTo(arcPtr->center()) == Approx(9.0).margin(1e-6));
+    REQUIRE(arcPtr->endPoint().distanceTo(arcPtr->center()) == Approx(9.0).margin(1e-6));
+}
+
+TEST_CASE("solveDocumentConstraints keeps two Arcs' radii equal via EqualArcRadius", "[document][constraints]") {
+    Document doc;
+    auto arcA = std::make_unique<ArcEntity>(doc.reserveEntityId(), doc.currentLayer(), Point2D(0, 0), 4.0, 0.0,
+                                            M_PI / 2.0);
+    const EntityId arcAId = arcA->id();
+    ArcEntity* arcAPtr = arcA.get();
+    doc.addEntity(std::move(arcA));
+
+    auto arcB = std::make_unique<ArcEntity>(doc.reserveEntityId(), doc.currentLayer(), Point2D(20, 0), 7.0, 0.0,
+                                            M_PI / 2.0);
+    const EntityId arcBId = arcB->id();
+    ArcEntity* arcBPtr = arcB.get();
+    doc.addEntity(std::move(arcB));
+
+    DocumentConstraint fixRadiusA;
+    fixRadiusA.type = SketchConstraintType::ArcRadius;
+    fixRadiusA.geomA = arcAId;
+    fixRadiusA.value = 6.0;
+
+    DocumentConstraint equalRadius;
+    equalRadius.type = SketchConstraintType::EqualArcRadius;
+    equalRadius.geomA = arcAId;
+    equalRadius.geomB = arcBId;
+
+    const DocumentConstraintResult result = solveDocumentConstraints(doc, {fixRadiusA, equalRadius});
+    REQUIRE(result.converged);
+    REQUIRE(arcAPtr->radius() == Approx(6.0).margin(1e-6));
+    REQUIRE(arcBPtr->radius() == Approx(arcAPtr->radius()).margin(1e-6));
 }
