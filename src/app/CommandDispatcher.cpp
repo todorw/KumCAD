@@ -593,13 +593,14 @@ void CommandDispatcher::handleCommandText(const QString& text) {
         // no dimension value, so unlike DCRADIUS/DCANGULAR below these
         // apply immediately once the right selection is already made,
         // the same "select first, run command" convention FILLET uses.
-        std::vector<lcad::EntityId> lineIds, circleIds, pointIds;
+        std::vector<lcad::EntityId> lineIds, circleIds, pointIds, arcIds;
         for (lcad::EntityId id : (m_view ? m_view->selectedIds() : std::vector<lcad::EntityId>{})) {
             const lcad::Entity* e = m_document.findEntity(id);
             if (!e) continue;
             if (e->type() == lcad::EntityType::Line) lineIds.push_back(id);
             else if (e->type() == lcad::EntityType::Circle) circleIds.push_back(id);
             else if (e->type() == lcad::EntityType::Point) pointIds.push_back(id);
+            else if (e->type() == lcad::EntityType::Arc) arcIds.push_back(id);
         }
 
         std::optional<lcad::DocumentConstraint> constraint;
@@ -614,18 +615,43 @@ void CommandDispatcher::handleCommandText(const QString& text) {
             } else {
                 errorMessage = QStringLiteral("*Select exactly one line first*");
             }
-        } else if (cmd == QLatin1String("GCPARALLEL") || cmd == QLatin1String("GCPERPENDICULAR") ||
-                  cmd == QLatin1String("GCEQUAL")) {
+        } else if (cmd == QLatin1String("GCPARALLEL") || cmd == QLatin1String("GCPERPENDICULAR")) {
             if (lineIds.size() == 2) {
                 lcad::DocumentConstraint c;
-                c.type = cmd == QLatin1String("GCPARALLEL")   ? lcad::SketchConstraintType::Parallel
-                        : cmd == QLatin1String("GCPERPENDICULAR") ? lcad::SketchConstraintType::Perpendicular
-                                                                  : lcad::SketchConstraintType::Equal;
+                c.type = cmd == QLatin1String("GCPARALLEL") ? lcad::SketchConstraintType::Parallel
+                                                             : lcad::SketchConstraintType::Perpendicular;
                 c.geomA = lineIds[0];
                 c.geomB = lineIds[1];
                 constraint = c;
             } else {
                 errorMessage = QStringLiteral("*Select exactly two lines first*");
+            }
+        } else if (cmd == QLatin1String("GCEQUAL")) {
+            // Equal has a same-radius counterpart for circles and arcs
+            // (EqualCircleRadius/EqualArcRadius) besides its original
+            // same-length meaning for lines -- which pair the two
+            // selected entities are decides which constraint type applies,
+            // the same "infer from what's actually selected" convention
+            // GCTANGENT's own line-vs-circle-vs-circle-circle branch below
+            // already uses.
+            lcad::DocumentConstraint c;
+            if (circleIds.size() == 2) {
+                c.type = lcad::SketchConstraintType::EqualCircleRadius;
+                c.geomA = circleIds[0];
+                c.geomB = circleIds[1];
+                constraint = c;
+            } else if (arcIds.size() == 2) {
+                c.type = lcad::SketchConstraintType::EqualArcRadius;
+                c.geomA = arcIds[0];
+                c.geomB = arcIds[1];
+                constraint = c;
+            } else if (lineIds.size() == 2) {
+                c.type = lcad::SketchConstraintType::Equal;
+                c.geomA = lineIds[0];
+                c.geomB = lineIds[1];
+                constraint = c;
+            } else {
+                errorMessage = QStringLiteral("*Select exactly two lines, two circles, or two arcs first*");
             }
         } else if (cmd == QLatin1String("GCTANGENT")) {
             if (lineIds.size() == 1 && circleIds.size() == 1) {
@@ -700,6 +726,17 @@ void CommandDispatcher::handleCommandText(const QString& text) {
             startCommand(std::make_unique<lcad::DcRadiusCommand>(m_document, circleIds[0]), QStringLiteral("DCRADIUS"));
         } else {
             m_commandLine.appendLine(QStringLiteral("*Select exactly one circle first*"));
+        }
+    } else if (cmd == QLatin1String("DCARCRADIUS")) {
+        std::vector<lcad::EntityId> arcIds;
+        for (lcad::EntityId id : (m_view ? m_view->selectedIds() : std::vector<lcad::EntityId>{})) {
+            const lcad::Entity* e = m_document.findEntity(id);
+            if (e && e->type() == lcad::EntityType::Arc) arcIds.push_back(id);
+        }
+        if (arcIds.size() == 1) {
+            startCommand(std::make_unique<lcad::DcArcRadiusCommand>(m_document, arcIds[0]), QStringLiteral("DCARCRADIUS"));
+        } else {
+            m_commandLine.appendLine(QStringLiteral("*Select exactly one arc first*"));
         }
     } else if (cmd == QLatin1String("DCANGULAR")) {
         std::vector<lcad::EntityId> lineIds;
