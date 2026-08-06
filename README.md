@@ -87,7 +87,9 @@ Each packaging script documents the platform-specific quirks it works around in 
 
 ## Usage
 
-Type a command in the command line at the bottom (or use the toolbar) and follow the prompts — points can be clicked in the canvas or typed as `x,y`. Enter/right-click finishes a command, Escape cancels. Select entities first for modify commands (MOVE, TRIM edges, etc.), exactly like AutoCAD's noun-verb workflow. Schematic and PCB commands (WIRE, TRACK, FOOTPRINTGEN, DRC, ...) run in this same command line, since schematic/PCB entities live in the same document as ordinary drawing entities. The 3D modeling window is a separate top-level window with its own toolbar and feature tree, opened from the main window.
+See [docs/QUICKSTART.md](docs/QUICKSTART.md) for a walkthrough (first launch, drawing/editing, PCB, and 3D) and a command cheat sheet.
+
+The short version: type a command in the command line at the bottom (or use the toolbar) and follow the prompts — points can be clicked in the canvas or typed as `x,y`. Enter/right-click finishes a command, Escape cancels. Select entities first for modify commands (MOVE, TRIM edges, etc.), exactly like AutoCAD's noun-verb workflow. Schematic and PCB commands (WIRE, TRACK, FOOTPRINTGEN, DRC, ...) run in this same command line, since schematic/PCB entities live in the same document as ordinary drawing entities. 3D modeling is a separate, OCCT-backed top-level window with its own toolbar and feature tree — pick "3D Modeling" on the startup welcome screen to open one (it isn't reachable from an already-open 2D window yet).
 
 ## Status
 
