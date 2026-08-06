@@ -7,7 +7,11 @@ set(CMAKE_AUTOUIC ON)
 # WIN32 has no effect except when actually targeting Windows (e.g. the mingw
 # cross-compile in packaging/windows/) -- it builds a GUI subsystem exe there
 # instead of a console one, so kumcad.exe doesn't pop a console window.
-add_executable(kumcad WIN32
+# MACOSX_BUNDLE is the same story for macOS: ignored everywhere else, but on
+# Apple platforms it makes this a real kumcad.app bundle instead of a bare
+# Unix executable, which is what macdeployqt (packaging/macos/) needs to
+# bundle the Qt frameworks into.
+add_executable(kumcad WIN32 MACOSX_BUNDLE
     main.cpp
     MainWindow.h
     MainWindow.cpp
@@ -235,6 +239,24 @@ add_executable(kumcad WIN32
 
 target_include_directories(kumcad PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(kumcad PRIVATE lcad_core Qt6::Widgets Qt6::OpenGLWidgets Qt6::PrintSupport)
+
+if(APPLE)
+    # packaging/macos/build-macos.sh generates this .icns from the app's own
+    # IconFactory-rendered icon (same source PNG as packaging/linux/kumcad.png)
+    # right before configuring, so nothing binary needs to be committed here.
+    set(KUMCAD_ICNS "${CMAKE_SOURCE_DIR}/packaging/macos/kumcad.icns")
+    if(EXISTS "${KUMCAD_ICNS}")
+        target_sources(kumcad PRIVATE "${KUMCAD_ICNS}")
+        set_source_files_properties("${KUMCAD_ICNS}" PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
+        set(MACOSX_BUNDLE_ICON_FILE kumcad.icns)
+    endif()
+    set_target_properties(kumcad PROPERTIES
+        MACOSX_BUNDLE_BUNDLE_NAME "KumCAD"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "org.kumcad.KumCAD"
+        MACOSX_BUNDLE_BUNDLE_VERSION "0.1.0"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "0.1.0"
+        MACOSX_BUNDLE_ICON_FILE kumcad.icns)
+endif()
 
 if(MINGW)
     # Qt's prebuilt static EntryPoint (WinMain wrapper, needed since kumcad is

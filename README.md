@@ -1,5 +1,7 @@
 # KumCAD
 
+[![CI](https://github.com/TodorW/LinuxCAD/actions/workflows/ci.yml/badge.svg)](https://github.com/TodorW/LinuxCAD/actions/workflows/ci.yml)
+
 A free, open-source CAD/EDA suite in the spirit of AutoCAD, KiCad, and FreeCAD, built with C++20 and Qt 6.
 
 KumCAD has three parts sharing one core: **2D drafting** (AutoCAD-style, command-line driven, DXF/DWG native), **electronic design** (KiCad-style schematic capture and PCB layout, sharing the same 2D command line and document), and **3D modeling** (FreeCAD-style parametric solid modeling, in its own window, built on OpenCASCADE). KumCAD follows each real tool's own conventions wherever possible — command names and aliases match AutoCAD's (`L`, `C`, `TR`, `MI`, ...), file formats match DXF/DWG/.kicad_sch/.kicad_pcb/.kicad_mod, and 3D concepts (sketches, pads/pockets, feature trees, assemblies) match FreeCAD's own.
@@ -70,6 +72,18 @@ make -j && make install
 ```
 
 Then reconfigure KumCAD (`cmake -B build`) — it picks LibreDWG up automatically, enabling *.dwg in the Open dialog and DWG (R2000) in Save As. DXF remains the lossless, dependency-free format; you can build KumCAD entirely without LibreDWG (`-DLCAD_ENABLE_DWG=OFF`) and lose nothing but DWG itself.
+
+### Platform support
+
+The source itself has no platform-specific code (no `#ifdef _WIN32`/`__APPLE__` branches, no POSIX-only calls) — portability comes for free from Qt6 and OpenCASCADE. [`.github/workflows/ci.yml`](.github/workflows/ci.yml) builds and runs the full test suite on Linux, Windows, and macOS on every push, so all three are continuously verified, not just assumed to work.
+
+| Platform | Build | Packaged distributable |
+|---|---|---|
+| Linux (x86_64) | Native, `cmake -B build && cmake --build build` | `packaging/linux/build-appimage.sh` → portable AppImage |
+| Windows (x86_64) | Cross-compiled from Linux via mingw-w64 | `packaging/windows/build-windows.sh` → portable .zip (kumcad.exe + DLLs) |
+| macOS (Homebrew Qt6/OCCT) | Native, same three commands above | `packaging/macos/build-macos.sh` → kumcad.app + .dmg (script requires running on an actual Mac — macdeployqt/iconutil aren't cross-buildable from Linux; unlike the other two, this one hasn't been run on physical Apple hardware yet, so treat the packaged output as unverified until someone does) |
+
+Each packaging script documents the platform-specific quirks it works around in its header comment.
 
 ## Usage
 
