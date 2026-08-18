@@ -121,6 +121,16 @@ enum class SketchConstraintType {
     InternalTangentCircleCircle, // geomA, geomB (circles) are internally tangent -- one circle inside
                                  // the other, touching from within (distance(centers) == |rA - rB|) --
                                  // TangentCircleCircle's own counterpart for the nested case
+    TangentLineArc, // geomA (line) is tangent to geomB (arc) -- Tangent's own arc counterpart, same
+                    // point-to-line-distance-equals-radius residual, just reading an arc's radius DOF
+                    // instead of a circle's
+    TangentArcCircle, // geomA (arc), geomB (circle) are externally tangent (distance(centers) == rA + rB)
+                      // -- TangentCircleCircle's own mixed arc/circle counterpart
+    InternalTangentArcCircle, // geomA (arc), geomB (circle) are internally tangent (distance(centers)
+                              // == |rA - rB|) -- InternalTangentCircleCircle's own mixed counterpart
+    TangentArcArc, // geomA, geomB (arcs) are externally tangent (distance(centers) == rA + rB) --
+                   // TangentCircleCircle's own arc/arc counterpart
+    InternalTangentArcArc, // geomA, geomB (arcs) are internally tangent (distance(centers) == |rA - rB|)
     Angle,        // angle between geomA, geomB (lines) == value radians -- a general-purpose version of
                   // Perpendicular/Parallel, same cos-of-the-angle residual form so it shares their
                   // freedom from atan2's branch discontinuities

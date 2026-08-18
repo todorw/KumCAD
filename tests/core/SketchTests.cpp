@@ -281,6 +281,104 @@ TEST_CASE("solveSketch satisfies internal circle-circle tangency (one circle nes
     REQUIRE(dist == Approx(std::abs(radiusA - radiusB)).margin(1e-6));
 }
 
+TEST_CASE("solveSketch satisfies line-arc tangency", "[sketch][solver][arc]") {
+    Sketch sketch;
+    const int center = sketch.addPoint(Point2D(0, 0), true);
+    const int arcStart = sketch.addPoint(Point2D(5, 0));
+    const int arcEnd = sketch.addPoint(Point2D(0, 5));
+    const int arc = sketch.addArc(center, arcStart, arcEnd, 5.0);
+    const int p1 = sketch.addPoint(Point2D(-20, 8), true);
+    const int p2 = sketch.addPoint(Point2D(20, 3), true); // a line not yet tangent to the arc's circle
+    const int line = sketch.addLine(p1, p2);
+    sketch.addConstraint({SketchConstraintType::TangentLineArc, line, arc});
+
+    REQUIRE(solveSketch(sketch).converged);
+    const SketchLine& l = sketch.lines()[static_cast<std::size_t>(line)];
+    const Point2D lp1 = sketch.points()[static_cast<std::size_t>(l.p1)];
+    const Point2D lp2 = sketch.points()[static_cast<std::size_t>(l.p2)];
+    const Point2D c = sketch.points()[static_cast<std::size_t>(center)];
+    const double dir_x = lp2.x - lp1.x, dir_y = lp2.y - lp1.y;
+    const double len = std::sqrt(dir_x * dir_x + dir_y * dir_y);
+    const double dist = std::abs(dir_x * (c.y - lp1.y) - dir_y * (c.x - lp1.x)) / len;
+    REQUIRE(dist == Approx(sketch.arcs()[static_cast<std::size_t>(arc)].radius).margin(1e-6));
+}
+
+TEST_CASE("solveSketch satisfies external arc-circle tangency", "[sketch][solver][arc]") {
+    Sketch sketch;
+    const int arcCenter = sketch.addPoint(Point2D(0, 0), true);
+    const int arcStart = sketch.addPoint(Point2D(4, 0));
+    const int arcEnd = sketch.addPoint(Point2D(0, 4));
+    const int arc = sketch.addArc(arcCenter, arcStart, arcEnd, 4.0);
+    const int circleCenter = sketch.addPoint(Point2D(10, 3)); // not yet tangent
+    const int circle = sketch.addCircle(circleCenter, 3.0);
+    sketch.addConstraint({SketchConstraintType::TangentArcCircle, arc, circle});
+
+    REQUIRE(solveSketch(sketch).converged);
+    const double dist = sketch.points()[static_cast<std::size_t>(arcCenter)].distanceTo(
+        sketch.points()[static_cast<std::size_t>(circleCenter)]);
+    const double radiusArc = sketch.arcs()[static_cast<std::size_t>(arc)].radius;
+    const double radiusCircle = sketch.circles()[static_cast<std::size_t>(circle)].radius;
+    REQUIRE(dist == Approx(radiusArc + radiusCircle).margin(1e-6));
+}
+
+TEST_CASE("solveSketch satisfies internal arc-circle tangency", "[sketch][solver][arc]") {
+    Sketch sketch;
+    const int arcCenter = sketch.addPoint(Point2D(0, 0), true);
+    const int arcStart = sketch.addPoint(Point2D(10, 0));
+    const int arcEnd = sketch.addPoint(Point2D(0, 10));
+    const int arc = sketch.addArc(arcCenter, arcStart, arcEnd, 10.0);
+    const int circleCenter = sketch.addPoint(Point2D(1, 1)); // nested inside the arc's circle
+    const int circle = sketch.addCircle(circleCenter, 3.0);
+    sketch.addConstraint({SketchConstraintType::InternalTangentArcCircle, arc, circle});
+
+    REQUIRE(solveSketch(sketch).converged);
+    const double dist = sketch.points()[static_cast<std::size_t>(arcCenter)].distanceTo(
+        sketch.points()[static_cast<std::size_t>(circleCenter)]);
+    const double radiusArc = sketch.arcs()[static_cast<std::size_t>(arc)].radius;
+    const double radiusCircle = sketch.circles()[static_cast<std::size_t>(circle)].radius;
+    REQUIRE(dist == Approx(std::abs(radiusArc - radiusCircle)).margin(1e-6));
+}
+
+TEST_CASE("solveSketch satisfies external arc-arc tangency", "[sketch][solver][arc]") {
+    Sketch sketch;
+    const int centerA = sketch.addPoint(Point2D(0, 0), true);
+    const int startA = sketch.addPoint(Point2D(4, 0));
+    const int endA = sketch.addPoint(Point2D(0, 4));
+    const int arcA = sketch.addArc(centerA, startA, endA, 4.0);
+    const int centerB = sketch.addPoint(Point2D(10, 3)); // not yet tangent
+    const int startB = sketch.addPoint(Point2D(13, 3));
+    const int endB = sketch.addPoint(Point2D(10, 6));
+    const int arcB = sketch.addArc(centerB, startB, endB, 3.0);
+    sketch.addConstraint({SketchConstraintType::TangentArcArc, arcA, arcB});
+
+    REQUIRE(solveSketch(sketch).converged);
+    const double dist =
+        sketch.points()[static_cast<std::size_t>(centerA)].distanceTo(sketch.points()[static_cast<std::size_t>(centerB)]);
+    const double radiusA = sketch.arcs()[static_cast<std::size_t>(arcA)].radius;
+    const double radiusB = sketch.arcs()[static_cast<std::size_t>(arcB)].radius;
+    REQUIRE(dist == Approx(radiusA + radiusB).margin(1e-6));
+}
+
+TEST_CASE("solveSketch satisfies internal arc-arc tangency (one nested inside the other)", "[sketch][solver][arc]") {
+    Sketch sketch;
+    const int centerA = sketch.addPoint(Point2D(0, 0), true);
+    const int startA = sketch.addPoint(Point2D(10, 0));
+    const int endA = sketch.addPoint(Point2D(0, 10));
+    const int arcA = sketch.addArc(centerA, startA, endA, 10.0);
+    const int centerB = sketch.addPoint(Point2D(1, 1)); // nested inside arcA's circle
+    const int startB = sketch.addPoint(Point2D(4, 1));
+    const int endB = sketch.addPoint(Point2D(1, 4));
+    const int arcB = sketch.addArc(centerB, startB, endB, 3.0);
+    sketch.addConstraint({SketchConstraintType::InternalTangentArcArc, arcA, arcB});
+
+    REQUIRE(solveSketch(sketch).converged);
+    const double dist =
+        sketch.points()[static_cast<std::size_t>(centerA)].distanceTo(sketch.points()[static_cast<std::size_t>(centerB)]);
+    const double radiusA = sketch.arcs()[static_cast<std::size_t>(arcA)].radius;
+    const double radiusB = sketch.arcs()[static_cast<std::size_t>(arcB)].radius;
+    REQUIRE(dist == Approx(std::abs(radiusA - radiusB)).margin(1e-6));
+}
+
 TEST_CASE("analyzeDof reports remaining freedom for an under-constrained sketch", "[sketch][dof]") {
     Sketch sketch;
     const int p0 = sketch.addPoint(Point2D(0, 0), true); // fixed: 0 DOF

@@ -59,6 +59,13 @@ private:
     void applyEqual();
     void applyFillet();
     void applyTangent();
+    // One combined tool covering every tangency pair involving an arc
+    // (line+arc, arc+circle, arc+arc) -- reads the current 2-selection's
+    // own kinds to pick the right constraint type, and (for arc+circle/
+    // arc+arc) infers external vs. internal the same way
+    // applyCircleCircleTangent already does for circle+circle, rather
+    // than needing a separate tool per pair-type/variant combination.
+    void applyArcTangent();
     void applyDistance();
     void applyDistanceX();
     void applyDistanceY();

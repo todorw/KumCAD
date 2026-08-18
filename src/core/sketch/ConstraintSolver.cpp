@@ -239,6 +239,56 @@ std::vector<double> computeResidual(const Sketch& sketch, const VariableMap& var
             r.push_back(centerA.distanceTo(centerB) - std::abs(radiusA - radiusB));
             break;
         }
+        case SketchConstraintType::TangentLineArc: {
+            const SketchLine& line = sketch.lines()[static_cast<std::size_t>(c.geomA)];
+            const SketchArc& arc = sketch.arcs()[static_cast<std::size_t>(c.geomB)];
+            const Point2D p1 = pointAt(sketch, vars, line.p1, x);
+            const Point2D p2 = pointAt(sketch, vars, line.p2, x);
+            const Point2D center = pointAt(sketch, vars, arc.center, x);
+            const double radius = arcRadiusAt(sketch, vars, c.geomB, x);
+            r.push_back(pointToLineDistance(p1, p2, center) - radius);
+            break;
+        }
+        case SketchConstraintType::TangentArcCircle: {
+            const SketchArc& a = sketch.arcs()[static_cast<std::size_t>(c.geomA)];
+            const SketchCircle& b = sketch.circles()[static_cast<std::size_t>(c.geomB)];
+            const Point2D centerA = pointAt(sketch, vars, a.center, x);
+            const Point2D centerB = pointAt(sketch, vars, b.center, x);
+            const double radiusA = arcRadiusAt(sketch, vars, c.geomA, x);
+            const double radiusB = radiusAt(sketch, vars, c.geomB, x);
+            r.push_back(centerA.distanceTo(centerB) - (radiusA + radiusB));
+            break;
+        }
+        case SketchConstraintType::InternalTangentArcCircle: {
+            const SketchArc& a = sketch.arcs()[static_cast<std::size_t>(c.geomA)];
+            const SketchCircle& b = sketch.circles()[static_cast<std::size_t>(c.geomB)];
+            const Point2D centerA = pointAt(sketch, vars, a.center, x);
+            const Point2D centerB = pointAt(sketch, vars, b.center, x);
+            const double radiusA = arcRadiusAt(sketch, vars, c.geomA, x);
+            const double radiusB = radiusAt(sketch, vars, c.geomB, x);
+            r.push_back(centerA.distanceTo(centerB) - std::abs(radiusA - radiusB));
+            break;
+        }
+        case SketchConstraintType::TangentArcArc: {
+            const SketchArc& a = sketch.arcs()[static_cast<std::size_t>(c.geomA)];
+            const SketchArc& b = sketch.arcs()[static_cast<std::size_t>(c.geomB)];
+            const Point2D centerA = pointAt(sketch, vars, a.center, x);
+            const Point2D centerB = pointAt(sketch, vars, b.center, x);
+            const double radiusA = arcRadiusAt(sketch, vars, c.geomA, x);
+            const double radiusB = arcRadiusAt(sketch, vars, c.geomB, x);
+            r.push_back(centerA.distanceTo(centerB) - (radiusA + radiusB));
+            break;
+        }
+        case SketchConstraintType::InternalTangentArcArc: {
+            const SketchArc& a = sketch.arcs()[static_cast<std::size_t>(c.geomA)];
+            const SketchArc& b = sketch.arcs()[static_cast<std::size_t>(c.geomB)];
+            const Point2D centerA = pointAt(sketch, vars, a.center, x);
+            const Point2D centerB = pointAt(sketch, vars, b.center, x);
+            const double radiusA = arcRadiusAt(sketch, vars, c.geomA, x);
+            const double radiusB = arcRadiusAt(sketch, vars, c.geomB, x);
+            r.push_back(centerA.distanceTo(centerB) - std::abs(radiusA - radiusB));
+            break;
+        }
         case SketchConstraintType::Angle: {
             const SketchLine& la = sketch.lines()[static_cast<std::size_t>(c.geomA)];
             const SketchLine& lb = sketch.lines()[static_cast<std::size_t>(c.geomB)];

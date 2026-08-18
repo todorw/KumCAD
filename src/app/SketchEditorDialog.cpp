@@ -41,6 +41,7 @@ SketchEditorDialog::SketchEditorDialog(lcad::Document3D& document, lcad::SketchP
     toolbar->addAction(QStringLiteral("Fillet..."), this, &SketchEditorDialog::applyFillet);
     toolbar->addAction(QStringLiteral("Tangent"), this, &SketchEditorDialog::applyTangent);
     toolbar->addAction(QStringLiteral("Circle-Circle Tangent"), this, &SketchEditorDialog::applyCircleCircleTangent);
+    toolbar->addAction(QStringLiteral("Arc Tangent"), this, &SketchEditorDialog::applyArcTangent);
     toolbar->addAction(QStringLiteral("Distance..."), this, &SketchEditorDialog::applyDistance);
     toolbar->addAction(QStringLiteral("Distance X..."), this, &SketchEditorDialog::applyDistanceX);
     toolbar->addAction(QStringLiteral("Distance Y..."), this, &SketchEditorDialog::applyDistanceY);
@@ -269,6 +270,61 @@ void SketchEditorDialog::applyCircleCircleTangent() {
                                                            : SketchConstraintType::TangentCircleCircle;
     m_view->sketch().addConstraint({type, pair->first, pair->second});
     m_view->resolve();
+}
+
+void SketchEditorDialog::applyArcTangent() {
+    const auto& sel = m_view->selection();
+    if (sel.size() != 2) {
+        m_statusLabel->setText(QStringLiteral("Select a line+arc, arc+circle, or two arcs first"));
+        return;
+    }
+    lcad::Sketch& sketch = m_view->sketch();
+    const auto& first = sel[0];
+    const auto& second = sel[1];
+
+    if ((first.kind == Kind::Line && second.kind == Kind::Arc) ||
+        (first.kind == Kind::Arc && second.kind == Kind::Line)) {
+        const int lineIdx = first.kind == Kind::Line ? first.index : second.index;
+        const int arcIdx = first.kind == Kind::Arc ? first.index : second.index;
+        sketch.addConstraint({SketchConstraintType::TangentLineArc, lineIdx, arcIdx});
+        m_view->resolve();
+        return;
+    }
+
+    if ((first.kind == Kind::Arc && second.kind == Kind::Circle) ||
+        (first.kind == Kind::Circle && second.kind == Kind::Arc)) {
+        const int arcIdx = first.kind == Kind::Arc ? first.index : second.index;
+        const int circleIdx = first.kind == Kind::Circle ? first.index : second.index;
+        const lcad::SketchArc& arc = sketch.arcs()[static_cast<std::size_t>(arcIdx)];
+        const lcad::SketchCircle& circle = sketch.circles()[static_cast<std::size_t>(circleIdx)];
+        // Same "infer external vs. internal from the current geometry"
+        // convention applyCircleCircleTangent already uses.
+        const double dist = sketch.points()[static_cast<std::size_t>(arc.center)].distanceTo(
+            sketch.points()[static_cast<std::size_t>(circle.center)]);
+        const double externalResidual = std::abs(dist - (arc.radius + circle.radius));
+        const double internalResidual = std::abs(dist - std::abs(arc.radius - circle.radius));
+        const auto type = internalResidual < externalResidual ? SketchConstraintType::InternalTangentArcCircle
+                                                               : SketchConstraintType::TangentArcCircle;
+        sketch.addConstraint({type, arcIdx, circleIdx});
+        m_view->resolve();
+        return;
+    }
+
+    if (first.kind == Kind::Arc && second.kind == Kind::Arc) {
+        const lcad::SketchArc& arcA = sketch.arcs()[static_cast<std::size_t>(first.index)];
+        const lcad::SketchArc& arcB = sketch.arcs()[static_cast<std::size_t>(second.index)];
+        const double dist = sketch.points()[static_cast<std::size_t>(arcA.center)].distanceTo(
+            sketch.points()[static_cast<std::size_t>(arcB.center)]);
+        const double externalResidual = std::abs(dist - (arcA.radius + arcB.radius));
+        const double internalResidual = std::abs(dist - std::abs(arcA.radius - arcB.radius));
+        const auto type = internalResidual < externalResidual ? SketchConstraintType::InternalTangentArcArc
+                                                               : SketchConstraintType::TangentArcArc;
+        sketch.addConstraint({type, first.index, second.index});
+        m_view->resolve();
+        return;
+    }
+
+    m_statusLabel->setText(QStringLiteral("Select a line+arc, arc+circle, or two arcs first"));
 }
 
 void SketchEditorDialog::applyDistance() {
