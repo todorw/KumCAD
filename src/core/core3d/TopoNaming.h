@@ -103,13 +103,20 @@ std::optional<VertexPoint> pointFromVertex(const TopoDS_Shape& shape, int index)
 // as pickEdge/fingerprintEdge/axisFromEdge) -- the everyday "place a
 // second hole at the same center as an existing one" or "pattern around
 // this hole's own axis" workflow, picking a hole's own rim rather than
-// typing its center by hand. normal is the circle's own plane normal
-// (consistent orientation from OCCT's own underlying curve, not
-// guaranteed outward-vs-inward -- a real, disclosed limitation, same
-// caveat planeFromFace's REVERSED-flip doesn't apply to a bare edge,
-// which carries no solid-material side to be "outward" from). Returns
-// nullopt if index is out of range or the edge isn't circular
-// (BRepAdaptor_Curve's GeomAbs_Circle check).
+// typing its center by hand. normal always points OUTWARD, away from
+// shape's own solid material -- resolved the same way planeFromFace
+// resolves a face's own outward normal, just via BRepClass3d_
+// SolidClassifier on a probe point just off the circle along its own
+// (otherwise orientation-ambiguous) axis instead of a face's TopAbs_
+// REVERSED flag, since a bare edge carries no orientation flag of its
+// own the way a face does. Falls back to the curve's own raw (unflipped)
+// axis direction if the probe point classifies as anything other than
+// cleanly TopAbs_IN/TopAbs_OUT (e.g. shape isn't a real solid) -- a real,
+// disclosed "best effort, don't guess further" limitation, same
+// philosophy resolveEdgeIndex's own "always returns some valid index"
+// comment already documents elsewhere in this file. Returns nullopt if
+// index is out of range or the edge isn't circular (BRepAdaptor_Curve's
+// GeomAbs_Circle check).
 struct EdgeCircle {
     double centerX = 0.0, centerY = 0.0, centerZ = 0.0;
     double normalX = 0.0, normalY = 0.0, normalZ = 1.0;

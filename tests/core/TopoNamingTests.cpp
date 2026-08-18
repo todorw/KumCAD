@@ -253,6 +253,29 @@ TEST_CASE("centerOfCircularEdge finds a cylinder's own top and bottom circle cen
     REQUIRE(sawTop);
 }
 
+TEST_CASE("centerOfCircularEdge's normal always points OUTWARD, away from the solid's own material",
+          "[core3d][toponaming][attachment]") {
+    // A cylinder from Z=0 (bottom) to Z=10 (top): the bottom rim's true
+    // outward normal is -Z (material is above it), the top rim's is +Z
+    // (material is below it) -- regardless of which arbitrary sign
+    // circ.Axis().Direction() itself happens to return for either edge.
+    const TopoDS_Shape cylinder = BRepPrimAPI_MakeCylinder(5.0, 10.0).Shape();
+    bool checkedBottom = false, checkedTop = false;
+    for (int i = 0; i < 3; ++i) {
+        const auto c = centerOfCircularEdge(cylinder, i);
+        if (!c) continue;
+        if (std::abs(c->centerZ) < 1e-6) {
+            REQUIRE(c->normalZ < 0.0);
+            checkedBottom = true;
+        } else if (std::abs(c->centerZ - 10.0) < 1e-6) {
+            REQUIRE(c->normalZ > 0.0);
+            checkedTop = true;
+        }
+    }
+    REQUIRE(checkedBottom);
+    REQUIRE(checkedTop);
+}
+
 TEST_CASE("centerOfCircularEdge rejects a straight edge and an out-of-range index",
          "[core3d][toponaming][attachment]") {
     const TopoDS_Shape cylinder = BRepPrimAPI_MakeCylinder(5.0, 10.0).Shape();

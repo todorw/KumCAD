@@ -2,6 +2,7 @@
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <BRepClass3d_SolidClassifier.hxx>
 #include <BRep_Tool.hxx>
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>
@@ -201,7 +202,16 @@ std::optional<EdgeCircle> centerOfCircularEdge(const TopoDS_Shape& shape, int in
 
     const gp_Circ circle = curve.Circle();
     const gp_Pnt center = circle.Location();
-    const gp_Dir normal = circle.Axis().Direction();
+    gp_Dir normal = circle.Axis().Direction();
+
+    // Probe a point just off the circle's plane along its own raw axis
+    // direction; if that lands INSIDE shape's own material, the true
+    // outward direction is the other way.
+    const double epsilon = std::max(circle.Radius() * 0.01, 1e-6);
+    const gp_Pnt probe = center.Translated(gp_Vec(normal) * epsilon);
+    BRepClass3d_SolidClassifier classifier(shape);
+    classifier.Perform(probe, 1e-6);
+    if (classifier.State() == TopAbs_IN) normal.Reverse();
 
     EdgeCircle result;
     result.centerX = center.X();
