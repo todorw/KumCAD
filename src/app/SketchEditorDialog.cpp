@@ -56,6 +56,7 @@ SketchEditorDialog::SketchEditorDialog(lcad::Document3D& document, lcad::SketchP
     toolbar->addAction(QStringLiteral("Toggle Construction"), this, &SketchEditorDialog::toggleConstruction);
     toolbar->addSeparator();
     toolbar->addAction(QStringLiteral("External Geometry..."), this, &SketchEditorDialog::addExternalGeometry);
+    toolbar->addAction(QStringLiteral("Refresh External Geometry"), this, &SketchEditorDialog::refreshExternalGeometry);
     layout->addWidget(toolbar);
 
     layout->addWidget(m_view, 1);
@@ -474,10 +475,30 @@ void SketchEditorDialog::addExternalGeometry() {
         QStringLiteral("Edge index (see the main window's \"List Edges...\"):"), 0, 0, 1000000, 1, &ok);
     if (!ok) return;
 
-    if (lcad::projectExternalEdge(m_view->sketch(), m_document.shapeAt(featureIndex), edgeIndex)) {
+    lcad::ExternalGeometryRef ref;
+    if (lcad::projectExternalEdgeTracked(m_view->sketch(), m_document.shapeAt(featureIndex), edgeIndex, ref)) {
+        m_externalRefs.emplace_back(featureIndex, ref);
         m_view->update();
-        m_statusLabel->setText(QStringLiteral("External geometry added (construction, fixed points)"));
+        m_statusLabel->setText(QStringLiteral("External geometry added (construction, fixed points) -- use "
+                                              "\"Refresh External Geometry\" after editing feature %1")
+                                    .arg(featureIndex));
     } else {
         m_statusLabel->setText(QStringLiteral("*Invalid edge index*"));
     }
+}
+
+void SketchEditorDialog::refreshExternalGeometry() {
+    if (m_externalRefs.empty()) {
+        m_statusLabel->setText(QStringLiteral("No external geometry added yet this session"));
+        return;
+    }
+    int succeeded = 0;
+    for (const auto& [featureIndex, ref] : m_externalRefs) {
+        if (lcad::refreshExternalGeometry(m_view->sketch(), ref, m_document.shapeAt(featureIndex))) ++succeeded;
+    }
+    m_view->resolve();
+    m_view->update();
+    m_statusLabel->setText(QStringLiteral("Refreshed %1/%2 external geometry reference(s)")
+                                .arg(succeeded)
+                                .arg(m_externalRefs.size()));
 }

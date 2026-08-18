@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/core3d/ExternalGeometry.h"
 #include "core/sketch/SketchGeometry.h"
 
 #include <QDialog>
@@ -7,6 +8,7 @@
 #include <optional>
 #include <tuple>
 #include <utility>
+#include <vector>
 
 class SketchView;
 class QLabel;
@@ -36,8 +38,20 @@ private:
     // fixed-point construction geometry (see core/core3d/
     // ExternalGeometry.h).
     void addExternalGeometry();
+    // Re-resolves every External Geometry ref added this session against
+    // its source feature's CURRENT shape (m_document.shapeAt) and updates
+    // the sketch's projected geometry in place -- turns
+    // ExternalGeometry.h's own disclosed "one-shot copy" limitation into
+    // an explicit re-sync instead of a stale copy or a re-run that leaves
+    // duplicates. Session-only: see ExternalGeometryRef's own comment on
+    // why this isn't persisted across a save/reload.
+    void refreshExternalGeometry();
 
     lcad::Document3D& m_document;
+    // Parallel to each addExternalGeometry call this session: which
+    // document feature it came from, and the ref refreshExternalGeometry
+    // needs to re-resolve and re-apply it.
+    std::vector<std::pair<int, lcad::ExternalGeometryRef>> m_externalRefs;
     void applyHorizontal();
     void applyVertical();
     void applyParallel();

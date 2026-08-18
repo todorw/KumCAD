@@ -1,6 +1,7 @@
 #include "core/core3d/ExternalGeometry.h"
 
 #include <BRepBuilderAPI_MakeEdge.hxx>
+#include <BRepBuilderAPI_Transform.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRep_Builder.hxx>
@@ -13,6 +14,8 @@
 #include <gp_Ax2.hxx>
 #include <gp_Dir.hxx>
 #include <gp_Pnt.hxx>
+#include <gp_Trsf.hxx>
+#include <gp_Vec.hxx>
 
 #include <algorithm>
 #include <catch2/catch_approx.hpp>
@@ -145,4 +148,198 @@ TEST_CASE("projectExternalEdge tessellates a circular edge whose plane isn't par
         if (sketch.circles().empty() && sketch.lines().size() == 24) foundTessellated = true;
     }
     REQUIRE(foundTessellated);
+}
+
+namespace {
+TopoDS_Shape translated(const TopoDS_Shape& shape, double dx, double dy, double dz) {
+    gp_Trsf move;
+    move.SetTranslation(gp_Vec(dx, dy, dz));
+    return BRepBuilderAPI_Transform(shape, move, true).Shape();
+}
+} // namespace
+
+TEST_CASE("projectExternalEdgeTracked records a Line ref that refreshExternalGeometry can re-sync in place",
+         "[core3d][external-geometry][refresh]") {
+    const TopoDS_Shape box = BRepPrimAPI_MakeBox(10.0, 10.0, 10.0).Shape();
+    // Edge 0 is a straight, horizontal (non-collapsing) edge of the box in
+    // every OCCT version this codebase has been built against so far --
+    // pick whichever one actually projects to a length-10 line, matching
+    // the first test's own "some edges collapse under this XY projection"
+    // observation, rather than hard-coding an index.
+    Sketch sketch;
+    ExternalGeometryRef ref;
+    int edgeIndex = -1;
+    for (int i = 0; i < edgeCountOf(box); ++i) {
+        Sketch probe;
+        ExternalGeometryRef probeRef;
+        REQUIRE(projectExternalEdgeTracked(probe, box, i, probeRef));
+        if (probeRef.kind == ExternalGeometryRef::Kind::Line &&
+            probe.points()[0].distanceTo(probe.points()[1]) > 1.0) {
+            edgeIndex = i;
+            break;
+        }
+    }
+    REQUIRE(edgeIndex >= 0);
+    REQUIRE(projectExternalEdgeTracked(sketch, box, edgeIndex, ref));
+    REQUIRE(ref.kind == ExternalGeometryRef::Kind::Line);
+    REQUIRE(ref.pointIndices.size() == 2);
+
+    const Point2D before0 = sketch.points()[static_cast<std::size_t>(ref.pointIndices[0])];
+    const Point2D before1 = sketch.points()[static_cast<std::size_t>(ref.pointIndices[1])];
+
+    // A small move -- TopoNaming.h's own nearest-fingerprint match is a
+    // real, disclosed MITIGATION for a moderate edit reshuffling edge
+    // order, not a guarantee against a large rigid move landing closer to
+    // a DIFFERENT edge's old position on a symmetric shape like a cube
+    // (see TopoNaming.h's own comment); this stays well inside what it
+    // actually promises.
+    const TopoDS_Shape movedBox = translated(box, 1.0, 0.5, 0.0);
+    REQUIRE(refreshExternalGeometry(sketch, ref, movedBox));
+
+    // Still exactly 2 points/1 line -- refresh overwrote in place, it
+    // didn't append a duplicate.
+    REQUIRE(sketch.points().size() == 2);
+    REQUIRE(sketch.lines().size() == 1);
+    const Point2D after0 = sketch.points()[static_cast<std::size_t>(ref.pointIndices[0])];
+    const Point2D after1 = sketch.points()[static_cast<std::size_t>(ref.pointIndices[1])];
+    REQUIRE(after0.distanceTo(Point2D(before0.x + 1.0, before0.y + 0.5)) < 1e-6);
+    REQUIRE(after1.distanceTo(Point2D(before1.x + 1.0, before1.y + 0.5)) < 1e-6);
+}
+
+TEST_CASE("refreshExternalGeometry re-syncs a full circle to a moved cylinder's rim",
+         "[core3d][external-geometry][refresh]") {
+    const TopoDS_Shape cylinder = BRepPrimAPI_MakeCylinder(5.0, 20.0).Shape();
+    const int count = edgeCountOf(cylinder);
+
+    Sketch sketch;
+    ExternalGeometryRef ref;
+    bool found = false;
+    for (int i = 0; i < count; ++i) {
+        ExternalGeometryRef candidate;
+        Sketch probe;
+        REQUIRE(projectExternalEdgeTracked(probe, cylinder, i, candidate));
+        if (candidate.kind == ExternalGeometryRef::Kind::Circle) {
+            REQUIRE(projectExternalEdgeTracked(sketch, cylinder, i, ref));
+            found = true;
+            break;
+        }
+    }
+    REQUIRE(found);
+    REQUIRE(sketch.circles().size() == 1);
+    REQUIRE(sketch.circles()[0].radius == Catch::Approx(5.0));
+
+    const TopoDS_Shape movedCylinder = translated(cylinder, 7.0, -3.0, 0.0);
+    REQUIRE(refreshExternalGeometry(sketch, ref, movedCylinder));
+
+    REQUIRE(sketch.circles().size() == 1); // still exactly one -- overwritten, not duplicated
+    REQUIRE(sketch.circles()[0].radius == Catch::Approx(5.0));
+    const Point2D& center = sketch.points()[static_cast<std::size_t>(ref.pointIndices[0])];
+    REQUIRE(center.x == Catch::Approx(7.0));
+    REQUIRE(center.y == Catch::Approx(-3.0));
+}
+
+TEST_CASE("refreshExternalGeometry re-syncs a trimmed arc's center/start/end/radius to a moved edge",
+         "[core3d][external-geometry][refresh]") {
+    auto makeArcCompound = [](double cx, double cy) {
+        const gp_Ax2 axis(gp_Pnt(cx, cy, 0), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0));
+        Handle(Geom_Circle) circle = new Geom_Circle(axis, 5.0);
+        Handle(Geom_TrimmedCurve) trimmed = new Geom_TrimmedCurve(circle, 0.0, M_PI / 2.0);
+        const TopoDS_Edge arcEdge = BRepBuilderAPI_MakeEdge(trimmed).Edge();
+        TopoDS_Compound compound;
+        BRep_Builder builder;
+        builder.MakeCompound(compound);
+        builder.Add(compound, arcEdge);
+        return compound;
+    };
+
+    const TopoDS_Shape original = makeArcCompound(3.0, 4.0);
+    Sketch sketch;
+    ExternalGeometryRef ref;
+    REQUIRE(projectExternalEdgeTracked(sketch, original, 0, ref));
+    REQUIRE(ref.kind == ExternalGeometryRef::Kind::Arc);
+    REQUIRE(sketch.arcs().size() == 1);
+
+    const TopoDS_Shape moved = makeArcCompound(30.0, 40.0);
+    REQUIRE(refreshExternalGeometry(sketch, ref, moved));
+
+    REQUIRE(sketch.arcs().size() == 1); // overwritten, not duplicated
+    const SketchArc& arc = sketch.arcs()[0];
+    REQUIRE(arc.radius == Catch::Approx(5.0));
+    REQUIRE(arc.ccw);
+    const Point2D& center = sketch.points()[static_cast<std::size_t>(arc.center)];
+    const Point2D& start = sketch.points()[static_cast<std::size_t>(arc.start)];
+    const Point2D& end = sketch.points()[static_cast<std::size_t>(arc.end)];
+    REQUIRE(center.x == Catch::Approx(30.0));
+    REQUIRE(center.y == Catch::Approx(40.0));
+    REQUIRE(start.x == Catch::Approx(35.0));
+    REQUIRE(start.y == Catch::Approx(40.0));
+    REQUIRE(end.x == Catch::Approx(30.0));
+    REQUIRE(end.y == Catch::Approx(45.0));
+}
+
+TEST_CASE("refreshExternalGeometry re-syncs a tessellated (non-parallel) edge's sample points",
+         "[core3d][external-geometry][refresh]") {
+    const gp_Ax2 axis(gp_Pnt(0, 0, 0), gp_Dir(1, 0, 0));
+    const TopoDS_Shape cylinder = BRepPrimAPI_MakeCylinder(axis, 5.0, 20.0).Shape();
+
+    Sketch sketch;
+    ExternalGeometryRef ref;
+    bool found = false;
+    for (int i = 0; i < edgeCountOf(cylinder); ++i) {
+        Sketch probe;
+        ExternalGeometryRef candidate;
+        REQUIRE(projectExternalEdgeTracked(probe, cylinder, i, candidate, 24));
+        if (candidate.kind == ExternalGeometryRef::Kind::Tessellated) {
+            REQUIRE(projectExternalEdgeTracked(sketch, cylinder, i, ref, 24));
+            found = true;
+            break;
+        }
+    }
+    REQUIRE(found);
+    REQUIRE(sketch.points().size() == 25);
+    REQUIRE(sketch.lines().size() == 24);
+
+    const TopoDS_Shape moved = translated(cylinder, 0.0, 11.0, 13.0);
+    REQUIRE(refreshExternalGeometry(sketch, ref, moved));
+
+    // Still exactly the same point/line count -- overwritten in place.
+    REQUIRE(sketch.points().size() == 25);
+    REQUIRE(sketch.lines().size() == 24);
+}
+
+TEST_CASE("refreshExternalGeometry fails cleanly on a null shape or a topology mismatch",
+         "[core3d][external-geometry][refresh]") {
+    const TopoDS_Shape box = BRepPrimAPI_MakeBox(10.0, 10.0, 10.0).Shape();
+    Sketch sketch;
+    ExternalGeometryRef ref;
+    int edgeIndex = -1;
+    for (int i = 0; i < edgeCountOf(box); ++i) {
+        Sketch probe;
+        ExternalGeometryRef probeRef;
+        REQUIRE(projectExternalEdgeTracked(probe, box, i, probeRef));
+        if (probeRef.kind == ExternalGeometryRef::Kind::Line &&
+            probe.points()[0].distanceTo(probe.points()[1]) > 1.0) {
+            edgeIndex = i;
+            break;
+        }
+    }
+    REQUIRE(edgeIndex >= 0);
+    REQUIRE(projectExternalEdgeTracked(sketch, box, edgeIndex, ref));
+
+    REQUIRE_FALSE(refreshExternalGeometry(sketch, ref, TopoDS_Shape()));
+
+    // A shape with only a circular edge: resolveEdgeIndex still returns
+    // SOME nearest match (it never refuses, see its own header comment),
+    // but that match is a circle, not a line, so refreshExternalGeometry's
+    // own type-mismatch guard must refuse it rather than silently
+    // corrupting sketch's Line-kind ref with circle-derived data.
+    Handle(Geom_Circle) circle = new Geom_Circle(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)), 5.0);
+    const TopoDS_Edge circleEdge = BRepBuilderAPI_MakeEdge(circle).Edge();
+    TopoDS_Compound onlyCircle;
+    BRep_Builder builder;
+    builder.MakeCompound(onlyCircle);
+    builder.Add(onlyCircle, circleEdge);
+    REQUIRE_FALSE(refreshExternalGeometry(sketch, ref, onlyCircle));
+    // Untouched: still the original pre-refresh values.
+    REQUIRE(sketch.points().size() == 2);
 }
