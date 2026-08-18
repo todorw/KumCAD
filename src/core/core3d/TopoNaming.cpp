@@ -14,6 +14,7 @@
 #include <gp_Ax3.hxx>
 #include <gp_Circ.hxx>
 #include <gp_Dir.hxx>
+#include <gp_Elips.hxx>
 #include <gp_Pln.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Vec.hxx>
@@ -127,6 +128,35 @@ std::optional<EdgeAxis> axisFromEdge(const TopoDS_Shape& shape, int index) {
 
     const TopoDS_Edge edge = TopoDS::Edge(edgeMap(index + 1));
     BRepAdaptor_Curve curve(edge);
+
+    if (curve.GetType() == GeomAbs_Circle) {
+        const gp_Circ circ = curve.Circle();
+        const gp_Pnt center = circ.Location();
+        const gp_Dir dir = circ.Axis().Direction();
+        EdgeAxis axis;
+        axis.pointX = center.X();
+        axis.pointY = center.Y();
+        axis.pointZ = center.Z();
+        axis.dirX = dir.X();
+        axis.dirY = dir.Y();
+        axis.dirZ = dir.Z();
+        return axis;
+    }
+
+    if (curve.GetType() == GeomAbs_Ellipse) {
+        const gp_Elips ellipse = curve.Ellipse();
+        const gp_Pnt center = ellipse.Location();
+        const gp_Dir dir = ellipse.Axis().Direction();
+        EdgeAxis axis;
+        axis.pointX = center.X();
+        axis.pointY = center.Y();
+        axis.pointZ = center.Z();
+        axis.dirX = dir.X();
+        axis.dirY = dir.Y();
+        axis.dirZ = dir.Z();
+        return axis;
+    }
+
     if (curve.GetType() != GeomAbs_Line) return std::nullopt;
 
     const gp_Pnt p0 = curve.Value(curve.FirstParameter());

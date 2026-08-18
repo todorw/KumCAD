@@ -1,8 +1,13 @@
 #include "core/core3d/TopoNaming.h"
 
+#include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
+#include <TopoDS_Edge.hxx>
+#include <gp_Ax2.hxx>
+#include <gp_Dir.hxx>
+#include <gp_Elips.hxx>
 #include <gp_Trsf.hxx>
 #include <gp_Vec.hxx>
 
@@ -177,18 +182,39 @@ TEST_CASE("axisFromEdge returns nullopt for an out-of-range index", "[core3d][to
     REQUIRE_FALSE(axisFromEdge(box, 999).has_value());
 }
 
-TEST_CASE("axisFromEdge rejects a curved (circular) edge", "[core3d][toponaming][attachment]") {
+TEST_CASE("axisFromEdge derives a circular edge's own axis and center, not its tangent",
+          "[core3d][toponaming][attachment]") {
+    // Default BRepPrimAPI_MakeCylinder is centered on the world Z axis at
+    // the origin.
     const TopoDS_Shape cylinder = BRepPrimAPI_MakeCylinder(5.0, 10.0).Shape();
-    // A cylinder's edges are its top/bottom circles (curved) plus one
-    // straight seam line -- at least one must reject as non-straight.
-    bool sawRejection = false;
-    bool sawAccepted = false;
-    for (int i = 0; i < 3; ++i) {
-        if (axisFromEdge(cylinder, i).has_value()) sawAccepted = true;
-        else sawRejection = true;
+    bool sawCircularEdge = false;
+    for (int i = 0; i < 3; ++i) { // top/bottom rim circles + one straight seam line
+        const auto axis = axisFromEdge(cylinder, i);
+        REQUIRE(axis.has_value()); // every edge type here now resolves -- line or circle
+        const bool isZAxis = std::abs(std::abs(axis->dirZ) - 1.0) < 1e-6 && std::abs(axis->dirX) < 1e-6 &&
+                             std::abs(axis->dirY) < 1e-6;
+        if (isZAxis && std::abs(axis->pointX) < 1e-6 && std::abs(axis->pointY) < 1e-6) {
+            // A rim circle's own axis/center, not a point-on-the-rim
+            // tangent (which would NOT point along Z, and would sit 5
+            // units off-axis in X/Y).
+            sawCircularEdge = true;
+        }
     }
-    REQUIRE(sawRejection);
-    REQUIRE(sawAccepted); // the seam line itself is straight and must still resolve
+    REQUIRE(sawCircularEdge);
+}
+
+TEST_CASE("axisFromEdge derives an elliptical edge's own axis and center", "[core3d][toponaming][attachment]") {
+    const gp_Elips ellipse(gp_Ax2(gp_Pnt(3, 4, 5), gp_Dir(0, 1, 0)), 6.0, 2.0);
+    const TopoDS_Edge ellipseEdge = BRepBuilderAPI_MakeEdge(ellipse).Edge();
+
+    const auto axis = axisFromEdge(ellipseEdge, 0);
+    REQUIRE(axis.has_value());
+    REQUIRE(axis->pointX == Approx(3.0));
+    REQUIRE(axis->pointY == Approx(4.0));
+    REQUIRE(axis->pointZ == Approx(5.0));
+    REQUIRE(std::abs(axis->dirY) == Approx(1.0).margin(1e-6));
+    REQUIRE(std::abs(axis->dirX) < 1e-6);
+    REQUIRE(std::abs(axis->dirZ) < 1e-6);
 }
 
 TEST_CASE("pointFromVertex returns each of a box's 8 corners exactly", "[core3d][toponaming][attachment]") {

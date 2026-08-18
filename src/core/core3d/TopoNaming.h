@@ -58,16 +58,28 @@ int resolveFaceIndex(const TopoDS_Shape& shape, const FaceFingerprint& target);
 // the same restriction FreeCAD's own simple face attachment has.
 std::optional<SketchPlane> planeFromFace(const TopoDS_Shape& shape, int index);
 
-// A point + unit direction derived from a STRAIGHT edge of shape at index
-// (same numbering as pickEdge/fingerprintEdge) -- point is the edge's own
-// first vertex, direction runs from it toward the edge's other vertex.
-// Lets Mirror/LinearPattern/PolarPattern/Revolve's own posX/Y/Z+dirX/Y/Z
-// fields be set by picking a real edge (an existing feature's own side,
-// say) instead of typing raw numbers, the same "real geometry drives the
-// parameter" idea planeFromFace already gives sketch attachment. Returns
-// nullopt if index is out of range or the edge isn't a straight line
-// (BRepAdaptor_Curve's GeomAbs_Line check) -- a real, disclosed
-// limitation: an arc/spline edge has no single direction to derive.
+// A point + unit direction derived from an edge of shape at index (same
+// numbering as pickEdge/fingerprintEdge). Lets Mirror/LinearPattern/
+// PolarPattern/Revolve's own posX/Y/Z+dirX/Y/Z fields be set by picking a
+// real edge (an existing feature's own side, say) instead of typing raw
+// numbers, the same "real geometry drives the parameter" idea
+// planeFromFace already gives sketch attachment.
+//
+// A STRAIGHT edge: point is the edge's own first vertex, direction runs
+// from it toward the edge's other vertex.
+//
+// A CIRCULAR (or elliptical) edge: point is the circle/ellipse's own
+// center, direction is its axis -- arguably the more natural pick for
+// Revolve/PolarPattern's own use case anyway ("pick this hole's rim to
+// revolve/pattern around its axis," not a tangent direction at one point
+// on the rim, which would vary depending on exactly where the edge is
+// clicked and wouldn't be reusable as a stable rotation axis the way the
+// circle's own axis is).
+//
+// Returns nullopt if index is out of range or the edge is neither of
+// those two curve types (BRepAdaptor_Curve's GeomAbs_Line/GeomAbs_Circle/
+// GeomAbs_Ellipse checks) -- a real, disclosed limitation: a general
+// spline edge has no single direction to derive.
 struct EdgeAxis {
     double pointX = 0.0, pointY = 0.0, pointZ = 0.0;
     double dirX = 0.0, dirY = 0.0, dirZ = 1.0;
