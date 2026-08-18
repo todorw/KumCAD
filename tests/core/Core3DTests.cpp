@@ -436,6 +436,60 @@ TEST_CASE("Document3D Hole drills a simple through-diameter hole with the exact 
     REQUIRE(volumeOf(doc.shapeAt(holeIdx)) == Approx(boxVolume - drilledVolume).margin(1e-3));
 }
 
+TEST_CASE("Document3D Hole 'Through All' (p2 < 0) removes exactly the same volume as an exact-depth hole",
+          "[core3d][hole]") {
+    Document3D doc;
+    Feature3D box;
+    box.type = FeatureType::Box;
+    box.p1 = box.p2 = box.p3 = 20.0;
+    const int boxIdx = doc.addFeature(box);
+    const double boxVolume = 20.0 * 20.0 * 20.0;
+
+    Feature3D hole;
+    hole.type = FeatureType::Hole;
+    hole.inputA = boxIdx;
+    hole.p1 = 4.0;  // diameter
+    hole.p2 = -1.0; // Through All -- auto-sized well past the box's own 20-unit height
+    hole.posX = hole.posY = 10.0;
+    hole.posZ = 0.0;
+    hole.dirX = 0.0;
+    hole.dirY = 0.0;
+    hole.dirZ = 1.0;
+    hole.count = 0; // Simple
+    const int holeIdx = doc.addFeature(hole);
+
+    REQUIRE(doc.isValid(holeIdx));
+    // The cut tool extends well beyond the box, but BRepAlgoAPI_Cut only
+    // removes the OVERLAPPING material -- so the actual drilled volume is
+    // bounded by the box's own real height (20), identical to an explicit
+    // p2=20 hole, not the auto-computed (larger) tool depth itself.
+    const double drilledVolume = M_PI * (hole.p1 / 2.0) * (hole.p1 / 2.0) * 20.0;
+    REQUIRE(volumeOf(doc.shapeAt(holeIdx)) == Approx(boxVolume - drilledVolume).margin(1e-3));
+}
+
+TEST_CASE("Document3D Hole rejects an explicit non-positive depth but accepts p2 < 0 as Through All",
+          "[core3d][hole]") {
+    Document3D doc;
+    Feature3D box;
+    box.type = FeatureType::Box;
+    box.p1 = box.p2 = box.p3 = 20.0;
+    const int boxIdx = doc.addFeature(box);
+
+    Feature3D zeroDepth;
+    zeroDepth.type = FeatureType::Hole;
+    zeroDepth.inputA = boxIdx;
+    zeroDepth.p1 = 4.0;
+    zeroDepth.p2 = 0.0; // neither a positive depth nor the through-all sentinel
+    zeroDepth.dirZ = 1.0;
+    const int zeroIdx = doc.addFeature(zeroDepth);
+    REQUIRE_FALSE(doc.isValid(zeroIdx));
+
+    Feature3D throughAll = zeroDepth;
+    throughAll.p2 = -0.001; // any negative value counts
+    const int throughIdx = doc.addFeature(throughAll);
+    REQUIRE(doc.isValid(throughIdx));
+}
+
 TEST_CASE("Document3D Hole counterbore matches the exact two-diameter-strip volume", "[core3d][hole]") {
     Document3D doc;
     Feature3D box;

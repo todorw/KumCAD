@@ -88,7 +88,7 @@ SketchFeatureDialog::SketchFeatureDialog(const lcad::Document3D& document, QWidg
                 m_p1Spin);
 
     m_p2Spin = makeSpin(-1e6, 1e6, 0.0);
-    form->addRow(QStringLiteral("Hole Depth:"), m_p2Spin);
+    form->addRow(QStringLiteral("Hole Depth (negative = Through All, auto-sized to Target):"), m_p2Spin);
     m_p3Spin = makeSpin(-1e6, 1e6, 0.0);
     form->addRow(QStringLiteral("Hole Counterbore/sink Diameter:"), m_p3Spin);
     m_p4Spin = makeSpin(-1e6, 1e6, 0.0);
@@ -285,9 +285,9 @@ void SketchFeatureDialog::updateHint() {
     case FeatureType::Hole:
         m_hintLabel->setText(
             QStringLiteral("Hole: drills into Target at Position along Direction. Diameter/Depth fields set the "
-                          "main hole; Pattern Count/Hole Type selects Simple(0)/Counterbore(1)/Countersink(2) "
-                          "-- Counterbore uses Counterbore Diameter+Depth, Countersink uses Diameter+full "
-                          "included Angle in degrees."));
+                          "main hole (negative Depth = Through All, auto-sized to Target); Pattern Count/Hole "
+                          "Type selects Simple(0)/Counterbore(1)/Countersink(2) -- Counterbore uses Counterbore "
+                          "Diameter+Depth, Countersink uses Diameter+full included Angle in degrees."));
         break;
     case FeatureType::Slice:
         m_hintLabel->setText(QStringLiteral("Slice: cuts Target with the plane through Position with normal "

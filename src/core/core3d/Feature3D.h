@@ -109,11 +109,13 @@ enum class FeatureType {
                    // G1-continuous by construction, so it never hits
                    // Sweep's own disclosed sharp-corner limitation.
     Hole,          // drills into inputA at (posX,posY,posZ) along
-                   // (dirX,dirY,dirZ): p1=diameter, p2=depth (a real,
-                   // disclosed simplification: always a finite depth,
-                   // not a true "through all" that adapts to the
-                   // target's own extent -- give p2 comfortably larger
-                   // than the target to emulate through-all). count
+                   // (dirX,dirY,dirZ): p1=diameter, p2=depth, OR p2 < 0
+                   // for a real "through all" that auto-sizes the depth
+                   // from inputA's own bounding-box diagonal (guaranteed
+                   // to exit the far side regardless of the target's
+                   // actual extent), rather than needing a typed-in
+                   // depth guessed "comfortably larger than the target".
+                   // count
                    // REUSED as a 3-way hole-type selector (0=Simple,
                    // 1=Counterbore, 2=Countersink -- the same "reuse an
                    // existing generic field for a per-type discrete

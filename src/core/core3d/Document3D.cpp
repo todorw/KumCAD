@@ -1067,15 +1067,35 @@ void Document3D::recomputeOne(int index) {
     }
     case FeatureType::Hole: {
         const double dirMag = std::sqrt(f.dirX * f.dirX + f.dirY * f.dirY + f.dirZ * f.dirZ);
-        if (f.inputA < 0 || f.inputA >= index || !isValid(f.inputA) || f.p1 <= 1e-9 || f.p2 <= 1e-9 ||
-            dirMag < 1e-9) {
+        // p2 < 0 means "through all" (see Feature3D.h's own comment):
+        // an explicit (non-through-all) depth must still be positive.
+        const bool throughAll = f.p2 < 0.0;
+        if (f.inputA < 0 || f.inputA >= index || !isValid(f.inputA) || f.p1 <= 1e-9 || dirMag < 1e-9 ||
+            (!throughAll && f.p2 <= 1e-9)) {
             ok = false;
             break;
         }
         const TopoDS_Shape& target = m_shapes[static_cast<std::size_t>(f.inputA)];
+
+        double depth = f.p2;
+        if (throughAll) {
+            // Auto-sized from the target's own bounding-box diagonal (an
+            // upper bound on any straight-line distance the drill could
+            // need to travel to fully exit it from anywhere within/near
+            // the box), plus a small margin so it cleanly exits the far
+            // face rather than just touching it -- adapts to the
+            // target's own extent instead of needing a typed-in depth
+            // "comfortably larger than the target."
+            Bnd_Box bounds;
+            BRepBndLib::Add(target, bounds);
+            double bxmin, bymin, bzmin, bxmax, bymax, bzmax;
+            bounds.Get(bxmin, bymin, bzmin, bxmax, bymax, bzmax);
+            depth = gp_Pnt(bxmin, bymin, bzmin).Distance(gp_Pnt(bxmax, bymax, bzmax)) + 1.0;
+        }
+
         const gp_Ax2 axis(gp_Pnt(f.posX, f.posY, f.posZ), gp_Dir(f.dirX, f.dirY, f.dirZ));
 
-        TopoDS_Shape tool = BRepPrimAPI_MakeCylinder(axis, f.p1 / 2.0, f.p2).Shape();
+        TopoDS_Shape tool = BRepPrimAPI_MakeCylinder(axis, f.p1 / 2.0, depth).Shape();
         // count is REUSED as the hole-type selector here (see
         // FeatureType::Hole's own comment): 1=Counterbore, 2=Countersink.
         if (f.count == 1 && f.p3 > f.p1 && f.p4 > 1e-9) {
