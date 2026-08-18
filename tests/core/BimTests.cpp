@@ -12,6 +12,7 @@
 
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 
 using namespace lcad;
 using Catch::Approx;
@@ -651,4 +652,124 @@ TEST_CASE("writeIfcLite/readIfcLite round-trips a stair", "[core3d][bim][stair]"
     REQUIRE(loaded.stairs[0].dirY == Approx(1.0));
     REQUIRE(loaded.stairs[0].stepCount == 18);
     REQUIRE(loaded.stairs[0].treadDepth == Approx(260.0));
+    REQUIRE(loaded.stairs[0].baseElevation == Approx(0.0));
+}
+
+TEST_CASE("buildBimShapes raises a stair by its baseElevation without changing its own rise",
+          "[core3d][bim][stair]") {
+    BimModel model;
+    Stair stair;
+    stair.dirX = 1.0;
+    stair.width = 1000.0;
+    stair.totalRise = 800.0;
+    stair.stepCount = 4;
+    stair.treadDepth = 250.0;
+    stair.baseElevation = 3200.0; // e.g. the second flight of a switchback stair, above a landing
+    model.stairs.push_back(stair);
+
+    BimShapes shapes = buildBimShapes(model);
+    REQUIRE_FALSE(shapes.stairShapes[0].IsNull());
+
+    Bnd_Box box;
+    BRepBndLib::Add(shapes.stairShapes[0], box);
+    double xmin, ymin, zmin, xmax, ymax, zmax;
+    box.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+    REQUIRE(zmin == Approx(stair.baseElevation).margin(1.0));
+    REQUIRE(zmax == Approx(stair.baseElevation + stair.totalRise).margin(1.0));
+}
+
+TEST_CASE("readIfcLite still reads a pre-baseElevation (8-value) IFCSTAIR entity, defaulting it to 0",
+          "[core3d][bim][stair]") {
+    TempPath temp;
+    {
+        std::ofstream out(temp.path);
+        out << "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n";
+        out << "#1=IFCSTAIR(0,0,1,0,1000,3000,16,280);\n";
+        out << "ENDSEC;\nEND-ISO-10303-21;\n";
+    }
+    BimModel loaded;
+    REQUIRE(readIfcLite(loaded, temp.path.string()));
+    REQUIRE(loaded.stairs.size() == 1);
+    REQUIRE(loaded.stairs[0].stepCount == 16);
+    REQUIRE(loaded.stairs[0].baseElevation == Approx(0.0));
+}
+
+TEST_CASE("buildBimShapes builds a landing as a plain rotated box at its base elevation",
+          "[core3d][bim][landing]") {
+    BimModel model;
+    Landing landing;
+    landing.x = 500.0;
+    landing.y = 500.0;
+    landing.width = 1000.0;
+    landing.depth = 1200.0;
+    landing.thickness = 200.0;
+    landing.baseElevation = 3000.0;
+    model.landings.push_back(landing);
+
+    BimShapes shapes = buildBimShapes(model);
+    REQUIRE(shapes.landingShapes.size() == 1);
+    REQUIRE_FALSE(shapes.landingShapes[0].IsNull());
+    REQUIRE(volumeOf(shapes.landingShapes[0]) == Approx(landing.width * landing.depth * landing.thickness).epsilon(0.001));
+
+    Bnd_Box box;
+    BRepBndLib::Add(shapes.landingShapes[0], box);
+    double xmin, ymin, zmin, xmax, ymax, zmax;
+    box.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+    REQUIRE(zmin == Approx(landing.baseElevation).margin(1e-6));
+    REQUIRE(zmax == Approx(landing.baseElevation + landing.thickness).margin(1e-6));
+}
+
+TEST_CASE("buildBimShapes rotates a landing's footprint by rotationDegrees", "[core3d][bim][landing]") {
+    BimModel model;
+    Landing landing;
+    landing.width = 1000.0;
+    landing.depth = 200.0;
+    landing.thickness = 100.0;
+    landing.rotationDegrees = 90.0; // swaps which world axis the long side runs along
+    model.landings.push_back(landing);
+
+    BimShapes shapes = buildBimShapes(model);
+    Bnd_Box box;
+    BRepBndLib::Add(shapes.landingShapes[0], box);
+    double xmin, ymin, zmin, xmax, ymax, zmax;
+    box.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+    REQUIRE((xmax - xmin) == Approx(landing.depth).margin(1e-6));
+    REQUIRE((ymax - ymin) == Approx(landing.width).margin(1e-6));
+}
+
+TEST_CASE("combinedBimShape includes landings too", "[core3d][bim][landing]") {
+    BimModel model;
+    Landing landing;
+    landing.width = 1000.0;
+    landing.depth = 1000.0;
+    landing.thickness = 200.0;
+    model.landings.push_back(landing);
+
+    BimShapes shapes = buildBimShapes(model);
+    const TopoDS_Shape combined = combinedBimShape(shapes);
+    REQUIRE_FALSE(combined.IsNull());
+}
+
+TEST_CASE("writeIfcLite/readIfcLite round-trips a landing", "[core3d][bim][landing]") {
+    TempPath temp;
+    BimModel model;
+    Landing landing;
+    landing.x = 300.0;
+    landing.y = 400.0;
+    landing.width = 1100.0;
+    landing.depth = 1300.0;
+    landing.thickness = 220.0;
+    landing.baseElevation = 3050.0;
+    landing.rotationDegrees = 45.0;
+    model.landings.push_back(landing);
+
+    REQUIRE(writeIfcLite(model, temp.path.string()));
+    BimModel loaded;
+    REQUIRE(readIfcLite(loaded, temp.path.string()));
+    REQUIRE(loaded.landings.size() == 1);
+    REQUIRE(loaded.landings[0].x == Approx(300.0));
+    REQUIRE(loaded.landings[0].width == Approx(1100.0));
+    REQUIRE(loaded.landings[0].thickness == Approx(220.0));
+    REQUIRE(loaded.landings[0].baseElevation == Approx(3050.0));
+    REQUIRE(loaded.landings[0].rotationDegrees == Approx(45.0));
 }

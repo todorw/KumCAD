@@ -107,6 +107,12 @@ private:
     void addBimColumn();
     void addBimBeam();
     void addBimSpace();
+    // Roof/Stair/Landing -- built in core/core3d/Bim.h/.cpp for a while
+    // before this UI wiring existed; same "lives alongside the feature
+    // tree" model as every other BIM element.
+    void addBimRoof();
+    void addBimStair();
+    void addBimLanding();
     void importIfcLite();
     void exportIfcLite();
     void exportOpeningSchedule();

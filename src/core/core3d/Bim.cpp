@@ -346,7 +346,12 @@ TopoDS_Shape buildStairShape(const Stair& stair) {
     if (dirLen <= 1e-9) return TopoDS_Shape();
     const double dirX = stair.dirX / dirLen, dirY = stair.dirY / dirLen;
     const double riserHeight = stair.totalRise / stair.stepCount;
-    const gp_Trsf toWorld = segmentLocalToWorld(stair.x, stair.y, stair.x + dirX, stair.y + dirY);
+    gp_Trsf toWorld = segmentLocalToWorld(stair.x, stair.y, stair.x + dirX, stair.y + dirY);
+    if (std::abs(stair.baseElevation) > 1e-12) {
+        gp_Trsf raise;
+        raise.SetTranslation(gp_Vec(0.0, 0.0, stair.baseElevation));
+        toWorld = raise.Multiplied(toWorld);
+    }
 
     TopoDS_Compound compound;
     BRep_Builder builder;
@@ -369,6 +374,27 @@ TopoDS_Shape buildStairShape(const Stair& stair) {
     }
     if (!any) return TopoDS_Shape();
     return compound;
+}
+
+// A landing is a plain rectangular box: width along local X, depth along
+// local Y, thickness along Z, centered at (x,y) then rotated
+// rotationDegrees around Z and raised to baseElevation -- the same
+// build-local-then-transform shape every other element here uses.
+TopoDS_Shape buildLandingShape(const Landing& landing) {
+    if (landing.width <= 1e-9 || landing.depth <= 1e-9 || landing.thickness <= 1e-9) return TopoDS_Shape();
+
+    const TopoDS_Shape box =
+        BRepPrimAPI_MakeBox(gp_Pnt(-landing.width / 2.0, -landing.depth / 2.0, 0.0), landing.width, landing.depth,
+                            landing.thickness)
+            .Shape();
+
+    gp_Trsf rotate;
+    rotate.SetRotation(gp_Ax1(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)), landing.rotationDegrees * M_PI / 180.0);
+    gp_Trsf translate;
+    translate.SetTranslation(gp_Vec(landing.x, landing.y, landing.baseElevation));
+    const gp_Trsf toWorld = translate.Multiplied(rotate);
+
+    return BRepBuilderAPI_Transform(box, toWorld, true).Shape();
 }
 
 std::vector<double> splitArgs(const std::string& args) {
@@ -463,6 +489,9 @@ BimShapes buildBimShapes(const BimModel& model) {
     result.stairShapes.resize(model.stairs.size());
     for (std::size_t i = 0; i < model.stairs.size(); ++i) result.stairShapes[i] = buildStairShape(model.stairs[i]);
 
+    result.landingShapes.resize(model.landings.size());
+    for (std::size_t i = 0; i < model.landings.size(); ++i) result.landingShapes[i] = buildLandingShape(model.landings[i]);
+
     return result;
 }
 
@@ -502,6 +531,12 @@ TopoDS_Shape combinedBimShape(const BimShapes& shapes) {
         }
     }
     for (const auto& shape : shapes.stairShapes) {
+        if (!shape.IsNull()) {
+            builder.Add(compound, shape);
+            any = true;
+        }
+    }
+    for (const auto& shape : shapes.landingShapes) {
         if (!shape.IsNull()) {
             builder.Add(compound, shape);
             any = true;
@@ -575,7 +610,12 @@ bool writeIfcLite(const BimModel& model, const std::string& path) {
     for (const Stair& stair : model.stairs) {
         out << '#' << id++ << "=IFCSTAIR(" << stair.x << ',' << stair.y << ',' << stair.dirX << ',' << stair.dirY
             << ',' << stair.width << ',' << stair.totalRise << ',' << stair.stepCount << ',' << stair.treadDepth
-            << ");\n";
+            << ',' << stair.baseElevation << ");\n";
+    }
+    for (const Landing& landing : model.landings) {
+        out << '#' << id++ << "=IFCLANDING(" << landing.x << ',' << landing.y << ',' << landing.width << ','
+            << landing.depth << ',' << landing.thickness << ',' << landing.baseElevation << ','
+            << landing.rotationDegrees << ");\n";
     }
 
     out << "ENDSEC;\n";
@@ -693,7 +733,7 @@ bool readIfcLite(BimModel& model, const std::string& path) {
             if (values.size() != 5 + 2 * n) continue; // malformed point count -- skip this entity
             for (std::size_t i = 0; i < n; ++i) roof.footprint.emplace_back(values[5 + 2 * i], values[5 + 2 * i + 1]);
             model.roofs.push_back(roof);
-        } else if (name == "IFCSTAIR" && values.size() == 8) {
+        } else if (name == "IFCSTAIR" && (values.size() == 8 || values.size() == 9)) {
             Stair stair;
             stair.x = values[0];
             stair.y = values[1];
@@ -703,7 +743,21 @@ bool readIfcLite(BimModel& model, const std::string& path) {
             stair.totalRise = values[5];
             stair.stepCount = static_cast<int>(values[6]);
             stair.treadDepth = values[7];
+            // baseElevation is a later addition -- an older 8-value
+            // IFCSTAIR (written before it existed) defaults to 0, the same
+            // as a Stair default-constructs to.
+            if (values.size() == 9) stair.baseElevation = values[8];
             model.stairs.push_back(stair);
+        } else if (name == "IFCLANDING" && values.size() == 7) {
+            Landing landing;
+            landing.x = values[0];
+            landing.y = values[1];
+            landing.width = values[2];
+            landing.depth = values[3];
+            landing.thickness = values[4];
+            landing.baseElevation = values[5];
+            landing.rotationDegrees = values[6];
+            model.landings.push_back(landing);
         }
     }
     return true;

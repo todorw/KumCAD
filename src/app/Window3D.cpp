@@ -1074,6 +1074,184 @@ private:
     QLineEdit* m_boundary;
 };
 
+class RoofDialog : public QDialog {
+public:
+    explicit RoofDialog(QWidget* parent = nullptr) : QDialog(parent) {
+        setWindowTitle(QStringLiteral("Add Roof"));
+        auto* form = new QFormLayout(this);
+
+        m_footprint = new QLineEdit(QStringLiteral("0,0, 8000,0, 8000,6000, 0,6000"), this);
+        form->addRow(QStringLiteral("Footprint (4 x,y pairs, CCW, axis-aligned rectangle):"), m_footprint);
+        m_baseElevation = makeSpin(3000.0);
+        form->addRow(QStringLiteral("Base Elevation (eave height):"), m_baseElevation);
+        m_pitch = makeSpin(26.57);
+        form->addRow(QStringLiteral("Pitch (degrees):"), m_pitch);
+        m_hip = new QCheckBox(QStringLiteral("Hip (all 4 sides slope; unchecked = gable)"), this);
+        form->addRow(QString(), m_hip);
+        m_ridgeAlongX = new QCheckBox(QStringLiteral("Ridge Along X"), this);
+        m_ridgeAlongX->setChecked(true);
+        form->addRow(QString(), m_ridgeAlongX);
+
+        auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+        connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+        form->addRow(buttons);
+    }
+
+    lcad::Roof result() const {
+        lcad::Roof roof;
+        std::vector<double> values;
+        for (const QString& token : m_footprint->text().split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+            bool ok = false;
+            const double v = token.trimmed().toDouble(&ok);
+            if (ok) values.push_back(v);
+        }
+        for (std::size_t i = 0; i + 1 < values.size(); i += 2) roof.footprint.emplace_back(values[i], values[i + 1]);
+        roof.baseElevation = m_baseElevation->value();
+        roof.pitchRadians = m_pitch->value() * M_PI / 180.0;
+        roof.hip = m_hip->isChecked();
+        roof.ridgeAlongX = m_ridgeAlongX->isChecked();
+        return roof;
+    }
+
+private:
+    QDoubleSpinBox* makeSpin(double value) {
+        auto* spin = new QDoubleSpinBox(this);
+        spin->setRange(-1e6, 1e6);
+        spin->setDecimals(3);
+        spin->setValue(value);
+        return spin;
+    }
+
+    QLineEdit* m_footprint;
+    QDoubleSpinBox *m_baseElevation, *m_pitch;
+    QCheckBox *m_hip, *m_ridgeAlongX;
+};
+
+class StairDialog : public QDialog {
+public:
+    explicit StairDialog(QWidget* parent = nullptr) : QDialog(parent) {
+        setWindowTitle(QStringLiteral("Add Stair"));
+        auto* form = new QFormLayout(this);
+
+        m_x = makeSpin(0.0);
+        m_y = makeSpin(0.0);
+        form->addRow(QStringLiteral("Start Position X/Y:"), rowOf({m_x, m_y}));
+        m_dirX = makeSpin(1.0);
+        m_dirY = makeSpin(0.0);
+        form->addRow(QStringLiteral("Run Direction X/Y:"), rowOf({m_dirX, m_dirY}));
+        m_baseElevation = makeSpin(0.0);
+        // A second flight of a switchback/L-shaped stair sets this to the
+        // first flight's baseElevation + totalRise + its landing's
+        // thickness -- see Bim.h's Stair/Landing comments.
+        form->addRow(QStringLiteral("Base Elevation:"), m_baseElevation);
+        m_width = makeSpin(1000.0);
+        form->addRow(QStringLiteral("Width:"), m_width);
+        m_totalRise = makeSpin(3000.0);
+        form->addRow(QStringLiteral("Total Rise:"), m_totalRise);
+        m_stepCount = new QSpinBox(this);
+        m_stepCount->setRange(1, 200);
+        m_stepCount->setValue(16);
+        form->addRow(QStringLiteral("Step Count:"), m_stepCount);
+        m_treadDepth = makeSpin(280.0);
+        form->addRow(QStringLiteral("Tread Depth:"), m_treadDepth);
+
+        auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+        connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+        form->addRow(buttons);
+    }
+
+    lcad::Stair result() const {
+        lcad::Stair stair;
+        stair.x = m_x->value();
+        stair.y = m_y->value();
+        stair.dirX = m_dirX->value();
+        stair.dirY = m_dirY->value();
+        stair.baseElevation = m_baseElevation->value();
+        stair.width = m_width->value();
+        stair.totalRise = m_totalRise->value();
+        stair.stepCount = m_stepCount->value();
+        stair.treadDepth = m_treadDepth->value();
+        return stair;
+    }
+
+private:
+    QDoubleSpinBox* makeSpin(double value) {
+        auto* spin = new QDoubleSpinBox(this);
+        spin->setRange(-1e6, 1e6);
+        spin->setDecimals(3);
+        spin->setValue(value);
+        return spin;
+    }
+    QWidget* rowOf(std::initializer_list<QWidget*> widgets) {
+        auto* container = new QWidget(this);
+        auto* layout = new QHBoxLayout(container);
+        layout->setContentsMargins(0, 0, 0, 0);
+        for (QWidget* w : widgets) layout->addWidget(w);
+        return container;
+    }
+
+    QDoubleSpinBox *m_x, *m_y, *m_dirX, *m_dirY, *m_baseElevation, *m_width, *m_totalRise, *m_treadDepth;
+    QSpinBox* m_stepCount;
+};
+
+class LandingDialog : public QDialog {
+public:
+    explicit LandingDialog(QWidget* parent = nullptr) : QDialog(parent) {
+        setWindowTitle(QStringLiteral("Add Landing"));
+        auto* form = new QFormLayout(this);
+
+        m_x = makeSpin(0.0);
+        m_y = makeSpin(0.0);
+        form->addRow(QStringLiteral("Center Position X/Y:"), rowOf({m_x, m_y}));
+        m_width = makeSpin(1000.0);
+        m_depth = makeSpin(1000.0);
+        form->addRow(QStringLiteral("Width/Depth:"), rowOf({m_width, m_depth}));
+        m_thickness = makeSpin(200.0);
+        form->addRow(QStringLiteral("Thickness:"), m_thickness);
+        m_baseElevation = makeSpin(0.0);
+        form->addRow(QStringLiteral("Base Elevation:"), m_baseElevation);
+        m_rotation = makeSpin(0.0);
+        form->addRow(QStringLiteral("Rotation (degrees):"), m_rotation);
+
+        auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+        connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+        form->addRow(buttons);
+    }
+
+    lcad::Landing result() const {
+        lcad::Landing landing;
+        landing.x = m_x->value();
+        landing.y = m_y->value();
+        landing.width = m_width->value();
+        landing.depth = m_depth->value();
+        landing.thickness = m_thickness->value();
+        landing.baseElevation = m_baseElevation->value();
+        landing.rotationDegrees = m_rotation->value();
+        return landing;
+    }
+
+private:
+    QDoubleSpinBox* makeSpin(double value) {
+        auto* spin = new QDoubleSpinBox(this);
+        spin->setRange(-1e6, 1e6);
+        spin->setDecimals(3);
+        spin->setValue(value);
+        return spin;
+    }
+    QWidget* rowOf(std::initializer_list<QWidget*> widgets) {
+        auto* container = new QWidget(this);
+        auto* layout = new QHBoxLayout(container);
+        layout->setContentsMargins(0, 0, 0, 0);
+        for (QWidget* w : widgets) layout->addWidget(w);
+        return container;
+    }
+
+    QDoubleSpinBox *m_x, *m_y, *m_width, *m_depth, *m_thickness, *m_baseElevation, *m_rotation;
+};
+
 class PipeRunDialog : public QDialog {
 public:
     explicit PipeRunDialog(QWidget* parent = nullptr) : QDialog(parent) {
@@ -1507,6 +1685,9 @@ Window3D::Window3D(QWidget* parent) : QMainWindow(parent) {
     fileMenu->addAction(QStringLiteral("BIM: Add Column..."), this, &Window3D::addBimColumn);
     fileMenu->addAction(QStringLiteral("BIM: Add Beam..."), this, &Window3D::addBimBeam);
     fileMenu->addAction(QStringLiteral("BIM: Add Room/Space..."), this, &Window3D::addBimSpace);
+    fileMenu->addAction(QStringLiteral("BIM: Add Roof..."), this, &Window3D::addBimRoof);
+    fileMenu->addAction(QStringLiteral("BIM: Add Stair..."), this, &Window3D::addBimStair);
+    fileMenu->addAction(QStringLiteral("BIM: Add Landing..."), this, &Window3D::addBimLanding);
     fileMenu->addAction(QStringLiteral("BIM: Import IFC-lite..."), this, &Window3D::importIfcLite);
     fileMenu->addAction(QStringLiteral("BIM: Export IFC-lite..."), this, &Window3D::exportIfcLite);
     fileMenu->addAction(QStringLiteral("BIM: Export Opening Schedule..."), this, &Window3D::exportOpeningSchedule);
@@ -2359,6 +2540,35 @@ void Window3D::addBimSpace() {
                               3000);
 }
 
+void Window3D::addBimRoof() {
+    RoofDialog dialog(this);
+    if (dialog.exec() != QDialog::Accepted) return;
+    const lcad::Roof roof = dialog.result();
+    if (roof.footprint.size() != 4) {
+        statusBar()->showMessage(QStringLiteral("A roof needs exactly 4 footprint points (axis-aligned rectangle)"), 3000);
+        return;
+    }
+    m_bimModel.roofs.push_back(roof);
+    refreshViewport();
+    statusBar()->showMessage(QStringLiteral("Roof %1 added").arg(m_bimModel.roofs.size() - 1), 2000);
+}
+
+void Window3D::addBimStair() {
+    StairDialog dialog(this);
+    if (dialog.exec() != QDialog::Accepted) return;
+    m_bimModel.stairs.push_back(dialog.result());
+    refreshViewport();
+    statusBar()->showMessage(QStringLiteral("Stair %1 added").arg(m_bimModel.stairs.size() - 1), 2000);
+}
+
+void Window3D::addBimLanding() {
+    LandingDialog dialog(this);
+    if (dialog.exec() != QDialog::Accepted) return;
+    m_bimModel.landings.push_back(dialog.result());
+    refreshViewport();
+    statusBar()->showMessage(QStringLiteral("Landing %1 added").arg(m_bimModel.landings.size() - 1), 2000);
+}
+
 void Window3D::importIfcLite() {
     const QString path = QFileDialog::getOpenFileName(this, QStringLiteral("Import IFC-lite"), QString(),
                                                         QStringLiteral("IFC-lite Files (*.ifc)"));
@@ -2371,13 +2581,16 @@ void Window3D::importIfcLite() {
     m_bimModel = loaded;
     refreshViewport();
     statusBar()->showMessage(QStringLiteral("Loaded %1 wall(s), %2 opening(s), %3 slab(s), %4 column(s), %5 beam(s), "
-                                            "%6 space(s)")
+                                            "%6 space(s), %7 roof(s), %8 stair(s), %9 landing(s)")
                                   .arg(m_bimModel.walls.size())
                                   .arg(m_bimModel.openings.size())
                                   .arg(m_bimModel.slabs.size())
                                   .arg(m_bimModel.columns.size())
                                   .arg(m_bimModel.beams.size())
-                                  .arg(m_bimModel.spaces.size()),
+                                  .arg(m_bimModel.spaces.size())
+                                  .arg(m_bimModel.roofs.size())
+                                  .arg(m_bimModel.stairs.size())
+                                  .arg(m_bimModel.landings.size()),
                               4000);
 }
 

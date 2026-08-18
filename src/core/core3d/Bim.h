@@ -112,10 +112,15 @@ struct Roof {
 
 // A straight-run stair: rise/run/width parameters generate stepCount real
 // stepped solids (each tread+riser as one box), positioned starting at
-// (x,y) and running along direction (dirX,dirY) (normalized internally).
-// Landings, winders, and curved runs are out of scope -- the single
-// straight run is the common case this file's other elements (Wall,
-// Beam) already scope themselves to.
+// (x,y)+baseElevation and running along direction (dirX,dirY) (normalized
+// internally), rising from baseElevation to baseElevation+totalRise.
+// Winders and curved runs stay out of scope -- but a real switchback
+// (U-shaped) or L-shaped stair is now just TWO Stair entries plus a
+// Landing between them (baseElevation chained: flight 2's baseElevation ==
+// flight 1's baseElevation+totalRise+landing.thickness), the same
+// "compose from independent flat-list elements" convention every other
+// BimModel element already uses rather than a dedicated multi-flight
+// struct -- see Landing's own comment.
 struct Stair {
     double x = 0.0, y = 0.0;
     double dirX = 1.0, dirY = 0.0;
@@ -123,6 +128,22 @@ struct Stair {
     double totalRise = 3000.0;
     int stepCount = 16;
     double treadDepth = 280.0;
+    double baseElevation = 0.0;
+};
+
+// A flat rectangular platform, centered at (x,y) and rotated
+// rotationDegrees around Z -- the piece a switchback/L-shaped stair
+// chains between two Stair flights (see Stair's own comment), or an
+// ordinary floor/porch landing on its own. Built the same simple
+// box-at-elevation way Slab is, just with a fixed rectangular footprint
+// (width x depth) instead of an arbitrary polygon boundary, since a
+// landing is always a plain rectangle in practice.
+struct Landing {
+    double x = 0.0, y = 0.0;
+    double width = 1000.0, depth = 1000.0;
+    double thickness = 200.0;
+    double baseElevation = 0.0;
+    double rotationDegrees = 0.0;
 };
 
 struct BimModel {
@@ -134,6 +155,7 @@ struct BimModel {
     std::vector<Space> spaces;
     std::vector<Roof> roofs;
     std::vector<Stair> stairs;
+    std::vector<Landing> landings;
 };
 
 struct BimShapes {
@@ -143,6 +165,7 @@ struct BimShapes {
     std::vector<TopoDS_Shape> beamShapes;   // parallel to model.beams
     std::vector<TopoDS_Shape> roofShapes;   // parallel to model.roofs
     std::vector<TopoDS_Shape> stairShapes;  // parallel to model.stairs, each a compound of stepCount step solids
+    std::vector<TopoDS_Shape> landingShapes; // parallel to model.landings
 };
 
 // Builds every wall (openings assigned to it cut out), slab, column, and
