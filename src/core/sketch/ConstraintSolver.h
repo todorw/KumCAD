@@ -44,4 +44,44 @@ struct DofReport {
 // field comments for exactly what each number does and doesn't prove.
 DofReport analyzeDof(const Sketch& sketch);
 
+// One user constraint flagged as redundant by analyzeRedundancy, in the
+// order constraints were added to the sketch.
+struct RedundantConstraint {
+    int constraintIndex = -1;
+    // true if this constraint's own residual is non-zero at the sketch's
+    // CURRENT configuration (it contradicts the constraints already
+    // satisfied before it -- e.g. two different Distance values pinned to
+    // the same two points); false if the residual is ~zero (a harmless
+    // duplicate, already implied by earlier constraints -- e.g. the same
+    // Distance added twice). This classification is evaluated at whatever
+    // configuration the sketch is currently in, so it's most meaningful
+    // right after solveSketch has converged.
+    bool conflicting = false;
+};
+
+// The real rank-based redundancy/DOF analysis analyzeDof's own comment
+// says a naive count can't give: builds the same numerically-differentiated
+// constraint Jacobian solveSketch itself uses, at the sketch's CURRENT
+// point/radius values, and finds its actual numeric rank (via
+// LinearSolve.h's independentRowFlags) instead of just counting equations.
+// A constraint's row(s) being linearly dependent on the rows before it is
+// exactly what "this constraint adds nothing new" means -- so this reports
+// specific constraint indices, not just a bulk count, closing the gap
+// analyzeDof's own doc comment calls out as unresolved.
+//
+// Still a real, disclosed limitation: rank is evaluated at ONE
+// configuration (a linearization), not proven for every configuration the
+// sketch could ever take, and which specific constraint gets blamed for a
+// dependency is order-dependent (whichever one is processed last among a
+// mutually-dependent group) -- the same caveat any Jacobian-rank-based
+// diagnostic carries, real CAD sketchers included.
+struct RedundancyReport {
+    int rank = 0;               // numeric rank of the constraint Jacobian at the sketch's current configuration
+    int totalEquations = 0;     // total residual-row count (matches DofReport::constraintEquations)
+    int trueRemainingDof = 0;   // totalDof - rank: the sketch's ACTUAL remaining freedom (not analyzeDof's naive estimate)
+    bool overConstrained = false; // rank < totalEquations: at least one row is linearly dependent on the others
+    std::vector<RedundantConstraint> redundant;
+};
+RedundancyReport analyzeRedundancy(const Sketch& sketch);
+
 } // namespace lcad

@@ -447,6 +447,103 @@ TEST_CASE("analyzeDof counts Midpoint and Symmetric as 2 equations each, not 1",
     REQUIRE_FALSE(report.likelyOverConstrained);
 }
 
+TEST_CASE("independentRowFlags finds the numeric rank and flags rows dependent on earlier ones",
+          "[sketch][linearsolve]") {
+    // Row 2 is 2x row 0 (dependent on it); row 1 is independent of both.
+    std::vector<std::vector<double>> rows = {{1, 0, 0}, {0, 1, 0}, {2, 0, 0}};
+    const std::vector<bool> flags = independentRowFlags(rows);
+    REQUIRE(flags.size() == 3);
+    REQUIRE(flags[0]);
+    REQUIRE(flags[1]);
+    REQUIRE_FALSE(flags[2]);
+
+    int rank = 0;
+    for (bool f : flags) rank += f ? 1 : 0;
+    REQUIRE(rank == 2);
+}
+
+TEST_CASE("analyzeRedundancy reports rank equal to totalDof for an exactly-constrained sketch",
+          "[sketch][redundancy]") {
+    // A 4-line rectangle with one corner + Horizontal/Vertical on all 4 sides + a width/height
+    // Distance: 6 DOF (3 free corners), 6 independent equations -- exactly constrained, no slack.
+    Sketch sketch;
+    const int p0 = sketch.addPoint(Point2D(0, 0), true);
+    const int p1 = sketch.addPoint(Point2D(10, 0.5));
+    const int p2 = sketch.addPoint(Point2D(9.5, 5));
+    const int p3 = sketch.addPoint(Point2D(0.5, 4.5));
+    const int l0 = sketch.addLine(p0, p1);
+    const int l1 = sketch.addLine(p1, p2);
+    const int l2 = sketch.addLine(p2, p3);
+    const int l3 = sketch.addLine(p3, p0);
+    sketch.addConstraint({SketchConstraintType::Horizontal, l0});
+    sketch.addConstraint({SketchConstraintType::Vertical, l1});
+    sketch.addConstraint({SketchConstraintType::Horizontal, l2});
+    sketch.addConstraint({SketchConstraintType::Vertical, l3});
+    SketchConstraint width;
+    width.type = SketchConstraintType::Distance;
+    width.pointA = p0;
+    width.pointB = p1;
+    width.value = 10.0;
+    sketch.addConstraint(width);
+    SketchConstraint height;
+    height.type = SketchConstraintType::Distance;
+    height.pointA = p1;
+    height.pointB = p2;
+    height.value = 5.0;
+    sketch.addConstraint(height);
+
+    solveSketch(sketch);
+    const RedundancyReport report = analyzeRedundancy(sketch);
+    REQUIRE(report.rank == 6);
+    REQUIRE(report.trueRemainingDof == 0);
+    REQUIRE_FALSE(report.overConstrained);
+    REQUIRE(report.redundant.empty());
+}
+
+TEST_CASE("analyzeRedundancy flags a harmless duplicate Distance constraint as redundant, not conflicting",
+          "[sketch][redundancy]") {
+    Sketch sketch;
+    const int p0 = sketch.addPoint(Point2D(0, 0), true);
+    const int p1 = sketch.addPoint(Point2D(10, 0));
+    SketchConstraint d1;
+    d1.type = SketchConstraintType::Distance;
+    d1.pointA = p0;
+    d1.pointB = p1;
+    d1.value = 10.0;
+    sketch.addConstraint(d1);
+    sketch.addConstraint(d1); // exact duplicate
+
+    solveSketch(sketch);
+    const RedundancyReport report = analyzeRedundancy(sketch);
+    REQUIRE(report.overConstrained);
+    REQUIRE(report.redundant.size() == 1);
+    REQUIRE(report.redundant[0].constraintIndex == 1); // the second (later) copy is the one flagged
+    REQUIRE_FALSE(report.redundant[0].conflicting);
+}
+
+TEST_CASE("analyzeRedundancy flags two contradictory Distance constraints as conflicting",
+          "[sketch][redundancy]") {
+    Sketch sketch;
+    const int p0 = sketch.addPoint(Point2D(0, 0), true);
+    const int p1 = sketch.addPoint(Point2D(10, 0));
+    SketchConstraint d1;
+    d1.type = SketchConstraintType::Distance;
+    d1.pointA = p0;
+    d1.pointB = p1;
+    d1.value = 10.0;
+    sketch.addConstraint(d1);
+    SketchConstraint d2 = d1;
+    d2.value = 20.0; // same two points, incompatible distance
+    sketch.addConstraint(d2);
+
+    solveSketch(sketch); // won't fully converge -- that's expected for a genuine conflict
+    const RedundancyReport report = analyzeRedundancy(sketch);
+    REQUIRE(report.overConstrained);
+    REQUIRE(report.redundant.size() == 1);
+    REQUIRE(report.redundant[0].constraintIndex == 1);
+    REQUIRE(report.redundant[0].conflicting);
+}
+
 TEST_CASE("SketchPlane base planes form correct orthonormal right-handed frames", "[sketch][plane]") {
     auto checkOrthonormalRightHanded = [](const SketchPlane& p) {
         const Point3D y = p.yAxis();

@@ -42,4 +42,41 @@ bool solveLinearSystem(std::vector<std::vector<double>> a, std::vector<double> b
     return true;
 }
 
+std::vector<bool> independentRowFlags(std::vector<std::vector<double>> rows, double tol) {
+    const std::size_t numRows = rows.size();
+    std::vector<bool> independent(numRows, false);
+    if (numRows == 0) return independent;
+    const std::size_t numCols = rows[0].size();
+
+    std::vector<std::vector<double>> basis;   // accepted rows, already reduced to their own pivot column
+    std::vector<std::size_t> pivotCol;        // pivotCol[b] is basis[b]'s pivot column
+
+    for (std::size_t i = 0; i < numRows; ++i) {
+        std::vector<double> r = rows[i];
+        for (std::size_t b = 0; b < basis.size(); ++b) {
+            const double coeff = r[pivotCol[b]];
+            if (std::abs(coeff) > tol) {
+                for (std::size_t k = 0; k < numCols; ++k) r[k] -= coeff * basis[b][k];
+            }
+        }
+
+        std::size_t bestCol = numCols;
+        double bestMag = tol;
+        for (std::size_t k = 0; k < numCols; ++k) {
+            if (std::abs(r[k]) > bestMag) {
+                bestMag = std::abs(r[k]);
+                bestCol = k;
+            }
+        }
+        if (bestCol == numCols) continue; // reduced to ~zero: dependent on rows already accepted
+
+        const double pivotVal = r[bestCol];
+        for (std::size_t k = 0; k < numCols; ++k) r[k] /= pivotVal;
+        basis.push_back(std::move(r));
+        pivotCol.push_back(bestCol);
+        independent[i] = true;
+    }
+    return independent;
+}
+
 } // namespace lcad

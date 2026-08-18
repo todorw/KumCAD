@@ -433,4 +433,73 @@ DofReport analyzeDof(const Sketch& sketch) {
     return report;
 }
 
+RedundancyReport analyzeRedundancy(const Sketch& sketch) {
+    RedundancyReport report;
+    const VariableMap vars(sketch);
+    const int n = vars.size();
+    if (n == 0) return report;
+
+    const std::vector<double> x = initialVector(sketch, vars);
+    const std::vector<double> residual = computeResidual(sketch, vars, x);
+    const int m = static_cast<int>(residual.size());
+    if (m == 0) {
+        report.trueRemainingDof = n;
+        return report;
+    }
+
+    // Same numerically-differentiated Jacobian solveSketch itself builds
+    // each iteration -- see its own comment for why numeric, not analytical.
+    std::vector<std::vector<double>> jacobian(static_cast<std::size_t>(m), std::vector<double>(static_cast<std::size_t>(n), 0.0));
+    constexpr double kStep = 1e-6;
+    for (int j = 0; j < n; ++j) {
+        std::vector<double> xPerturbed = x;
+        xPerturbed[static_cast<std::size_t>(j)] += kStep;
+        const std::vector<double> rPerturbed = computeResidual(sketch, vars, xPerturbed);
+        for (int i = 0; i < m; ++i) {
+            jacobian[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)] =
+                (rPerturbed[static_cast<std::size_t>(i)] - residual[static_cast<std::size_t>(i)]) / kStep;
+        }
+    }
+
+    // Row i of the Jacobian belongs to rowConstraint[i] (an index into
+    // sketch.constraints()), matching computeResidual's own row order
+    // exactly: each user constraint contributes equationCount(type) rows in
+    // order, followed by 2 rows per arc for the always-on internal
+    // consistency equations (rowConstraint == -1 for those -- they aren't a
+    // constraint the user added, so never reported as redundant to them).
+    std::vector<int> rowConstraint;
+    rowConstraint.reserve(static_cast<std::size_t>(m));
+    for (std::size_t ci = 0; ci < sketch.constraints().size(); ++ci) {
+        const int eqs = equationCount(sketch.constraints()[ci].type);
+        for (int k = 0; k < eqs; ++k) rowConstraint.push_back(static_cast<int>(ci));
+    }
+    for (std::size_t i = 0; i < sketch.arcs().size(); ++i) {
+        rowConstraint.push_back(-1);
+        rowConstraint.push_back(-1);
+    }
+
+    const std::vector<bool> independent = independentRowFlags(jacobian);
+    std::vector<bool> reported(sketch.constraints().size(), false);
+    int rank = 0;
+    for (std::size_t i = 0; i < independent.size(); ++i) {
+        if (independent[i]) {
+            ++rank;
+            continue;
+        }
+        const int ci = rowConstraint[static_cast<std::size_t>(i)];
+        if (ci < 0 || reported[static_cast<std::size_t>(ci)]) continue;
+        reported[static_cast<std::size_t>(ci)] = true;
+        RedundantConstraint rc;
+        rc.constraintIndex = ci;
+        rc.conflicting = std::abs(residual[i]) > 1e-6;
+        report.redundant.push_back(rc);
+    }
+
+    report.rank = rank;
+    report.totalEquations = m;
+    report.trueRemainingDof = std::max(0, n - rank);
+    report.overConstrained = rank < m;
+    return report;
+}
+
 } // namespace lcad

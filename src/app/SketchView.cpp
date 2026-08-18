@@ -5,6 +5,7 @@
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QStringList>
 #include <QWheelEvent>
 
 #include <algorithm>
@@ -54,10 +55,24 @@ void SketchView::clearSelection() {
 
 void SketchView::resolve() {
     const lcad::SolveResult result = solveSketch(m_sketch);
-    const lcad::DofReport dof = lcad::analyzeDof(m_sketch);
-    QString dofText = dof.likelyOverConstrained
-                         ? QStringLiteral(" — likely over-constrained (%1 equation(s) for %2 DOF)").arg(dof.constraintEquations).arg(dof.totalDof)
-                         : QStringLiteral(" — %1 DOF remaining").arg(dof.remainingDof);
+    // Real rank-based diagnosis (analyzeRedundancy) supersedes the naive
+    // equation-count check for display purposes: when it can name specific
+    // redundant/conflicting constraints, that's strictly more useful than
+    // just "over-constrained". It still falls back to a DOF count otherwise.
+    const lcad::RedundancyReport redundancy = lcad::analyzeRedundancy(m_sketch);
+    QString dofText;
+    if (!redundancy.redundant.empty()) {
+        QStringList parts;
+        for (const lcad::RedundantConstraint& rc : redundancy.redundant) {
+            parts << QStringLiteral("#%1 %2").arg(rc.constraintIndex)
+                         .arg(rc.conflicting ? QStringLiteral("(conflicting)") : QStringLiteral("(redundant)"));
+        }
+        dofText = QStringLiteral(" — constraint %1").arg(parts.join(QStringLiteral(", ")));
+    } else if (redundancy.overConstrained) {
+        dofText = QStringLiteral(" — over-constrained (rank %1 for %2 equations)").arg(redundancy.rank).arg(redundancy.totalEquations);
+    } else {
+        dofText = QStringLiteral(" — %1 DOF remaining").arg(redundancy.trueRemainingDof);
+    }
     emit statusMessage((result.converged ? QStringLiteral("Solved (residual %1)").arg(result.finalResidualNorm, 0, 'e', 2)
                                          : QStringLiteral("Did not converge (residual %1) — check for conflicting "
                                                           "or redundant constraints")
