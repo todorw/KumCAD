@@ -440,6 +440,107 @@ TEST_CASE("Assembly Tangent mate is idempotent: solving twice doesn't drift the 
     REQUIRE(secondZ == Approx(3.0).margin(1e-6));
 }
 
+TEST_CASE("Assembly AxisTangentExternal mate places two parallel axes radiusA+radiusB apart",
+          "[core3d][assembly][axistangent]") {
+    Assembly asm_;
+    AssemblyComponent a;
+    a.shape = makeBox(10.0);
+    a.fixed = true;
+    const int idxA = asm_.addComponent(a);
+
+    AssemblyComponent b;
+    b.shape = makeBox(2.0);
+    const int idxB = asm_.addComponent(b);
+    // B starts off on the +X side of A's axis, tilted, at some arbitrary Z along the shared axis.
+    asm_.components()[static_cast<std::size_t>(idxB)].placement.SetTranslationPart(gp_Vec(20.0, 0.0, 7.0));
+
+    Mate mate;
+    mate.type = MateType::AxisTangentExternal;
+    mate.componentA = idxA;
+    mate.componentB = idxB;
+    mate.adx = 0.0; mate.ady = 0.0; mate.adz = 1.0; // A's axis: the world Z axis through the origin
+    mate.bdx = 1.0; mate.bdy = 0.0; mate.bdz = 1.0; // B's own axis starts tilted 45 degrees off Z
+    mate.value = 2.0;  // radiusA
+    mate.value2 = 3.0; // radiusB
+    asm_.addMate(mate);
+
+    asm_.solve();
+
+    const gp_Trsf& placement = asm_.components()[static_cast<std::size_t>(idxB)].placement;
+    const gp_Pnt axisPoint = gp_Pnt(0, 0, 0).Transformed(placement);
+    const gp_Pnt axisTip = gp_Pnt(1, 0, 1).Transformed(placement);
+    const gp_Vec axisDir = gp_Vec(axisPoint, axisTip) / axisPoint.Distance(axisTip);
+
+    // B's axis is now parallel to A's (world Z)...
+    REQUIRE(std::abs(axisDir.X()) < 1e-6);
+    REQUIRE(std::abs(axisDir.Y()) < 1e-6);
+    // ...offset exactly radiusA+radiusB = 5 from A's axis (the world Z axis)...
+    REQUIRE(std::hypot(axisPoint.X(), axisPoint.Y()) == Approx(5.0).margin(1e-6));
+    // ...staying on the +X side it started on (closest-to-current radial direction)...
+    REQUIRE(axisPoint.X() > 0.0);
+    // ...and its position ALONG the shared axis (Z) is left untouched.
+    REQUIRE(axisPoint.Z() == Approx(7.0).margin(1e-6));
+}
+
+TEST_CASE("Assembly AxisTangentInternal mate places two parallel axes |radiusA-radiusB| apart",
+          "[core3d][assembly][axistangent]") {
+    Assembly asm_;
+    AssemblyComponent a;
+    a.shape = makeBox(10.0);
+    a.fixed = true;
+    const int idxA = asm_.addComponent(a);
+
+    AssemblyComponent b;
+    b.shape = makeBox(2.0);
+    const int idxB = asm_.addComponent(b);
+    asm_.components()[static_cast<std::size_t>(idxB)].placement.SetTranslationPart(gp_Vec(1.0, 0.0, 0.0));
+
+    Mate mate;
+    mate.type = MateType::AxisTangentInternal;
+    mate.componentA = idxA;
+    mate.componentB = idxB;
+    mate.adz = 1.0;
+    mate.bdz = 1.0; // already parallel -- exercises the "axes coincide/aligned" path, not the rotation path
+    mate.value = 5.0;  // radiusA (the bore)
+    mate.value2 = 2.0; // radiusB (the shaft)
+    asm_.addMate(mate);
+
+    asm_.solve();
+
+    const gp_Pnt axisPoint = gp_Pnt(0, 0, 0).Transformed(asm_.components()[static_cast<std::size_t>(idxB)].placement);
+    REQUIRE(std::hypot(axisPoint.X(), axisPoint.Y()) == Approx(3.0).margin(1e-6)); // |5 - 2|
+}
+
+TEST_CASE("Assembly AxisTangentExternal mate is idempotent: solving twice doesn't drift the offset",
+          "[core3d][assembly][axistangent]") {
+    Assembly asm_;
+    AssemblyComponent a;
+    a.shape = makeBox(10.0);
+    a.fixed = true;
+    const int idxA = asm_.addComponent(a);
+    AssemblyComponent b;
+    b.shape = makeBox(2.0);
+    const int idxB = asm_.addComponent(b);
+
+    Mate mate;
+    mate.type = MateType::AxisTangentExternal;
+    mate.componentA = idxA;
+    mate.componentB = idxB;
+    mate.adz = 1.0;
+    mate.bdx = 1.0;
+    mate.value = 1.5;
+    mate.value2 = 1.5;
+    asm_.addMate(mate);
+
+    asm_.solve();
+    const gp_Pnt first = gp_Pnt(0, 0, 0).Transformed(asm_.components()[static_cast<std::size_t>(idxB)].placement);
+    asm_.solve();
+    const gp_Pnt second = gp_Pnt(0, 0, 0).Transformed(asm_.components()[static_cast<std::size_t>(idxB)].placement);
+    REQUIRE(std::hypot(first.X(), first.Y()) == Approx(3.0).margin(1e-6));
+    REQUIRE(std::hypot(second.X(), second.Y()) == Approx(3.0).margin(1e-6));
+    REQUIRE(first.Z() == Approx(second.Z()).margin(1e-6));
+}
+
 TEST_CASE("Assembly Fixed mate is Concentric's point+direction alignment plus a pinning roll",
           "[core3d][assembly][fixed]") {
     Assembly asm_;

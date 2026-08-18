@@ -40,7 +40,8 @@ void Assembly::solve() {
         const gp_Pnt worldPointA = localPointA.Transformed(compA.placement);
         const gp_Dir worldDirA = localDirA.Transformed(compA.placement);
 
-        if (m.type == MateType::Parallel || m.type == MateType::Perpendicular || m.type == MateType::Tangent) {
+        if (m.type == MateType::Parallel || m.type == MateType::Perpendicular || m.type == MateType::Tangent ||
+            m.type == MateType::AxisTangentExternal || m.type == MateType::AxisTangentInternal) {
             const gp_Dir currentDirB = localDirB.Transformed(compB.placement);
             gp_Dir target = worldDirA;
 
@@ -84,6 +85,34 @@ void Assembly::solve() {
                 const double currentDist = gp_Vec(worldPointA, worldPointB).Dot(gp_Vec(worldDirA));
                 gp_Trsf slide;
                 slide.SetTranslation(gp_Vec(worldDirA) * (m.value - currentDist));
+                compB.placement = slide.Multiplied(compB.placement);
+            } else if (m.type == MateType::AxisTangentExternal || m.type == MateType::AxisTangentInternal) {
+                // The rotation above already made componentB's axis
+                // parallel to worldDirA; now correct only the PERPENDICULAR
+                // offset between the two axes, preserving both componentB's
+                // position along the shared axis and which radial side of
+                // componentA's axis it's currently on (closest-to-current,
+                // same philosophy as Perpendicular/Tangent's rotation).
+                const gp_Pnt worldPointB = localPointB.Transformed(compB.placement);
+                const gp_Vec toB(worldPointA, worldPointB);
+                const gp_Vec axisComp = gp_Vec(worldDirA) * toB.Dot(gp_Vec(worldDirA));
+                gp_Vec perpComp = toB - axisComp;
+                gp_Dir perpDir;
+                if (perpComp.Magnitude() > 1e-9) {
+                    perpDir = gp_Dir(perpComp);
+                } else {
+                    // Axes currently coincide -- no existing radial side to
+                    // preserve, so pick an arbitrary perpendicular direction
+                    // the same way Perpendicular's own degenerate case does.
+                    gp_Dir helper(0, 0, 1);
+                    if (std::abs(worldDirA.Dot(helper)) > 0.9) helper = gp_Dir(1, 0, 0);
+                    perpDir = gp_Dir(worldDirA.Crossed(helper));
+                }
+                const double targetPerp = (m.type == MateType::AxisTangentExternal) ? (m.value + m.value2)
+                                                                                     : std::abs(m.value - m.value2);
+                const gp_Pnt targetWorldPointB = worldPointA.Translated(axisComp + gp_Vec(perpDir) * targetPerp);
+                gp_Trsf slide;
+                slide.SetTranslation(gp_Vec(worldPointB, targetWorldPointB));
                 compB.placement = slide.Multiplied(compB.placement);
             }
             continue;

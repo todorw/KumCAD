@@ -41,7 +41,9 @@ QString mateTypeName(MateType type) {
     case MateType::Angle: return QStringLiteral("Angle");
     case MateType::Parallel: return QStringLiteral("Parallel");
     case MateType::Perpendicular: return QStringLiteral("Perpendicular");
-    case MateType::Tangent: return QStringLiteral("Tangent");
+    case MateType::Tangent: return QStringLiteral("Tangent (plane-cylinder)");
+    case MateType::AxisTangentExternal: return QStringLiteral("Tangent (cylinder-cylinder, external)");
+    case MateType::AxisTangentInternal: return QStringLiteral("Tangent (cylinder-cylinder, internal)");
     case MateType::Fixed: return QStringLiteral("Fixed");
     case MateType::Slider: return QStringLiteral("Slider");
     }
@@ -113,7 +115,8 @@ public:
 
         m_typeCombo = new QComboBox(this);
         for (MateType type : {MateType::Coincident, MateType::Concentric, MateType::Distance, MateType::Angle,
-                             MateType::Parallel, MateType::Perpendicular, MateType::Tangent, MateType::Fixed,
+                             MateType::Parallel, MateType::Perpendicular, MateType::Tangent,
+                             MateType::AxisTangentExternal, MateType::AxisTangentInternal, MateType::Fixed,
                              MateType::Slider}) {
             m_typeCombo->addItem(mateTypeName(type), static_cast<int>(type));
         }
@@ -147,7 +150,9 @@ public:
         form->addRow(QString(), pickB);
 
         m_value = makeSpin(0.0);
-        form->addRow(QStringLiteral("Distance offset / Angle degrees (unused for Parallel/Perpendicular):"), m_value);
+        form->addRow(QStringLiteral("Distance offset / Angle degrees / radius A (unused for Parallel/Perpendicular):"), m_value);
+        m_value2 = makeSpin(0.0);
+        form->addRow(QStringLiteral("Radius B (cylinder-cylinder Tangent mates only):"), m_value2);
 
         auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
         connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
@@ -165,6 +170,7 @@ public:
         m.bx = m_bx->value(); m.by = m_by->value(); m.bz = m_bz->value();
         m.bdx = m_bdx->value(); m.bdy = m_bdy->value(); m.bdz = m_bdz->value();
         m.value = m_value->value();
+        m.value2 = m_value2->value();
         return m;
     }
 
@@ -216,6 +222,7 @@ private:
     QDoubleSpinBox *m_ax, *m_ay, *m_az, *m_adx, *m_ady, *m_adz;
     QDoubleSpinBox *m_bx, *m_by, *m_bz, *m_bdx, *m_bdy, *m_bdz;
     QDoubleSpinBox* m_value = nullptr;
+    QDoubleSpinBox* m_value2 = nullptr;
     const std::vector<AssemblyComponent>& m_components;
 };
 

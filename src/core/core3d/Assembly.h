@@ -70,15 +70,31 @@ enum class MateType {
     // A cylindrical face (componentB's reference axis, radius `value`)
     // resting tangent to a planar face (componentA's reference point +
     // normal) -- the common "pin/shaft against a flat face" real case.
-    // General face-face or cylinder-cylinder tangency is out of scope
-    // (see Assembly.cpp's solve() for the exact construction). Rotates
-    // componentB's reference axis to the closest-to-current direction
-    // perpendicular to componentA's plane (identical minimal-rotation rule
-    // as Perpendicular), the same "closed-form, only touch what the mate
-    // actually constrains" philosophy: componentB's position within the
-    // plane is left wherever it already was, only the perpendicular
-    // distance from the plane is corrected to exactly `value`.
+    // Rotates componentB's reference axis to the closest-to-current
+    // direction perpendicular to componentA's plane (identical
+    // minimal-rotation rule as Perpendicular), the same "closed-form, only
+    // touch what the mate actually constrains" philosophy: componentB's
+    // position within the plane is left wherever it already was, only the
+    // perpendicular distance from the plane is corrected to exactly `value`.
     Tangent,
+    // Cylinder-cylinder tangency -- componentA/componentB's reference axes
+    // (point + direction, same convention as Concentric) end up PARALLEL
+    // (same closed-form rotation as Concentric), with `value`/`value2` as
+    // each cylinder's own radius (radiusA/radiusB, matching
+    // ConstraintSolver.h's TangentCircleCircle/InternalTangentCircleCircle
+    // pair this mirrors from 2D sketching into 3D). External: the two
+    // axes end up radiusA+radiusB apart (two shafts sitting side by side,
+    // touching). Internal: |radiusA-radiusB| apart (a shaft resting
+    // inside a bore, touching one side) -- same real distinction sketch
+    // tangency already draws between two circles touching externally vs.
+    // one nested inside the other. Only the perpendicular offset from
+    // componentA's axis is corrected; componentB's position ALONG the
+    // shared axis, and which radial side of componentA's axis it sits on,
+    // are both left wherever they already were (closest-to-current radial
+    // direction, the same minimal-change convention Perpendicular/Tangent
+    // already use for rotation, applied here to a translation instead).
+    AxisTangentExternal,
+    AxisTangentInternal,
     // FreeCAD Assembly workbench's own "Fixed" joint: rigidly welds
     // componentB to componentA with ZERO relative DOF -- mechanically
     // identical to Concentric (point coincidence, reference directions
@@ -116,7 +132,10 @@ struct Mate {
     double bx = 0.0, by = 0.0, bz = 0.0;
     double bdx = 0.0, bdy = 0.0, bdz = 1.0;
 
-    double value = 0.0; // Distance offset, Angle degrees, or Tangent's cylinder radius
+    double value = 0.0;  // Distance offset, Angle degrees, Tangent's cylinder radius, or AxisTangent*'s radiusA
+    double value2 = 0.0; // AxisTangent*'s radiusB only (unused by every other mate type, same
+                          // "second scalar only some types need" precedent as SketchConstraint's
+                          // own value/value2 pair for Fix)
 };
 
 class Assembly {
