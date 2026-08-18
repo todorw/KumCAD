@@ -2442,6 +2442,15 @@ void Window3D::addSheetMetalPart() {
     m_document.commandStack().execute(std::make_unique<AddFeature3DCommand>(m_document, feature));
     refreshFeatureList();
     refreshViewport();
+    // flatPatternLength was already computed internally by
+    // insertFlatPatternIntoDocument (exportFlatPattern's own job), but
+    // its actual VALUE was never shown anywhere -- a real fabricator
+    // needs "how much flat stock to cut" right away, not just after
+    // exporting and measuring the DXF by hand.
+    statusBar()->showMessage(QStringLiteral("Sheet metal part added -- flat pattern length %1, width %2")
+                                  .arg(lcad::flatPatternLength(part), 0, 'f', 2)
+                                  .arg(part.width, 0, 'f', 2),
+                              4000);
 }
 
 void Window3D::exportFlatPattern() {
