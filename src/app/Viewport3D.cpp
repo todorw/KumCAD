@@ -94,10 +94,24 @@ void Viewport3D::resizeEvent(QResizeEvent* event) {
     if (m_available) m_view->MustBeResized();
 }
 
+std::optional<lcad::PickRay> Viewport3D::screenToRay(int x, int y) const {
+    if (!m_available) return std::nullopt;
+    lcad::PickRay ray;
+    m_view->ConvertWithProj(x, y, ray.origin[0], ray.origin[1], ray.origin[2], ray.direction[0], ray.direction[1],
+                            ray.direction[2]);
+    return ray;
+}
+
 void Viewport3D::mousePressEvent(QMouseEvent* event) {
     if (!m_available) return;
     m_lastX = event->pos().x();
     m_lastY = event->pos().y();
+    if (event->button() == Qt::LeftButton && (event->modifiers() & Qt::ControlModifier)) {
+        // Pick, not rotate -- a plain (no-modifier) left-click below is
+        // completely untouched by this branch.
+        if (const auto ray = screenToRay(m_lastX, m_lastY)) emit picked(*ray);
+        return;
+    }
     if (event->button() == Qt::LeftButton) {
         m_rotating = true;
         m_view->StartRotation(m_lastX, m_lastY);

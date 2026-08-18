@@ -2,6 +2,7 @@
 
 #include "core/core3d/Bim.h"
 #include "core/core3d/Document3D.h"
+#include "core/core3d/Pick3D.h"
 #include "core/core3d/SheetMetal.h"
 
 #include <QMainWindow>
@@ -113,6 +114,11 @@ private:
     void addBimRoof();
     void addBimStair();
     void addBimLanding();
+    // Handles Viewport3D::picked (a Ctrl+Left-click) -- reports the
+    // picked face/edge of the currently selected feature in the status
+    // bar, the click-driven counterpart to "List Edges.../List Faces..."
+    // (which dumps every index instead of the one under the cursor).
+    void onViewportPicked(lcad::PickRay ray);
     void importIfcLite();
     void exportIfcLite();
     void exportOpeningSchedule();

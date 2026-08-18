@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/core3d/Assembly.h"
+#include "core/core3d/Pick3D.h"
 
 #include <QMainWindow>
 
@@ -32,6 +33,12 @@ private:
     void refreshComponentList();
     void refreshMateList();
     void refreshViewport();
+    // Ctrl+Click counterpart to AddMateDialog's "Pick Face on A/B..."
+    // (which opens a separate PickRayDialog and types the ray in) --
+    // reports the picked face on whichever component is selected in
+    // m_componentList's own status bar instead, so its point/normal can
+    // be read off directly rather than needing a second modal dialog.
+    void onViewportPicked(lcad::PickRay ray);
 
     lcad::Assembly m_assembly;
     Viewport3D* m_viewport = nullptr;

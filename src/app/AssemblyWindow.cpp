@@ -6,6 +6,8 @@
 
 #include <BRepBuilderAPI_Transform.hxx>
 
+#include <limits>
+
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -326,6 +328,7 @@ AssemblyWindow::AssemblyWindow(QWidget* parent) : QMainWindow(parent) {
 
     m_viewport = new Viewport3D(this);
     setCentralWidget(m_viewport);
+    connect(m_viewport, &Viewport3D::picked, this, &AssemblyWindow::onViewportPicked);
 
     m_componentList = new QListWidget(this);
     auto* componentDock = new QDockWidget(QStringLiteral("Components"), this);
@@ -533,4 +536,44 @@ void AssemblyWindow::refreshViewport() {
         m_viewport->displayShape(BRepBuilderAPI_Transform(component.shape, component.placement, true).Shape());
     }
     m_viewport->fitAll();
+}
+
+void AssemblyWindow::onViewportPicked(lcad::PickRay ray) {
+    // Picks against every component's CURRENT PLACED shape (the same
+    // world-space transform refreshViewport itself displays), not the
+    // local-frame shape PickRayDialog's own manual flow uses -- a real
+    // click ray is already in world space, so it has to be tested against
+    // what's actually visually there. Reports whichever component's
+    // nearest hit wins, across the whole assembly at once, rather than
+    // requiring a component to be pre-selected first.
+    int bestComponent = -1;
+    lcad::FacePickResult bestFace;
+    double bestDist = std::numeric_limits<double>::max();
+    for (std::size_t i = 0; i < m_assembly.components().size(); ++i) {
+        const auto& component = m_assembly.components()[i];
+        if (component.shape.IsNull()) continue;
+        const TopoDS_Shape placed = BRepBuilderAPI_Transform(component.shape, component.placement, true).Shape();
+        const auto hit = lcad::pickFace(placed, ray);
+        if (hit && hit->distance < bestDist) {
+            bestDist = hit->distance;
+            bestFace = *hit;
+            bestComponent = static_cast<int>(i);
+        }
+    }
+    if (bestComponent < 0) {
+        statusBar()->showMessage(QStringLiteral("Ray missed every placed component"), 3000);
+        return;
+    }
+    const std::string& name = m_assembly.components()[static_cast<std::size_t>(bestComponent)].name;
+    statusBar()->showMessage(QStringLiteral("Component [%1] %2 -- face #%3 at (%4, %5, %6), normal (%7, %8, %9)")
+                                  .arg(bestComponent)
+                                  .arg(QString::fromStdString(name))
+                                  .arg(bestFace.faceIndex)
+                                  .arg(bestFace.point[0], 0, 'f', 2)
+                                  .arg(bestFace.point[1], 0, 'f', 2)
+                                  .arg(bestFace.point[2], 0, 'f', 2)
+                                  .arg(bestFace.normal[0], 0, 'f', 2)
+                                  .arg(bestFace.normal[1], 0, 'f', 2)
+                                  .arg(bestFace.normal[2], 0, 'f', 2),
+                              6000);
 }

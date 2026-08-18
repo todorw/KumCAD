@@ -1,8 +1,12 @@
 #pragma once
 
+#include "core/core3d/Pick3D.h"
+
 #include <Standard_Handle.hxx>
 
 #include <QWidget>
+
+#include <optional>
 
 class AIS_InteractiveContext;
 class V3d_View;
@@ -44,6 +48,28 @@ public:
 
     // Fits the view to whatever's currently displayed.
     void fitAll();
+
+    // Converts a widget-local pixel position into a real 3D pick ray (via
+    // V3d_View::ConvertWithProj -- OCCT's own screen-to-ray conversion,
+    // the same one every OCCT-based interactive viewer uses for mouse
+    // picking), ready to feed straight into Pick3D.h's pickFace/pickEdge.
+    // Returns nullopt if !isAvailable(). This is the piece that was
+    // completely missing before: real geometry (Pick3D.h) and real typed-
+    // ray picking (PickRayDialog et al.) both already existed, but there
+    // was no way to turn an actual mouse click into a ray at all.
+    std::optional<lcad::PickRay> screenToRay(int x, int y) const;
+
+signals:
+    // Emitted on a Ctrl+Left-click (a plain left-click still starts
+    // rotation exactly as before -- this is purely additive, gated behind
+    // a modifier that mousePressEvent never previously looked at, so it
+    // cannot change any existing click/drag behavior). Still real,
+    // disclosed unverified territory end-to-end (see this class's own
+    // top comment): the ray math itself is OCCT's own well-established
+    // ConvertWithProj, but whether an actual mouse click in a real
+    // windowing session delivers the pixel coordinates this expects has
+    // not been visually confirmed on this no-display dev machine.
+    void picked(lcad::PickRay ray);
 
 protected:
     QPaintEngine* paintEngine() const override { return nullptr; } // OCCT paints natively, not via QPainter

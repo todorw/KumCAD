@@ -1733,6 +1733,7 @@ Window3D::Window3D(QWidget* parent) : QMainWindow(parent) {
 
     m_viewport = new Viewport3D(this);
     setCentralWidget(m_viewport);
+    connect(m_viewport, &Viewport3D::picked, this, &Window3D::onViewportPicked);
 
     m_featureList = new QListWidget(this);
     auto* dock = new QDockWidget(QStringLiteral("Features"), this);
@@ -2605,6 +2606,47 @@ void Window3D::addBimLanding() {
     m_bimModel.landings.push_back(dialog.result());
     refreshViewport();
     statusBar()->showMessage(QStringLiteral("Landing %1 added").arg(m_bimModel.landings.size() - 1), 2000);
+}
+
+void Window3D::onViewportPicked(lcad::PickRay ray) {
+    const auto selected = m_featureList->selectionModel()->selectedRows();
+    if (selected.size() != 1) {
+        statusBar()->showMessage(QStringLiteral("Ctrl+Click needs exactly one feature selected in the Features list first"), 3000);
+        return;
+    }
+    const int index = selected[0].row();
+    if (!m_document.isValid(index)) return;
+    const TopoDS_Shape& shape = m_document.shapeAt(index);
+    if (shape.IsNull()) return;
+
+    // Same "tolerance derived from the shape's own size" convention
+    // runFemAnalysis's own face-resolution tolerance uses, rather than a
+    // magic number -- there's no direct screen-space pixel-to-world scale
+    // available here (V3d_View doesn't expose one without more viewport
+    // plumbing), so this is a reasonable, disclosed stand-in.
+    Bnd_Box bounds;
+    BRepBndLib::Add(shape, bounds);
+    double xmin = 0, ymin = 0, zmin = 0, xmax = 0, ymax = 0, zmax = 0;
+    bounds.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+    const double longestAxis = std::max({xmax - xmin, ymax - ymin, zmax - zmin});
+    const double edgeTolerance = longestAxis > 1e-9 ? longestAxis * 0.02 : 1.0;
+
+    const auto facePick = lcad::pickFace(shape, ray);
+    const auto edgePick = lcad::pickEdge(shape, ray, edgeTolerance);
+
+    QString report;
+    if (facePick) {
+        report += QStringLiteral("Face #%1 at (%2, %3, %4)")
+                       .arg(facePick->faceIndex)
+                       .arg(facePick->point[0], 0, 'f', 2)
+                       .arg(facePick->point[1], 0, 'f', 2)
+                       .arg(facePick->point[2], 0, 'f', 2);
+    }
+    if (edgePick) {
+        if (!report.isEmpty()) report += QStringLiteral(" | ");
+        report += QStringLiteral("Nearest edge #%1 (dist %2)").arg(edgePick->edgeIndex).arg(edgePick->distance, 0, 'f', 2);
+    }
+    statusBar()->showMessage(report.isEmpty() ? QStringLiteral("Ray missed the selected feature's shape") : report, 5000);
 }
 
 void Window3D::importIfcLite() {
