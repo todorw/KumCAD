@@ -566,11 +566,64 @@ TEST_CASE("buildBimShapes builds a hip roof with the expected pyramid-capped vol
     REQUIRE(volumeOf(shapes.roofShapes[0]) == Approx(expectedVolume).epsilon(0.01));
 }
 
-TEST_CASE("buildBimShapes rejects a non-rectangular roof footprint", "[core3d][bim][roof]") {
+TEST_CASE("buildBimShapes rejects a non-rectangular GABLE roof footprint", "[core3d][bim][roof]") {
     BimModel model;
     Roof roof;
-    roof.footprint = {{0, 0}, {10000, 0}, {5000, 4000}}; // triangle: out of scope, see Bim.h
+    roof.hip = false; // gable requires exactly 4 points -- a triangle is a HIP-only shape, see Bim.h
+    roof.footprint = {{0, 0}, {10000, 0}, {5000, 4000}};
     model.roofs.push_back(roof);
+    BimShapes shapes = buildBimShapes(model);
+    REQUIRE(shapes.roofShapes.size() == 1);
+    REQUIRE(shapes.roofShapes[0].IsNull());
+}
+
+TEST_CASE("buildBimShapes builds a triangular HIP roof (a real gazebo/turret shape) with a sensible volume",
+          "[core3d][bim][roof]") {
+    BimModel model;
+    Roof roof;
+    roof.hip = true;
+    roof.footprint = {{0, 0}, {10000, 0}, {5000, 8000}}; // a real convex (isosceles) triangle
+    roof.baseElevation = 0.0;
+    roof.pitchRadians = std::atan(0.5); // 2:1 slope
+    model.roofs.push_back(roof);
+
+    BimShapes shapes = buildBimShapes(model);
+    REQUIRE(shapes.roofShapes.size() == 1);
+    REQUIRE_FALSE(shapes.roofShapes[0].IsNull());
+    REQUIRE(volumeOf(shapes.roofShapes[0]) > 0.0);
+
+    Bnd_Box box;
+    BRepBndLib::Add(shapes.roofShapes[0], box);
+    double xmin, ymin, zmin, xmax, ymax, zmax;
+    box.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+    REQUIRE(zmin == Approx(0.0).margin(1.0));
+    REQUIRE(zmax > 1.0); // a real ridge height, not a flat degenerate result
+}
+
+TEST_CASE("buildBimShapes builds a pentagonal HIP roof over a convex polygon", "[core3d][bim][roof]") {
+    BimModel model;
+    Roof roof;
+    roof.hip = true;
+    // A convex (roughly regular) pentagon.
+    roof.footprint = {{5000, 0}, {9500, 3500}, {7500, 9000}, {2500, 9000}, {500, 3500}};
+    roof.pitchRadians = std::atan(0.5);
+    model.roofs.push_back(roof);
+
+    BimShapes shapes = buildBimShapes(model);
+    REQUIRE(shapes.roofShapes.size() == 1);
+    REQUIRE_FALSE(shapes.roofShapes[0].IsNull());
+    REQUIRE(volumeOf(shapes.roofShapes[0]) > 0.0);
+}
+
+TEST_CASE("buildBimShapes rejects a non-convex HIP roof footprint (L-shaped, needs a real ridge/valley junction)",
+          "[core3d][bim][roof]") {
+    BimModel model;
+    Roof roof;
+    roof.hip = true;
+    // An L-shape: a genuine reflex (non-convex) corner at (4000,4000).
+    roof.footprint = {{0, 0}, {10000, 0}, {10000, 4000}, {4000, 4000}, {4000, 10000}, {0, 10000}};
+    model.roofs.push_back(roof);
+
     BimShapes shapes = buildBimShapes(model);
     REQUIRE(shapes.roofShapes.size() == 1);
     REQUIRE(shapes.roofShapes[0].IsNull());

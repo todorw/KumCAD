@@ -1081,7 +1081,9 @@ public:
         auto* form = new QFormLayout(this);
 
         m_footprint = new QLineEdit(QStringLiteral("0,0, 8000,0, 8000,6000, 0,6000"), this);
-        form->addRow(QStringLiteral("Footprint (4 x,y pairs, CCW, axis-aligned rectangle):"), m_footprint);
+        form->addRow(QStringLiteral("Footprint (x,y pairs; Gable needs exactly 4, axis-aligned; Hip accepts "
+                                    "any convex polygon):"),
+                    m_footprint);
         m_baseElevation = makeSpin(3000.0);
         form->addRow(QStringLiteral("Base Elevation (eave height):"), m_baseElevation);
         m_pitch = makeSpin(26.57);
@@ -2544,8 +2546,16 @@ void Window3D::addBimRoof() {
     RoofDialog dialog(this);
     if (dialog.exec() != QDialog::Accepted) return;
     const lcad::Roof roof = dialog.result();
-    if (roof.footprint.size() != 4) {
-        statusBar()->showMessage(QStringLiteral("A roof needs exactly 4 footprint points (axis-aligned rectangle)"), 3000);
+    // A gable roof needs exactly 4 points (an axis-aligned rectangle); a
+    // hip roof accepts any convex polygon of 3+ points -- see Bim.h's own
+    // Roof comment. buildBimShapes itself is the authority on convexity;
+    // this is just the common, cheap-to-check-here rejection.
+    if (!roof.hip && roof.footprint.size() != 4) {
+        statusBar()->showMessage(QStringLiteral("A gable roof needs exactly 4 footprint points (axis-aligned rectangle)"), 3000);
+        return;
+    }
+    if (roof.footprint.size() < 3) {
+        statusBar()->showMessage(QStringLiteral("A roof needs at least 3 footprint points"), 3000);
         return;
     }
     m_bimModel.roofs.push_back(roof);

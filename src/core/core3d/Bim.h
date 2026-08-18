@@ -93,17 +93,30 @@ struct Space {
     std::vector<std::pair<double, double>> boundary;
 };
 
-// A roof over a rectangular (4-vertex) footprint -- general polygon roofs
-// are out of scope, the same "simple prismatic case only" call this file
-// already makes for Column/Beam. hip selects a hip roof (all four eaves
-// slope up to a central ridge, collapsing to a point/pyramid if the
-// footprint is square) vs. a gable (only the two eaves running parallel
-// to the ridge slope; the two perpendicular ends stay vertical gable
-// walls). ridgeAlongX picks which footprint axis the ridge runs along
-// (gable only -- a hip roof's ridge direction is implied by the
-// footprint's own longer axis).
+// A roof over a footprint. hip selects a hip roof (every eave slopes up
+// to a central ridge, collapsing to a point/pyramid for a small enough
+// footprint) vs. a gable (only the two eaves running parallel to the
+// ridge slope; the two perpendicular ends stay vertical gable walls).
+// ridgeAlongX picks which footprint axis the ridge runs along (gable
+// only -- a hip roof's ridge direction is implied by the footprint's own
+// shape).
+//
+// A GABLE roof still requires an axis-aligned rectangle (exactly 4
+// points) -- ridgeAlongX's "which two eaves are parallel to the ridge"
+// classification only means something for a rectangle. A HIP roof
+// generalizes to any CONVEX polygon (3+ points, any orientation): each
+// eave contributes its own sloped-plane cut (buildRoofShape's own
+// per-edge BRepAlgoAPI_Common loop), and intersecting one inward cut per
+// edge is a well-defined operation for any convex shape, not just a
+// rectangle -- a real triangular/pentagonal/hexagonal hip roof (a
+// gazebo, a turret) now builds correctly. A NON-convex footprint (an
+// L-shaped roof, needing an actual ridge/valley junction) stays out of
+// scope: a reflex corner's inward cut can remove material a real roof
+// wouldn't, which this simple per-edge-cut technique has no way to
+// detect or correct for -- buildRoofShape rejects one outright rather
+// than silently building a wrong shape.
 struct Roof {
-    std::vector<std::pair<double, double>> footprint; // expected: an axis-aligned rectangle, CCW
+    std::vector<std::pair<double, double>> footprint; // expected: a convex polygon, CCW or CW
     double baseElevation = 3000.0;
     double pitchRadians = 0.4636; // ~26.57 deg, a common real default (a 2:1 slope)
     bool hip = false;

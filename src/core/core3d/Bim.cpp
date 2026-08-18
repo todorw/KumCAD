@@ -295,8 +295,38 @@ TopoDS_Shape makeSlopedHalfSpace(const std::pair<double, double>& a, const std::
     return BRepPrimAPI_MakeHalfSpace(face, keepPoint).Solid();
 }
 
+// True if pts (3+ points, either winding) forms a convex polygon --
+// consecutive edge-direction cross products all keep the same sign
+// (collinear points, cross ~= 0, are skipped rather than breaking that
+// run, so a straight run of 3+ collinear boundary points doesn't falsely
+// read as non-convex). A degenerate all-collinear "polygon" (sign never
+// settles) is rejected too.
+bool isConvexPolygon(const std::vector<std::pair<double, double>>& pts) {
+    if (pts.size() < 3) return false;
+    int sign = 0;
+    const std::size_t n = pts.size();
+    for (std::size_t i = 0; i < n; ++i) {
+        const auto& a = pts[i];
+        const auto& b = pts[(i + 1) % n];
+        const auto& c = pts[(i + 2) % n];
+        const double cross = (b.first - a.first) * (c.second - b.second) - (b.second - a.second) * (c.first - b.first);
+        if (std::abs(cross) < 1e-9) continue;
+        const int s = cross > 0.0 ? 1 : -1;
+        if (sign == 0) {
+            sign = s;
+        } else if (s != sign) {
+            return false;
+        }
+    }
+    return sign != 0;
+}
+
 TopoDS_Shape buildRoofShape(const Roof& roof) {
-    if (roof.footprint.size() != 4) return TopoDS_Shape(); // general polygon roofs: out of scope, see Bim.h
+    // Gable's ridgeAlongX classification only means something for an
+    // axis-aligned rectangle; hip generalizes to any convex polygon --
+    // see Roof's own comment in Bim.h.
+    if (!roof.hip && roof.footprint.size() != 4) return TopoDS_Shape();
+    if (!isConvexPolygon(roof.footprint)) return TopoDS_Shape();
     double minX = roof.footprint[0].first, maxX = minX, minY = roof.footprint[0].second, maxY = minY;
     for (const auto& [x, y] : roof.footprint) {
         minX = std::min(minX, x);
