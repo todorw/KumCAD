@@ -60,6 +60,13 @@ public:
     // recompute engine understands -- that wiring is Sprint 3's job.
     int addSketch(Sketch sketch);
     const std::vector<Sketch>& sketches() const { return m_sketches; }
+    // Mutable access for a caller building a sketch's geometry up
+    // incrementally after addSketch (e.g. LispBindings3D.h's SKETCHLINE3D/
+    // SKETCHCIRCLE3D/SKETCHARC3D, which describe a NEW sketch profile
+    // procedurally instead of needing the interactive sketch editor --
+    // the same "not itself a dependency the recompute engine understands"
+    // disclosure as addSketch itself applies here too).
+    std::vector<Sketch>& sketches() { return m_sketches; }
 
     // Attaches sketchIndex's plane to the planar face at faceIndex (same
     // numbering as Pick3D.h's pickFace) of featureIndex's current shape --

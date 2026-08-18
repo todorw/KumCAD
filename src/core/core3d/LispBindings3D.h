@@ -16,15 +16,23 @@ class Document3D;
 // why this lives here, in core3d, rather than making LispInterpreter.h
 // itself depend on OCCT): BOX3D/CYLINDER3D/SPHERE3D create a primitive
 // feature and return its index; UNION3D/CUT3D/INTERSECT3D combine two
-// feature indices into a boolean; PAD3D extrudes an EXISTING sketch (by
-// index -- there's no Lisp mini-language for describing a NEW sketch
-// profile, a real, disclosed scope cut) into a Pad feature; VOLUME3D and
-// BBOX3D query a feature's measured volume / (xmin ymin zmin xmax ymax
-// zmax) bounding box; EXPORTSTEP3D writes the whole document's tip
-// features to a STEP file (see StepIges.h). Every creation function
-// returns nil instead of throwing when the feature ends up invalid
-// (degenerate parameters, bad references) -- callable from a script
-// without needing its own try/catch.
+// feature indices into a boolean; SKETCHNEW3D/SKETCHLINE3D/SKETCHCIRCLE3D/
+// SKETCHARC3D build a NEW sketch profile procedurally (fixed-point
+// geometry by raw coordinates -- no constraint solving, describing exact
+// numbers directly, like ExternalGeometry.h's own projected points; a
+// coordinate reused across calls reuses the SAME point rather than
+// adding a structurally-disconnected duplicate, so a chain of
+// SKETCHLINE3D calls sharing endpoints forms a real closed loop
+// SketchToFace.cpp's own chaining can extrude, the same "coincidence by
+// construction" the interactive editor's own point-snapping already
+// gives for free), so PAD3D extruding a sketch no longer requires the
+// interactive sketch editor first; VOLUME3D and BBOX3D query a feature's
+// measured volume /
+// (xmin ymin zmin xmax ymax zmax) bounding box; EXPORTSTEP3D writes the
+// whole document's tip features to a STEP file (see StepIges.h). Every
+// creation function returns nil instead of throwing when the feature ends
+// up invalid (degenerate parameters, bad references) -- callable from a
+// script without needing its own try/catch.
 void registerLisp3DBindings(LispInterpreter& interp, Document3D& doc);
 
 } // namespace lcad

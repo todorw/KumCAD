@@ -95,6 +95,64 @@ TEST_CASE("PAD3D extrudes an existing sketch by index", "[core3d][lisp3d]") {
     REQUIRE(volumeOf(fx.doc.shapeAt(padIdx)) == Approx(8.0 * 6.0 * 5.0).margin(1e-6));
 }
 
+TEST_CASE("SKETCHNEW3D/SKETCHLINE3D/PAD3D build and extrude a sketch entirely from Lisp",
+          "[core3d][lisp3d][sketch]") {
+    Fixture fx;
+    REQUIRE(fx.run("(setq s (sketchnew3d))").ok);
+    REQUIRE(fx.run("(sketchline3d s 0 0 8 0)").ok);
+    REQUIRE(fx.run("(sketchline3d s 8 0 8 6)").ok);
+    REQUIRE(fx.run("(sketchline3d s 8 6 0 6)").ok);
+    REQUIRE(fx.run("(sketchline3d s 0 6 0 0)").ok);
+    const auto result = fx.run("(pad3d s 5)");
+    REQUIRE(result.ok);
+    const int padIdx = static_cast<int>(std::stod(result.resultText));
+    REQUIRE(fx.doc.isValid(padIdx));
+    REQUIRE(volumeOf(fx.doc.shapeAt(padIdx)) == Approx(8.0 * 6.0 * 5.0).margin(1e-6));
+
+    REQUIRE(fx.doc.sketches().size() == 1);
+    REQUIRE(fx.doc.sketches()[0].lines().size() == 4);
+    // 4, not 8 -- consecutive SKETCHLINE3D calls sharing an endpoint
+    // coordinate reuse the SAME point (findOrAddPoint), the same
+    // structural-coincidence closed loop SketchToFace.cpp's chaining
+    // needs, matching what the interactive editor's own snapping gives
+    // for free.
+    REQUIRE(fx.doc.sketches()[0].points().size() == 4);
+}
+
+TEST_CASE("SKETCHCIRCLE3D builds a sketch with an exact circle, extruded to the right cylinder volume",
+          "[core3d][lisp3d][sketch]") {
+    Fixture fx;
+    REQUIRE(fx.run("(setq s (sketchnew3d))").ok);
+    REQUIRE(fx.run("(sketchcircle3d s 0 0 3)").ok);
+    const auto result = fx.run("(pad3d s 10)");
+    REQUIRE(result.ok);
+    const int padIdx = static_cast<int>(std::stod(result.resultText));
+    REQUIRE(fx.doc.isValid(padIdx));
+    REQUIRE(volumeOf(fx.doc.shapeAt(padIdx)) == Approx(M_PI * 9.0 * 10.0).margin(1e-3));
+}
+
+TEST_CASE("SKETCHARC3D adds a real arc entity to a sketch by index", "[core3d][lisp3d][sketch]") {
+    Fixture fx;
+    REQUIRE(fx.run("(setq s (sketchnew3d))").ok);
+    REQUIRE(fx.run("(sketcharc3d s 0 0 5 0 0 5 5 1)").ok);
+    REQUIRE(fx.doc.sketches().size() == 1);
+    const Sketch& sketch = fx.doc.sketches()[0];
+    REQUIRE(sketch.arcs().size() == 1);
+    REQUIRE(sketch.arcs()[0].radius == Approx(5.0));
+    REQUIRE(sketch.arcs()[0].ccw);
+    REQUIRE(sketch.points()[static_cast<std::size_t>(sketch.arcs()[0].center)].x == Approx(0.0));
+    REQUIRE(sketch.points()[static_cast<std::size_t>(sketch.arcs()[0].start)].x == Approx(5.0));
+    REQUIRE(sketch.points()[static_cast<std::size_t>(sketch.arcs()[0].end)].y == Approx(5.0));
+}
+
+TEST_CASE("SKETCHLINE3D/SKETCHCIRCLE3D/SKETCHARC3D return nil for an out-of-range sketch index",
+          "[core3d][lisp3d][sketch]") {
+    Fixture fx;
+    REQUIRE(fx.run("(sketchline3d 99 0 0 1 1)").resultText == "nil");
+    REQUIRE(fx.run("(sketchcircle3d 99 0 0 1)").resultText == "nil");
+    REQUIRE(fx.run("(sketcharc3d 99 0 0 1 0 0 1 1)").resultText == "nil");
+}
+
 TEST_CASE("VOLUME3D and BBOX3D query a feature's real geometry", "[core3d][lisp3d]") {
     Fixture fx;
     fx.run("(box3d 10 4 6)");

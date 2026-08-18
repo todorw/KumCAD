@@ -9,6 +9,7 @@
 #include <Bnd_Box.hxx>
 #include <GProp_GProps.hxx>
 
+#include <cmath>
 #include <stdexcept>
 
 namespace lcad {
@@ -41,6 +42,23 @@ Value listFromDoubles(const std::vector<double>& values) {
 // Every creation function's featureIndex-or-nil return convention.
 Value indexOrNil(const Document3D& doc, int index) {
     return doc.isValid(index) ? Value::num(index) : Value::nil();
+}
+
+// Reuses an existing point at (x, y) if one already sits there (exact-
+// match tolerance, not the interactive editor's own screen-pixel-radius
+// snap -- a script names a shared vertex by typing the SAME coordinate
+// twice, e.g. one SKETCHLINE3D call's end and the next call's start,
+// not a fuzzy click), otherwise adds a new fixed point. Without this,
+// consecutive SKETCHLINE3D calls would each get their OWN independent
+// pair of points -- structurally disconnected, so SketchToFace.cpp's
+// loop-chaining (which walks points SHARED by exactly two lines) could
+// never find a closed profile to extrude at all.
+int findOrAddPoint(Sketch& sketch, double x, double y) {
+    for (std::size_t i = 0; i < sketch.points().size(); ++i) {
+        const Point2D& p = sketch.points()[i];
+        if (std::abs(p.x - x) < 1e-9 && std::abs(p.y - y) < 1e-9) return static_cast<int>(i);
+    }
+    return sketch.addPoint(Point2D(x, y), true);
 }
 
 } // namespace
@@ -91,6 +109,50 @@ void registerLisp3DBindings(LispInterpreter& interp, Document3D& doc) {
     registerBoolean("UNION3D", FeatureType::Union);
     registerBoolean("CUT3D", FeatureType::Cut);
     registerBoolean("INTERSECT3D", FeatureType::Intersect);
+
+    // Closes LispBindings3D.h's own disclosed "no Lisp mini-language for
+    // describing a NEW sketch profile" scope cut: SKETCHNEW3D creates an
+    // empty sketch (default XY plane, same as the interactive editor's
+    // own starting point) and returns its index; SKETCHLINE3D/
+    // SKETCHCIRCLE3D/SKETCHARC3D add fixed-point geometry to an existing
+    // sketch by that index -- fixed (not solver-free), since a scripted
+    // profile is describing exact coordinates directly, the same
+    // convention ExternalGeometry.h's own projected points already use.
+    // Every one of these still needs a valid sketch index or returns nil,
+    // the same "callable from a script without needing its own try/catch"
+    // contract every other creation builtin here already has.
+    interp.registerBuiltin("SKETCHNEW3D", [&doc](std::vector<Value>&) -> Value {
+        return Value::num(doc.addSketch(Sketch{}));
+    });
+
+    interp.registerBuiltin("SKETCHLINE3D", [&doc](std::vector<Value>& args) -> Value {
+        const int sketchIdx = static_cast<int>(num(args, 0, "SKETCHLINE3D"));
+        if (sketchIdx < 0 || sketchIdx >= static_cast<int>(doc.sketches().size())) return Value::nil();
+        Sketch& sketch = doc.sketches()[static_cast<std::size_t>(sketchIdx)];
+        const int p1 = findOrAddPoint(sketch, num(args, 1, "SKETCHLINE3D"), num(args, 2, "SKETCHLINE3D"));
+        const int p2 = findOrAddPoint(sketch, num(args, 3, "SKETCHLINE3D"), num(args, 4, "SKETCHLINE3D"));
+        return Value::num(sketch.addLine(p1, p2));
+    });
+
+    interp.registerBuiltin("SKETCHCIRCLE3D", [&doc](std::vector<Value>& args) -> Value {
+        const int sketchIdx = static_cast<int>(num(args, 0, "SKETCHCIRCLE3D"));
+        if (sketchIdx < 0 || sketchIdx >= static_cast<int>(doc.sketches().size())) return Value::nil();
+        Sketch& sketch = doc.sketches()[static_cast<std::size_t>(sketchIdx)];
+        const int center = findOrAddPoint(sketch, num(args, 1, "SKETCHCIRCLE3D"), num(args, 2, "SKETCHCIRCLE3D"));
+        return Value::num(sketch.addCircle(center, num(args, 3, "SKETCHCIRCLE3D")));
+    });
+
+    interp.registerBuiltin("SKETCHARC3D", [&doc](std::vector<Value>& args) -> Value {
+        const int sketchIdx = static_cast<int>(num(args, 0, "SKETCHARC3D"));
+        if (sketchIdx < 0 || sketchIdx >= static_cast<int>(doc.sketches().size())) return Value::nil();
+        Sketch& sketch = doc.sketches()[static_cast<std::size_t>(sketchIdx)];
+        const int center = findOrAddPoint(sketch, num(args, 1, "SKETCHARC3D"), num(args, 2, "SKETCHARC3D"));
+        const int start = findOrAddPoint(sketch, num(args, 3, "SKETCHARC3D"), num(args, 4, "SKETCHARC3D"));
+        const int end = findOrAddPoint(sketch, num(args, 5, "SKETCHARC3D"), num(args, 6, "SKETCHARC3D"));
+        const double radius = num(args, 7, "SKETCHARC3D");
+        const bool ccw = args.size() <= 8 || num(args, 8, "SKETCHARC3D") != 0.0; // optional, defaults true
+        return Value::num(sketch.addArc(center, start, end, radius, ccw));
+    });
 
     interp.registerBuiltin("PAD3D", [&doc](std::vector<Value>& args) -> Value {
         Feature3D f;
