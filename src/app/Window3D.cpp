@@ -1405,6 +1405,8 @@ public:
         m_loadType->addItem(QStringLiteral("Point Force"), static_cast<int>(LoadKind::PointForce));
         m_loadType->addItem(QStringLiteral("Body Force (e.g. gravity)"), static_cast<int>(LoadKind::BodyForce));
         m_loadType->addItem(QStringLiteral("Face Pressure"), static_cast<int>(LoadKind::FacePressure));
+        m_loadType->addItem(QStringLiteral("Box Pressure (region select, no face indices needed)"),
+                           static_cast<int>(LoadKind::BoxPressure));
         form->addRow(QStringLiteral("Load Type:"), m_loadType);
 
         m_loadPoint = new QLineEdit(QStringLiteral("100,0,0"), this);
@@ -1426,13 +1428,30 @@ public:
         m_pressureDirection = new QLineEdit(QStringLiteral("0,0,-1"), this);
         form->addRow(QStringLiteral("Face Pressure -- Direction (x,y,z, need not be unit):"), m_pressureDirection);
 
+        // Box Pressure -- the same distributedPressureLoad(mesh, boxMin,
+        // boxMax, ...) box-select variant Fem.h always had, just never
+        // reachable from this dialog (Face Pressure's face-picking variant
+        // was the only one wired) -- useful when the user wants "every
+        // face roughly here" without hunting exact face indices first.
+        m_boxMin = new QLineEdit(QStringLiteral("-1e6,-1e6,-1e6"), this);
+        form->addRow(QStringLiteral("Box Pressure -- Box Min (x,y,z):"), m_boxMin);
+        m_boxMax = new QLineEdit(QStringLiteral("1e6,1e6,1e6"), this);
+        form->addRow(QStringLiteral("Box Pressure -- Box Max (x,y,z):"), m_boxMax);
+        m_boxPressureMagnitude = new QDoubleSpinBox(this);
+        m_boxPressureMagnitude->setRange(-1e9, 1e9);
+        m_boxPressureMagnitude->setDecimals(3);
+        m_boxPressureMagnitude->setValue(1.0);
+        form->addRow(QStringLiteral("Box Pressure -- Magnitude (force/area):"), m_boxPressureMagnitude);
+        m_boxPressureDirection = new QLineEdit(QStringLiteral("0,0,-1"), this);
+        form->addRow(QStringLiteral("Box Pressure -- Direction (x,y,z, need not be unit):"), m_boxPressureDirection);
+
         auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
         connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
         connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
         form->addRow(buttons);
     }
 
-    enum class LoadKind { PointForce, BodyForce, FacePressure };
+    enum class LoadKind { PointForce, BodyForce, FacePressure, BoxPressure };
 
     int divisions() const { return m_divisions->value(); }
 
@@ -1470,6 +1489,11 @@ public:
     double pressureMagnitude() const { return m_pressureMagnitude->value(); }
     std::array<double, 3> pressureDirection() const { return parseTriplet(m_pressureDirection->text()); }
 
+    std::array<double, 3> boxMin() const { return parseTriplet(m_boxMin->text()); }
+    std::array<double, 3> boxMax() const { return parseTriplet(m_boxMax->text()); }
+    double boxPressureMagnitude() const { return m_boxPressureMagnitude->value(); }
+    std::array<double, 3> boxPressureDirection() const { return parseTriplet(m_boxPressureDirection->text()); }
+
 private:
     static std::array<double, 3> parseTriplet(const QString& text) {
         std::array<double, 3> result{0.0, 0.0, 0.0};
@@ -1499,6 +1523,10 @@ private:
     QLineEdit* m_bodyForce;
     QLineEdit* m_pressureFaceIndices;
     QDoubleSpinBox* m_pressureMagnitude;
+    QLineEdit* m_boxMin;
+    QLineEdit* m_boxMax;
+    QDoubleSpinBox* m_boxPressureMagnitude;
+    QLineEdit* m_boxPressureDirection;
     QLineEdit* m_pressureDirection;
 };
 
@@ -2765,6 +2793,10 @@ void Window3D::runFemAnalysis() {
         loads = lcad::distributedPressureLoadOnFaces(mesh, target, dialog.pressureFaceIndices(),
                                                      dialog.pressureMagnitude(), dialog.pressureDirection(),
                                                      faceTolerance);
+        break;
+    case FemDialog::LoadKind::BoxPressure:
+        loads = lcad::distributedPressureLoad(mesh, dialog.boxMin(), dialog.boxMax(), dialog.boxPressureMagnitude(),
+                                              dialog.boxPressureDirection());
         break;
     }
 
